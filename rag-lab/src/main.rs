@@ -8,10 +8,13 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 mod config;
+mod embedding;
 mod engine;
 
 #[derive(Debug, Clone)]
-struct RagLabServer;
+struct RagLabServer {
+    embedder: embedding::EmbeddingProvider,
+}
 
 // --- Tool parameter structs ---
 
@@ -25,9 +28,7 @@ struct QueryParams {
     pub limit: Option<usize>,
 }
 
-fn default_limit() -> Option<usize> {
-    Some(10)
-}
+fn default_limit() -> Option<usize> { Some(10) }
 
 #[derive(Debug, Default, Serialize, Deserialize, JsonSchema)]
 struct IngestFileParams {
@@ -60,30 +61,7 @@ struct ChunkNeighborsParams {
 fn default_before() -> Option<i64> { Some(2) }
 fn default_after() -> Option<i64> { Some(2) }
 
-// --- Serialization helpers for rag_engine structs ---
-
-#[derive(Debug, Serialize)]
-struct ChunkResult {
-    chunk_id: i64,
-    source_id: i64,
-    chunk_index: i32,
-    content: String,
-    score: f64,
-    metadata: Option<String>,
-}
-
-impl From<rag_engine::api::source_rag::ChunkSearchResult> for ChunkResult {
-    fn from(r: rag_engine::api::source_rag::ChunkSearchResult) -> Self {
-        ChunkResult {
-            chunk_id: r.chunk_id,
-            source_id: r.source_id,
-            chunk_index: r.chunk_index,
-            content: r.content,
-            score: r.similarity,
-            metadata: r.metadata,
-        }
-    }
-}
+// --- Serialization helpers ---
 
 #[derive(Debug, Serialize)]
 struct HybridResult {
@@ -107,6 +85,29 @@ impl From<rag_engine::api::hybrid_search::HybridSearchResult> for HybridResult {
             bm25_rank: r.bm25_rank,
             source_id: r.source_id,
             chunk_index: r.chunk_index,
+            metadata: r.metadata,
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct ChunkResult {
+    chunk_id: i64,
+    source_id: i64,
+    chunk_index: i32,
+    content: String,
+    score: f64,
+    metadata: Option<String>,
+}
+
+impl From<rag_engine::api::source_rag::ChunkSearchResult> for ChunkResult {
+    fn from(r: rag_engine::api::source_rag::ChunkSearchResult) -> Self {
+        ChunkResult {
+            chunk_id: r.chunk_id,
+            source_id: r.source_id,
+            chunk_index: r.chunk_index,
+            content: r.content,
+            score: r.similarity,
             metadata: r.metadata,
         }
     }
@@ -142,7 +143,7 @@ impl RagLabServer {
         let p = params.0;
         let limit = p.limit.unwrap_or(10);
 
-        match engine::search_hybrid(&p.query, limit) {
+        match engine::search_hybrid(&self.embedder, &p.query, limit).await {
             Ok(results) => {
                 let out: Vec<HybridResult> = results.into_iter().map(HybridResult::from).collect();
                 serde_json::json!({ "results": out }).to_string()
@@ -154,7 +155,7 @@ impl RagLabServer {
     #[tool(name = "ingest_file", description = "Parse and index a document file (PDF, DOCX, TXT, MD) into the RAG.")]
     async fn ingest_file(&self, params: Parameters<IngestFileParams>) -> String {
         let p = params.0;
-        match engine::ingest_file(&p.file_path) {
+        match engine::ingest_file(&self.embedder, &p.file_path).await {
             Ok(id) => serde_json::json!({
                 "status": "ok",
                 "source_id": id,
@@ -167,7 +168,7 @@ impl RagLabServer {
     #[tool(name = "ingest_data", description = "Index content directly (text, HTML, or markdown) with a source identifier.")]
     async fn ingest_data(&self, params: Parameters<IngestDataParams>) -> String {
         let p = params.0;
-        match engine::ingest_text(&p.content, &p.source, None) {
+        match engine::ingest_text(&self.embedder, &p.content, &p.source, None).await {
             Ok(id) => serde_json::json!({
                 "status": "ok",
                 "source_id": id,
@@ -243,9 +244,18 @@ async fn main() -> Result<()> {
 
     // Init rag_engine
     engine::init(&config.data_dir)?;
-    tracing::info!("rag_engine initialized");
 
-    let server = RagLabServer;
+    // Init embedding provider
+    let embedder = embedding::EmbeddingProvider::new(
+        config.embedding.provider.clone(),
+        config.embedding.model.clone(),
+        config.embedding.dimensions,
+        config.embedding.api_key.clone(),
+        config.embedding.base_url.clone(),
+    );
+    tracing::info!("Embedding provider: {} / {}", config.embedding.provider, config.embedding.model);
+
+    let server = RagLabServer { embedder };
 
     tracing::info!("Starting MCP server on stdio...");
     let service = server.serve(rmcp::transport::io::stdio()).await?;

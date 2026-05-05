@@ -1,11 +1,12 @@
 use anyhow::Result;
 use rag_engine::api::{
     db_pool,
-    hybrid_search::{self, RrfConfig, SearchFilter},
+    hybrid_search,
     semantic_chunker,
     simple,
     source_rag::{self, ChunkData, ChunkSearchResult},
 };
+use crate::embedding::EmbeddingProvider;
 
 /// Initialize rag_engine: logger + DB pool + schema
 pub fn init(data_dir: &std::path::Path) -> Result<()> {
@@ -19,7 +20,12 @@ pub fn init(data_dir: &std::path::Path) -> Result<()> {
 }
 
 /// Ingest a text document into the RAG
-pub fn ingest_text(content: &str, source_name: &str, metadata: Option<&str>) -> Result<i64> {
+pub async fn ingest_text(
+    embedder: &EmbeddingProvider,
+    content: &str,
+    source_name: &str,
+    metadata: Option<&str>,
+) -> Result<i64> {
     let source = source_rag::add_source(
         content.to_string(),
         metadata.map(|m| m.to_string()),
@@ -28,15 +34,21 @@ pub fn ingest_text(content: &str, source_name: &str, metadata: Option<&str>) -> 
 
     // Semantic chunking
     let chunks = semantic_chunker::semantic_chunk(content.to_string(), 600);
+
+    // Batch embed all chunks
+    let texts: Vec<String> = chunks.iter().map(|c| c.content.clone()).collect();
+    let embeddings = embedder.embed_batch(&texts).await?;
+
     let chunk_data: Vec<ChunkData> = chunks
         .into_iter()
-        .map(|c| ChunkData {
+        .zip(embeddings.into_iter())
+        .map(|(c, emb)| ChunkData {
             content: c.content.clone(),
             chunk_index: c.index,
             start_pos: c.start_pos,
             end_pos: c.end_pos,
             chunk_type: format!("{:?}", c.chunk_type),
-            embedding: dummy_embed(&c.content), // TODO: real embedding
+            embedding: emb,
         })
         .collect();
 
@@ -51,7 +63,7 @@ pub fn ingest_text(content: &str, source_name: &str, metadata: Option<&str>) -> 
 }
 
 /// Ingest a file (PDF, DOCX, TXT, MD)
-pub fn ingest_file(file_path: &str) -> Result<i64> {
+pub async fn ingest_file(embedder: &EmbeddingProvider, file_path: &str) -> Result<i64> {
     let bytes = std::fs::read(file_path)?;
     let text = rag_engine::api::document_parser::extract_text_from_document(bytes)?;
 
@@ -60,7 +72,7 @@ pub fn ingest_file(file_path: &str) -> Result<i64> {
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_else(|| file_path.to_string());
 
-    ingest_text(&text, &name, Some(&format!("{{\"path\":\"{}\"}}", file_path)))
+    ingest_text(embedder, &text, &name, Some(&format!("{{\"path\":\"{}\"}}", file_path))).await
 }
 
 /// Delete a source by ID
@@ -71,22 +83,19 @@ pub fn delete_source(source_id: i64) -> Result<()> {
     Ok(())
 }
 
-/// Search using vector similarity
-pub fn search(query: &str, limit: usize) -> Result<Vec<ChunkSearchResult>> {
-    let query_embedding = dummy_embed(query);
-    let results = source_rag::search_chunks(query_embedding, limit as u32)?;
-    Ok(results)
-}
-
 /// Search with hybrid fusion (BM25 + vector + RRF)
-pub fn search_hybrid(query: &str, limit: usize) -> Result<Vec<hybrid_search::HybridSearchResult>> {
-    let query_embedding = dummy_embed(query);
+pub async fn search_hybrid(
+    embedder: &EmbeddingProvider,
+    query: &str,
+    limit: usize,
+) -> Result<Vec<hybrid_search::HybridSearchResult>> {
+    let query_embedding = embedder.embed(query).await?;
     let results = hybrid_search::search_hybrid(
         query.to_string(),
         query_embedding,
         limit as u32,
-        None, // default RRF config
-        None, // no filter
+        None,
+        None,
     )?;
     Ok(results)
 }
@@ -101,8 +110,7 @@ pub fn get_neighbors(source_id: i64, chunk_index: i64, before: i64, after: i64) 
 
 /// List all sources
 pub fn list_sources() -> Result<Vec<source_rag::SourceEntry>> {
-    let sources = source_rag::list_sources()?;
-    Ok(sources)
+    Ok(source_rag::list_sources()?)
 }
 
 /// Get stats
@@ -115,11 +123,4 @@ pub fn stats() -> Result<Stats> {
 
 pub struct Stats {
     pub document_count: usize,
-}
-
-/// TODO: Replace with real embedding provider (OpenAI, Cohere, Ollama)
-fn dummy_embed(text: &str) -> Vec<f32> {
-    // 384-dim zero vector placeholder
-    let _ = text;
-    vec![0.0; 384]
 }

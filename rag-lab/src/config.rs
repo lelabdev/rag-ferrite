@@ -13,7 +13,7 @@ pub struct Config {
     pub embedding: EmbeddingConfig,
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct EmbeddingConfig {
     /// Provider: "openai", "cohere", "ollama"
     #[serde(default = "default_provider")]
@@ -50,6 +50,18 @@ fn default_model() -> String {
 
 fn default_dimensions() -> usize {
     1536
+}
+
+impl Default for EmbeddingConfig {
+    fn default() -> Self {
+        Self {
+            provider: default_provider(),
+            model: default_model(),
+            api_key: None,
+            base_url: None,
+            dimensions: default_dimensions(),
+        }
+    }
 }
 
 fn dirs_data_dir() -> Option<PathBuf> {
