@@ -1,0 +1,42 @@
+[package]
+name = "rag-lab"
+version = "0.1.0"
+edition = "2024"
+description = "Custom RAG engine — rag_engine + rmcp + axum"
+license = "MIT"
+
+[dependencies]
+# RAG core
+rag_engine = "0.8"
+
+# MCP server
+rmcp = { version = "1.6", features = ["server", "transport-io"] }
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# HTTP (future: SSE bridge)
+axum = "0.8"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+schemars = "1"
+toml = "0.8"
+
+# Database
+rusqlite = { version = "0.32", features = ["bundled"] }
+
+# Error handling
+anyhow = "1"
+thiserror = "2"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# HTTP client (embedding API calls)
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+
+# Utility
+dirs = "6"

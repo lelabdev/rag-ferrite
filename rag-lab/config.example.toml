@@ -1,0 +1,11 @@
+# Example config for rag-lab
+# Copy to config.toml and customize
+
+data_dir = "./data"
+
+[embedding]
+provider = "openai"          # "openai" | "cohere" | "ollama"
+model = "text-embedding-3-small"
+dimensions = 1536
+# api_key = "sk-..."        # Or set EMBEDDING_API_KEY env var
+# base_url = "http://localhost:11434"  # For Ollama
