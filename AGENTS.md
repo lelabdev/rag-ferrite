@@ -85,36 +85,6 @@ Query → MCP tool call
 | Embedding provider abstraction | ⭐⭐ |
 | HTTP SSE bridge (axum, remplace dojo) | ⭐⭐ |
 
-## Positionnement produit
-
-### Cas d'usage cibles
-
-**Cabinet médical** — Le médecin pose une question, l'IA trouve la réponse dans ses propres dossiers patients. Tout reste local, rien ne sort.
-- 1 500 patients × ~15 docs = ~22 500 docs = ~80 000 chunks → SQLite largement suffisant
-- Argument clé : données sensibles → local, pas de cloud, RGPD friendly
-- Pas besoin d'internet, backup = copier un fichier
-
-**PME / Startup** — Base de connaissances interne accessible via IA. Docs, wiki, procédures, onboarding.
-- ~1 000-10 000 docs → ~400 000 chunks → SQLite suffisant
-- Argument clé : auto-hébergé, pas d'abonnement, contrôle total
-
-**Dev / Lab** (notre cas) — Documentation technique, livres, code, references indexés et recherchables.
-- ~150 docs → ~55 000 chunks → SQLite suffisant
-- Argument clé : chunking intelligent, reranking, multi-domaine
-
-### Limites — Quand SQLite ne suffit plus
-
-| Scale | Solution |
-|---|---|
-| < 1M chunks (~200k docs) | **SQLite + HNSW** ← notre sweet spot |
-| 1M-10M chunks | PostgreSQL + pgvector |
-| 10M+ chunks | Distributed vector DB (Qdrant, Milvus) |
-| Imagerie multimodale masse | LanceDB ou spécialisé |
-
-### Le pitch
-
-> "Vos documents restent sur votre machine. L'IA les lit localement, rien ne sort. Vous posez une question, elle trouve la réponse dans vos propres docs. Un seul fichier à sauvegarder. Pas d'abonnement cloud."
-
 ## Comparaison avec l'existant
 
 | | Avant (mcp-local-rag) | Après (rag-lab) |
