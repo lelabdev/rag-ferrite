@@ -30,7 +30,7 @@ pub struct RerankCandidate {
     pub bm25_rank: u32,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct RerankedResult {
     pub doc_id: i64,
     pub content: String,
