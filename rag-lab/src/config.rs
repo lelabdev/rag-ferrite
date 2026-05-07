@@ -15,6 +15,10 @@ pub struct Config {
     /// LLM configuration for contextual retrieval
     #[serde(default)]
     pub llm: LlmConfig,
+
+    /// HTTP server port (0 = disabled, stdio-only mode)
+    #[serde(default)]
+    pub http_port: u16,
 }
 
 #[derive(Debug, Deserialize)]
@@ -147,6 +151,7 @@ impl Default for Config {
             data_dir: default_data_dir(),
             embedding: EmbeddingConfig::default(),
             llm: LlmConfig::default(),
+            http_port: 0,
         }
     }
 }

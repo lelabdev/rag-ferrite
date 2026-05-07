@@ -10,7 +10,9 @@ use serde::{Deserialize, Serialize};
 mod config;
 mod embedding;
 mod engine;
+mod http;
 mod llm;
+mod types;
 
 #[derive(Debug, Clone)]
 struct RagLabServer {
@@ -72,79 +74,6 @@ struct ChunkNeighborsParams {
 fn default_before() -> Option<i64> { Some(2) }
 fn default_after() -> Option<i64> { Some(2) }
 
-// --- Serialization helpers ---
-
-#[derive(Debug, Serialize)]
-struct HybridResult {
-    doc_id: i64,
-    content: String,
-    score: f64,
-    vector_rank: u32,
-    bm25_rank: u32,
-    source_id: i64,
-    chunk_index: u32,
-    metadata: Option<String>,
-}
-
-impl From<rag_engine::api::hybrid_search::HybridSearchResult> for HybridResult {
-    fn from(r: rag_engine::api::hybrid_search::HybridSearchResult) -> Self {
-        HybridResult {
-            doc_id: r.doc_id,
-            content: r.content,
-            score: r.score,
-            vector_rank: r.vector_rank,
-            bm25_rank: r.bm25_rank,
-            source_id: r.source_id,
-            chunk_index: r.chunk_index,
-            metadata: r.metadata,
-        }
-    }
-}
-
-#[derive(Debug, Serialize)]
-struct ChunkResult {
-    chunk_id: i64,
-    source_id: i64,
-    chunk_index: i32,
-    content: String,
-    score: f64,
-    metadata: Option<String>,
-}
-
-impl From<rag_engine::api::source_rag::ChunkSearchResult> for ChunkResult {
-    fn from(r: rag_engine::api::source_rag::ChunkSearchResult) -> Self {
-        ChunkResult {
-            chunk_id: r.chunk_id,
-            source_id: r.source_id,
-            chunk_index: r.chunk_index,
-            content: r.content,
-            score: r.similarity,
-            metadata: r.metadata,
-        }
-    }
-}
-
-#[derive(Debug, Serialize)]
-struct SourceInfo {
-    id: i64,
-    name: Option<String>,
-    created_at: i64,
-    metadata: Option<String>,
-    status: Option<String>,
-}
-
-impl From<rag_engine::api::source_rag::SourceEntry> for SourceInfo {
-    fn from(s: rag_engine::api::source_rag::SourceEntry) -> Self {
-        SourceInfo {
-            id: s.id,
-            name: s.name,
-            created_at: s.created_at,
-            metadata: s.metadata,
-            status: s.status,
-        }
-    }
-}
-
 // --- MCP Tools ---
 
 #[tool_router(server_handler)]
@@ -166,7 +95,7 @@ impl RagLabServer {
 
         match engine::search_hybrid(&self.embedder, &p.query, limit, filter).await {
             Ok(results) => {
-                let out: Vec<HybridResult> = results.into_iter().map(HybridResult::from).collect();
+                let out: Vec<types::HybridResult> = results.into_iter().map(types::HybridResult::from).collect();
                 serde_json::json!({ "results": out }).to_string()
             }
             Err(e) => serde_json::json!({ "error": e.to_string() }).to_string(),
@@ -216,7 +145,7 @@ impl RagLabServer {
     async fn list_files(&self, _params: Parameters<NoParams>) -> String {
         match engine::list_sources() {
             Ok(sources) => {
-                let out: Vec<SourceInfo> = sources.into_iter().map(SourceInfo::from).collect();
+                let out: Vec<types::SourceInfo> = sources.into_iter().map(types::SourceInfo::from).collect();
                 serde_json::json!({ "files": out }).to_string()
             }
             Err(e) => serde_json::json!({ "error": e.to_string() }).to_string(),
@@ -242,7 +171,7 @@ impl RagLabServer {
 
         match engine::get_neighbors(p.source_id, p.chunk_index, before, after) {
             Ok(chunks) => {
-                let out: Vec<ChunkResult> = chunks.into_iter().map(ChunkResult::from).collect();
+                let out: Vec<types::ChunkResult> = chunks.into_iter().map(types::ChunkResult::from).collect();
                 serde_json::json!({
                     "source_id": p.source_id,
                     "chunk_index": p.chunk_index,
@@ -291,11 +220,32 @@ async fn main() -> Result<()> {
         None
     };
 
-    let server = RagLabServer { embedder, llm };
+    let server = RagLabServer { embedder: embedder.clone(), llm: llm.clone() };
 
-    tracing::info!("Starting MCP server on stdio...");
-    let service = server.serve(rmcp::transport::io::stdio()).await?;
-    service.waiting().await?;
+    // Mode: stdio-only or dual (stdio + HTTP)
+    if config.http_port > 0 {
+        let http_state = http::AppState {
+            embedder,
+            llm,
+            api_key: None,
+        };
+
+        tracing::info!("Starting dual mode: MCP stdio + HTTP on port {}", config.http_port);
+        let http_port = config.http_port;
+
+        tokio::select! {
+            r = async {
+                let service = server.serve(rmcp::transport::io::stdio()).await?;
+                service.waiting().await?;
+                Ok::<(), anyhow::Error>(())
+            } => r?,
+            r = http::start_server(http_state, http_port) => r?,
+        }
+    } else {
+        tracing::info!("Starting MCP server on stdio...");
+        let service = server.serve(rmcp::transport::io::stdio()).await?;
+        service.waiting().await?;
+    }
 
     Ok(())
 }
