@@ -93,7 +93,7 @@ impl RagLabServer {
             None
         };
 
-        match engine::search_hybrid(&self.embedder, &p.query, limit, filter).await {
+        match engine::search_hybrid_with_expansion(&self.embedder, self.llm.as_ref(), &p.query, limit, filter).await {
             Ok(results) => {
                 let out: Vec<types::HybridResult> = results.into_iter().map(types::HybridResult::from).collect();
                 serde_json::json!({ "results": out }).to_string()

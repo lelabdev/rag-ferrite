@@ -132,6 +132,129 @@ impl LlmProvider {
         }
     }
 
+    /// Expand a short or ambiguous query into 2-3 reformulations.
+    /// Returns the original query + reformulations for broader retrieval.
+    pub async fn expand_query(&self, query: &str) -> Result<Vec<String>> {
+        let prompt = format!(
+            "Generate 2 alternative reformulations of this search query to improve document retrieval. \
+             Each reformulation should use different wording but seek the same information. \
+             Return ONLY the reformulations, one per line, no numbering, no explanation.\n\n\
+             Query: {}",
+            query
+        );
+
+        let messages = vec![ChatMessage {
+            role: "user".into(),
+            content: prompt,
+        }];
+
+        let response = self.chat_with_options(messages, 0.7, 200).await?;
+        let mut expansions = vec![query.to_string()]; // original first
+
+        for line in response.lines() {
+            let trimmed = line.trim();
+            if !trimmed.is_empty() && trimmed != query {
+                expansions.push(trimmed.to_string());
+            }
+        }
+
+        // Cap at 4 total (original + 3 reformulations)
+        expansions.truncate(4);
+        Ok(expansions)
+    }
+
+    /// Chat with custom temperature and max_tokens.
+    async fn chat_with_options(
+        &self,
+        messages: Vec<ChatMessage>,
+        temperature: f32,
+        max_tokens: u32,
+    ) -> Result<String> {
+        match self.provider.as_str() {
+            "zai" | "openai" => {
+                let api_key = self.api_key.as_ref()
+                    .ok_or_else(|| anyhow!("API key required for {}. Set LLM_API_KEY or ZAI_API_KEY.", self.provider))?;
+
+                let url = format!("{}/chat/completions", self.base_url);
+
+                let body = ChatRequest {
+                    model: self.model.clone(),
+                    messages,
+                    temperature,
+                    max_tokens,
+                };
+
+                let resp = self.client
+                    .post(&url)
+                    .header("Authorization", format!("Bearer {}", api_key))
+                    .json(&body)
+                    .send()
+                    .await?;
+
+                if !resp.status().is_success() {
+                    let status = resp.status();
+                    let text = resp.text().await?;
+                    return Err(anyhow!("{} API error {}: {}", self.provider, status, text));
+                }
+
+                let data: ChatResponse = resp.json().await?;
+                data.choices
+                    .into_iter()
+                    .next()
+                    .map(|c| c.message.content)
+                    .ok_or_else(|| anyhow!("No response from {}", self.provider))
+            }
+            "ollama" => {
+                let url = format!("{}/api/chat", self.base_url);
+
+                #[derive(Debug, Serialize)]
+                struct OllamaChatRequest {
+                    model: String,
+                    messages: Vec<ChatMessage>,
+                    stream: bool,
+                    options: OllamaOptions,
+                }
+
+                #[derive(Debug, Serialize)]
+                struct OllamaOptions {
+                    temperature: f32,
+                    num_predict: u32,
+                }
+
+                let body = OllamaChatRequest {
+                    model: self.model.clone(),
+                    messages,
+                    stream: false,
+                    options: OllamaOptions {
+                        temperature,
+                        num_predict: max_tokens,
+                    },
+                };
+
+                let resp = self.client
+                    .post(&url)
+                    .json(&body)
+                    .send()
+                    .await?;
+
+                if !resp.status().is_success() {
+                    let status = resp.status();
+                    let text = resp.text().await?;
+                    return Err(anyhow!("Ollama API error {}: {}", status, text));
+                }
+
+                #[derive(Debug, Deserialize)]
+                struct OllamaChatResponse {
+                    message: ChatMessage,
+                }
+
+                let data: OllamaChatResponse = resp.json().await?;
+                Ok(data.message.content)
+            }
+            _ => Err(anyhow!("Unknown LLM provider: {}", self.provider)),
+        }
+    }
+
     /// OpenAI-compatible chat endpoint (Z.ai, OpenAI, etc.)
     async fn chat_openai_compatible(&self, messages: Vec<ChatMessage>) -> Result<String> {
         let api_key = self.api_key.as_ref()

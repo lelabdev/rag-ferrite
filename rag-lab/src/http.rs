@@ -93,7 +93,7 @@ pub async fn query(
         None
     };
 
-    match engine::search_hybrid(&state.embedder, &req.query, req.limit, filter).await {
+    match engine::search_hybrid_with_expansion(&state.embedder, state.llm.as_ref(), &req.query, req.limit, filter).await {
         Ok(results) => {
             let out: Vec<crate::types::HybridResult> = results.into_iter().map(crate::types::HybridResult::from).collect();
             Ok(Json(serde_json::json!({ "results": out })))
