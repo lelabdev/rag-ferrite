@@ -7,6 +7,7 @@ use rag_engine::api::{
     source_rag::{self, ChunkData, ChunkSearchResult},
 };
 use crate::embedding::EmbeddingProvider;
+use crate::llm::LlmProvider;
 
 /// Initialize rag_engine: logger + DB pool + schema
 pub fn init(data_dir: &std::path::Path) -> Result<()> {
@@ -22,6 +23,7 @@ pub fn init(data_dir: &std::path::Path) -> Result<()> {
 /// Ingest a text document into the RAG
 pub async fn ingest_text(
     embedder: &EmbeddingProvider,
+    llm: Option<&LlmProvider>,
     content: &str,
     source_name: &str,
     metadata: Option<&str>,
@@ -35,10 +37,48 @@ pub async fn ingest_text(
     // Semantic chunking
     let chunks = semantic_chunker::semantic_chunk(content.to_string(), 600);
 
-    // Batch embed all chunks
-    let texts: Vec<String> = chunks.iter().map(|c| c.content.clone()).collect();
-    let embeddings = embedder.embed_batch(&texts).await?;
+    // Contextual retrieval: generate context prefixes via LLM
+    let contexts: Vec<Option<String>> = if let Some(llm_provider) = llm {
+        tracing::info!("Generating context prefixes for {} chunks via LLM...", chunks.len());
+        let chunk_texts: Vec<String> = chunks.iter().map(|c| c.content.clone()).collect();
 
+        // Process in batches of 20 for rate limiting
+        let mut all_contexts: Vec<Option<String>> = Vec::with_capacity(chunks.len());
+        for batch in chunk_texts.chunks(20) {
+            let results = llm_provider.generate_context_batch(content, batch).await;
+            for result in results {
+                match result {
+                    Ok(ctx) => all_contexts.push(Some(ctx)),
+                    Err(e) => {
+                        tracing::warn!("Context generation failed for chunk: {}, using raw content", e);
+                        all_contexts.push(None);
+                    }
+                }
+            }
+        }
+        let with_ctx = all_contexts.iter().filter(|c| c.is_some()).count();
+        tracing::info!("Generated {}/{} context prefixes", with_ctx, chunks.len());
+        all_contexts
+    } else {
+        vec![None; chunks.len()]
+    };
+
+    // Build final texts for embedding: context prefix + chunk content
+    let final_texts: Vec<String> = chunks
+        .iter()
+        .zip(contexts.iter())
+        .map(|(chunk, ctx)| {
+            match ctx {
+                Some(context) => format!("{}\n\n{}", context, chunk.content),
+                None => chunk.content.clone(),
+            }
+        })
+        .collect();
+
+    // Batch embed all chunks (with context prefixes)
+    let embeddings = embedder.embed_batch(&final_texts).await?;
+
+    // Store original chunk content (not the prefixed version)
     let chunk_data: Vec<ChunkData> = chunks
         .into_iter()
         .zip(embeddings.into_iter())
@@ -63,7 +103,11 @@ pub async fn ingest_text(
 }
 
 /// Ingest a file (PDF, DOCX, TXT, MD)
-pub async fn ingest_file(embedder: &EmbeddingProvider, file_path: &str) -> Result<i64> {
+pub async fn ingest_file(
+    embedder: &EmbeddingProvider,
+    llm: Option<&LlmProvider>,
+    file_path: &str,
+) -> Result<i64> {
     let bytes = std::fs::read(file_path)?;
     let text = rag_engine::api::document_parser::extract_text_from_document(bytes)?;
 
@@ -72,7 +116,7 @@ pub async fn ingest_file(embedder: &EmbeddingProvider, file_path: &str) -> Resul
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_else(|| file_path.to_string());
 
-    ingest_text(embedder, &text, &name, Some(&format!("{{\"path\":\"{}\"}}", file_path))).await
+    ingest_text(embedder, llm, &text, &name, Some(&format!("{{\"path\":\"{}\"}}", file_path))).await
 }
 
 /// Delete a source by ID
