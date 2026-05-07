@@ -28,6 +28,15 @@ struct QueryParams {
     pub query: String,
     #[serde(default = "default_limit")]
     pub limit: Option<usize>,
+    /// Filter by source IDs (document IDs)
+    #[serde(default)]
+    pub source_ids: Option<Vec<i64>>,
+    /// Filter by metadata using SQL LIKE pattern (e.g. "%.pdf")
+    #[serde(default)]
+    pub metadata_like: Option<String>,
+    /// Filter by collection name
+    #[serde(default)]
+    pub collection: Option<String>,
 }
 
 fn default_limit() -> Option<usize> { Some(10) }
@@ -145,7 +154,17 @@ impl RagLabServer {
         let p = params.0;
         let limit = p.limit.unwrap_or(10);
 
-        match engine::search_hybrid(&self.embedder, &p.query, limit).await {
+        let filter = if p.source_ids.is_some() || p.metadata_like.is_some() || p.collection.is_some() {
+            Some(rag_engine::api::hybrid_search::SearchFilter {
+                source_ids: p.source_ids,
+                metadata_like: p.metadata_like,
+                collection_id: p.collection,
+            })
+        } else {
+            None
+        };
+
+        match engine::search_hybrid(&self.embedder, &p.query, limit, filter).await {
             Ok(results) => {
                 let out: Vec<HybridResult> = results.into_iter().map(HybridResult::from).collect();
                 serde_json::json!({ "results": out }).to_string()
