@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 mod config;
 mod embedding;
 mod engine;
+mod eval;
 mod http;
 mod llm;
 mod pipeline;
@@ -74,6 +75,17 @@ struct ChunkNeighborsParams {
 
 fn default_before() -> Option<i64> { Some(2) }
 fn default_after() -> Option<i64> { Some(2) }
+
+#[derive(Debug, Default, Serialize, Deserialize, JsonSchema)]
+struct EvaluateParams {
+    /// JSON array of test cases: [{"query": "...", "relevant_ids": [1, 2, ...]}]
+    pub test_cases: String,
+    /// Number of results to retrieve per query (default 10)
+    #[serde(default = "default_eval_limit")]
+    pub limit: Option<usize>,
+}
+
+fn default_eval_limit() -> Option<usize> { Some(10) }
 
 // --- MCP Tools ---
 
@@ -194,6 +206,77 @@ impl RagLabServer {
             }
             Err(e) => serde_json::json!({ "error": e.to_string() }).to_string(),
         }
+    }
+
+    #[tool(name = "evaluate", description = "Evaluate retrieval quality using ground-truth relevance judgments. Computes precision, recall, NDCG@5, NDCG@10, and MRR across test queries.")]
+    async fn evaluate(&self, params: Parameters<EvaluateParams>) -> String {
+        let p = params.0;
+        let limit = p.limit.unwrap_or(10);
+
+        // Parse test cases from JSON
+        let judgments: Vec<eval::RelevanceJudgment> = match serde_json::from_str(&p.test_cases) {
+            Ok(j) => j,
+            Err(e) => return serde_json::json!({ "error": format!("Invalid test_cases JSON: {}", e) }).to_string(),
+        };
+
+        if judgments.is_empty() {
+            return serde_json::json!({ "error": "No test cases provided" }).to_string();
+        }
+
+        let mut per_query: Vec<eval::QueryMetrics> = Vec::with_capacity(judgments.len());
+        let mut total_precision = 0.0;
+        let mut total_recall = 0.0;
+        let mut total_ndcg_5 = 0.0;
+        let mut total_ndcg_10 = 0.0;
+        let mut total_mrr = 0.0;
+
+        for judgment in &judgments {
+            // Run query through the pipeline
+            let retrieved_ids = match self.pipeline.query(&judgment.query, limit, None).await {
+                Ok(output) => output.results.into_iter().map(|r| r.doc_id).collect::<Vec<i64>>(),
+                Err(e) => {
+                    tracing::warn!("Evaluation query '{}' failed: {}", judgment.query, e);
+                    Vec::new()
+                }
+            };
+
+            let precision = eval::compute_precision(&retrieved_ids, &judgment.relevant_doc_ids);
+            let recall = eval::compute_recall(&retrieved_ids, &judgment.relevant_doc_ids);
+            let ndcg = eval::compute_ndcg(&retrieved_ids, &judgment.relevant_doc_ids, 10);
+            let ndcg_5 = eval::compute_ndcg(&retrieved_ids, &judgment.relevant_doc_ids, 5);
+            let mrr = eval::compute_mrr(&retrieved_ids, &judgment.relevant_doc_ids);
+            let relevant_retrieved = eval::count_relevant_retrieved(&retrieved_ids, &judgment.relevant_doc_ids);
+
+            total_precision += precision;
+            total_recall += recall;
+            total_ndcg_5 += ndcg_5;
+            total_ndcg_10 += ndcg;
+            total_mrr += mrr;
+
+            per_query.push(eval::QueryMetrics {
+                query: judgment.query.clone(),
+                precision,
+                recall,
+                ndcg,
+                retrieved_ids,
+                relevant_retrieved,
+            });
+        }
+
+        let n = judgments.len() as f64;
+        let result = eval::EvaluationResult {
+            total_queries: judgments.len(),
+            avg_precision: total_precision / n,
+            avg_recall: total_recall / n,
+            ndcg_at_5: total_ndcg_5 / n,
+            ndcg_at_10: total_ndcg_10 / n,
+            mrr: total_mrr / n,
+            per_query,
+        };
+
+        serde_json::to_string(&result).unwrap_or_else(|e| {
+            serde_json::json!({ "error": format!("Serialization error: {}", e) }).to_string()
+        })
     }
 }
 
