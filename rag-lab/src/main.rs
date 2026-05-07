@@ -12,12 +12,14 @@ mod embedding;
 mod engine;
 mod http;
 mod llm;
+mod reranker;
 mod types;
 
 #[derive(Debug, Clone)]
 struct RagLabServer {
     embedder: embedding::EmbeddingProvider,
     llm: Option<llm::LlmProvider>,
+    reranker: reranker::Reranker,
 }
 
 // --- Tool parameter structs ---
@@ -95,7 +97,57 @@ impl RagLabServer {
 
         match engine::search_hybrid_with_expansion(&self.embedder, self.llm.as_ref(), &p.query, limit, filter).await {
             Ok(results) => {
-                let out: Vec<types::HybridResult> = results.into_iter().map(types::HybridResult::from).collect();
+                // Rerank if enabled
+                let reranked = if self.reranker.is_enabled() && !results.is_empty() {
+                    let candidates: Vec<reranker::RerankCandidate> = results.clone().into_iter().map(|r| reranker::RerankCandidate {
+                        doc_id: r.doc_id,
+                        content: r.content,
+                        initial_score: r.score,
+                        source_id: r.source_id,
+                        chunk_index: r.chunk_index,
+                        metadata: r.metadata,
+                        vector_rank: r.vector_rank,
+                        bm25_rank: r.bm25_rank,
+                    }).collect();
+
+                    match self.reranker.rerank(&p.query, candidates).await {
+                        Ok(reranked) => reranked,
+                        Err(e) => {
+                            tracing::warn!("Reranking failed: {}, using initial scores", e);
+                            // Can't use candidates (moved), use the reranker's passthrough
+                            Vec::new() // Will be handled by the else branch below
+                        }
+                    }
+                } else {
+                    Vec::new()
+                };
+
+                // If reranking produced no results (disabled or failed), convert from original results
+                let final_results = if reranked.is_empty() && !results.is_empty() {
+                    results.into_iter().map(|r| reranker::RerankedResult {
+                        doc_id: r.doc_id,
+                        content: r.content,
+                        score: r.score,
+                        source_id: r.source_id,
+                        chunk_index: r.chunk_index,
+                        metadata: r.metadata,
+                        vector_rank: r.vector_rank,
+                        bm25_rank: r.bm25_rank,
+                    }).collect()
+                } else {
+                    reranked
+                };
+
+                let out: Vec<types::HybridResult> = final_results.into_iter().map(|r| types::HybridResult {
+                    doc_id: r.doc_id,
+                    content: r.content,
+                    score: r.score,
+                    source_id: r.source_id,
+                    chunk_index: r.chunk_index,
+                    metadata: r.metadata,
+                    vector_rank: r.vector_rank,
+                    bm25_rank: r.bm25_rank,
+                }).collect();
                 serde_json::json!({ "results": out }).to_string()
             }
             Err(e) => serde_json::json!({ "error": e.to_string() }).to_string(),
@@ -220,7 +272,7 @@ async fn main() -> Result<()> {
         None
     };
 
-    let server = RagLabServer { embedder: embedder.clone(), llm: llm.clone() };
+    let server = RagLabServer { embedder: embedder.clone(), llm: llm.clone(), reranker: reranker::Reranker::disabled() };
 
     // Mode: stdio-only or dual (stdio + HTTP)
     if config.http_port > 0 {
