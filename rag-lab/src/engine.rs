@@ -132,6 +132,7 @@ pub async fn search_hybrid(
     embedder: &EmbeddingProvider,
     query: &str,
     limit: usize,
+    filter: Option<hybrid_search::SearchFilter>,
 ) -> Result<Vec<hybrid_search::HybridSearchResult>> {
     let query_embedding = embedder.embed(query).await?;
     let results = hybrid_search::search_hybrid(
@@ -139,7 +140,7 @@ pub async fn search_hybrid(
         query_embedding,
         limit as u32,
         None,
-        None,
+        filter,
     )?;
     Ok(results)
 }
