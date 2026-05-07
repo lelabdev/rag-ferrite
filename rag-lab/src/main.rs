@@ -10,10 +10,12 @@ use serde::{Deserialize, Serialize};
 mod config;
 mod embedding;
 mod engine;
+mod llm;
 
 #[derive(Debug, Clone)]
 struct RagLabServer {
     embedder: embedding::EmbeddingProvider,
+    llm: Option<llm::LlmProvider>,
 }
 
 // --- Tool parameter structs ---
@@ -155,7 +157,7 @@ impl RagLabServer {
     #[tool(name = "ingest_file", description = "Parse and index a document file (PDF, DOCX, TXT, MD) into the RAG.")]
     async fn ingest_file(&self, params: Parameters<IngestFileParams>) -> String {
         let p = params.0;
-        match engine::ingest_file(&self.embedder, &p.file_path).await {
+        match engine::ingest_file(&self.embedder, self.llm.as_ref(), &p.file_path).await {
             Ok(id) => serde_json::json!({
                 "status": "ok",
                 "source_id": id,
@@ -168,7 +170,7 @@ impl RagLabServer {
     #[tool(name = "ingest_data", description = "Index content directly (text, HTML, or markdown) with a source identifier.")]
     async fn ingest_data(&self, params: Parameters<IngestDataParams>) -> String {
         let p = params.0;
-        match engine::ingest_text(&self.embedder, &p.content, &p.source, None).await {
+        match engine::ingest_text(&self.embedder, self.llm.as_ref(), &p.content, &p.source, None).await {
             Ok(id) => serde_json::json!({
                 "status": "ok",
                 "source_id": id,
@@ -255,7 +257,22 @@ async fn main() -> Result<()> {
     );
     tracing::info!("Embedding provider: {} / {}", config.embedding.provider, config.embedding.model);
 
-    let server = RagLabServer { embedder };
+    // Init LLM provider (optional, for contextual retrieval)
+    let llm = if config.llm.context_enabled {
+        let provider = llm::LlmProvider::new(
+            config.llm.provider.clone(),
+            config.llm.model.clone(),
+            config.llm.api_key.clone(),
+            config.llm.base_url.clone(),
+        );
+        tracing::info!("LLM provider: {} / {} (contextual retrieval enabled)", config.llm.provider, config.llm.model);
+        Some(provider)
+    } else {
+        tracing::info!("Contextual retrieval disabled");
+        None
+    };
+
+    let server = RagLabServer { embedder, llm };
 
     tracing::info!("Starting MCP server on stdio...");
     let service = server.serve(rmcp::transport::io::stdio()).await?;

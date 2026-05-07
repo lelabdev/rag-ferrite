@@ -11,6 +11,10 @@ pub struct Config {
     /// Embedding API configuration
     #[serde(default)]
     pub embedding: EmbeddingConfig,
+
+    /// LLM configuration for contextual retrieval
+    #[serde(default)]
+    pub llm: LlmConfig,
 }
 
 #[derive(Debug, Deserialize)]
@@ -41,15 +45,15 @@ fn default_data_dir() -> PathBuf {
 }
 
 fn default_provider() -> String {
-    "openai".into()
+    "ollama".into()
 }
 
 fn default_model() -> String {
-    "text-embedding-3-small".into()
+    "qwen3-embedding:0.6b".into()
 }
 
 fn default_dimensions() -> usize {
-    1536
+    1024
 }
 
 impl Default for EmbeddingConfig {
@@ -60,6 +64,53 @@ impl Default for EmbeddingConfig {
             api_key: None,
             base_url: None,
             dimensions: default_dimensions(),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct LlmConfig {
+    /// LLM provider: "zai", "openai", "ollama"
+    #[serde(default = "default_llm_provider")]
+    pub provider: String,
+
+    /// Model name
+    #[serde(default = "default_llm_model")]
+    pub model: String,
+
+    /// API key (for cloud providers)
+    #[serde(default)]
+    pub api_key: Option<String>,
+
+    /// API base URL
+    #[serde(default)]
+    pub base_url: Option<String>,
+
+    /// Enable contextual retrieval (LLM context prefix)
+    #[serde(default = "default_context_enabled")]
+    pub context_enabled: bool,
+}
+
+fn default_llm_provider() -> String {
+    "zai".into()
+}
+
+fn default_llm_model() -> String {
+    "glm-4.7-flash".into()
+}
+
+fn default_context_enabled() -> bool {
+    true
+}
+
+impl Default for LlmConfig {
+    fn default() -> Self {
+        Self {
+            provider: default_llm_provider(),
+            model: default_llm_model(),
+            api_key: None,
+            base_url: None,
+            context_enabled: true,
         }
     }
 }
@@ -95,6 +146,7 @@ impl Default for Config {
         Self {
             data_dir: default_data_dir(),
             embedding: EmbeddingConfig::default(),
+            llm: LlmConfig::default(),
         }
     }
 }

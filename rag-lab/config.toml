@@ -1,0 +1,16 @@
+# rag-lab configuration
+
+data_dir = "./data"
+
+[embedding]
+provider = "ollama"
+model = "qwen3-embedding:0.6b"
+dimensions = 1024
+# base_url = "http://localhost:11434"
+
+[llm]
+provider = "zai"
+model = "glm-4.7-flash"
+context_enabled = true
+# api_key = "your-zai-api-key"  # or set ZAI_API_KEY env var
+# base_url = "https://api.z.ai/api/paas/v4"
