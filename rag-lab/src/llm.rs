@@ -163,6 +163,26 @@ impl LlmProvider {
         Ok(expansions)
     }
 
+    /// Reformulate a query for corrective RAG — used when retrieval confidence is low.
+    /// Returns a single reformulated query that approaches the information need differently.
+    pub async fn reformulate_query(&self, query: &str) -> Result<String> {
+        let prompt = format!(
+            "The following search query returned poor results. Reformulate it to be more specific \
+             and find better matches. Use different keywords and phrasing. \
+             Return ONLY the reformulated query, nothing else.\n\n\
+             Original query: {}",
+            query
+        );
+
+        let messages = vec![ChatMessage {
+            role: "user".into(),
+            content: prompt,
+        }];
+
+        let response = self.chat_with_options(messages, 0.7, 200).await?;
+        Ok(response.trim().to_string())
+    }
+
     /// Chat with custom temperature and max_tokens.
     async fn chat_with_options(
         &self,

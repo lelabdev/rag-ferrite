@@ -12,14 +12,13 @@ mod embedding;
 mod engine;
 mod http;
 mod llm;
+mod pipeline;
 mod reranker;
 mod types;
 
 #[derive(Debug, Clone)]
 struct RagLabServer {
-    embedder: embedding::EmbeddingProvider,
-    llm: Option<llm::LlmProvider>,
-    reranker: reranker::Reranker,
+    pipeline: pipeline::QueryPipeline,
 }
 
 // --- Tool parameter structs ---
@@ -95,50 +94,9 @@ impl RagLabServer {
             None
         };
 
-        match engine::search_hybrid_with_expansion(&self.embedder, self.llm.as_ref(), &p.query, limit, filter).await {
-            Ok(results) => {
-                // Rerank if enabled
-                let reranked = if self.reranker.is_enabled() && !results.is_empty() {
-                    let candidates: Vec<reranker::RerankCandidate> = results.clone().into_iter().map(|r| reranker::RerankCandidate {
-                        doc_id: r.doc_id,
-                        content: r.content,
-                        initial_score: r.score,
-                        source_id: r.source_id,
-                        chunk_index: r.chunk_index,
-                        metadata: r.metadata,
-                        vector_rank: r.vector_rank,
-                        bm25_rank: r.bm25_rank,
-                    }).collect();
-
-                    match self.reranker.rerank(&p.query, candidates).await {
-                        Ok(reranked) => reranked,
-                        Err(e) => {
-                            tracing::warn!("Reranking failed: {}, using initial scores", e);
-                            // Can't use candidates (moved), use the reranker's passthrough
-                            Vec::new() // Will be handled by the else branch below
-                        }
-                    }
-                } else {
-                    Vec::new()
-                };
-
-                // If reranking produced no results (disabled or failed), convert from original results
-                let final_results = if reranked.is_empty() && !results.is_empty() {
-                    results.into_iter().map(|r| reranker::RerankedResult {
-                        doc_id: r.doc_id,
-                        content: r.content,
-                        score: r.score,
-                        source_id: r.source_id,
-                        chunk_index: r.chunk_index,
-                        metadata: r.metadata,
-                        vector_rank: r.vector_rank,
-                        bm25_rank: r.bm25_rank,
-                    }).collect()
-                } else {
-                    reranked
-                };
-
-                let out: Vec<types::HybridResult> = final_results.into_iter().map(|r| types::HybridResult {
+        match self.pipeline.query(&p.query, limit, filter).await {
+            Ok(output) => {
+                let out: Vec<types::HybridResult> = output.results.into_iter().map(|r| types::HybridResult {
                     doc_id: r.doc_id,
                     content: r.content,
                     score: r.score,
@@ -148,7 +106,11 @@ impl RagLabServer {
                     vector_rank: r.vector_rank,
                     bm25_rank: r.bm25_rank,
                 }).collect();
-                serde_json::json!({ "results": out }).to_string()
+                serde_json::json!({
+                    "results": out,
+                    "confidence": output.confidence,
+                    "retries": output.retry_count
+                }).to_string()
             }
             Err(e) => serde_json::json!({ "error": e.to_string() }).to_string(),
         }
@@ -157,7 +119,7 @@ impl RagLabServer {
     #[tool(name = "ingest_file", description = "Parse and index a document file (PDF, DOCX, TXT, MD) into the RAG.")]
     async fn ingest_file(&self, params: Parameters<IngestFileParams>) -> String {
         let p = params.0;
-        match engine::ingest_file(&self.embedder, self.llm.as_ref(), &p.file_path).await {
+        match engine::ingest_file(&self.pipeline.embedder, self.pipeline.llm.as_ref(), &p.file_path).await {
             Ok(id) => serde_json::json!({
                 "status": "ok",
                 "source_id": id,
@@ -170,7 +132,7 @@ impl RagLabServer {
     #[tool(name = "ingest_data", description = "Index content directly (text, HTML, or markdown) with a source identifier.")]
     async fn ingest_data(&self, params: Parameters<IngestDataParams>) -> String {
         let p = params.0;
-        match engine::ingest_text(&self.embedder, self.llm.as_ref(), &p.content, &p.source, None).await {
+        match engine::ingest_text(&self.pipeline.embedder, self.pipeline.llm.as_ref(), &p.content, &p.source, None).await {
             Ok(id) => serde_json::json!({
                 "status": "ok",
                 "source_id": id,
@@ -272,7 +234,15 @@ async fn main() -> Result<()> {
         None
     };
 
-    let server = RagLabServer { embedder: embedder.clone(), llm: llm.clone(), reranker: reranker::Reranker::disabled() };
+    let server = RagLabServer {
+        pipeline: pipeline::QueryPipeline {
+            embedder: embedder.clone(),
+            llm: llm.clone(),
+            reranker: reranker::Reranker::disabled(),
+            quality_threshold: 0.3,
+            max_retries: 1,
+        },
+    };
 
     // Mode: stdio-only or dual (stdio + HTTP)
     if config.http_port > 0 {
