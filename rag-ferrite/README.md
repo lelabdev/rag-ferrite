@@ -1,4 +1,4 @@
-# rag-lab
+# rag-ferrite
 
 Custom RAG engine in Rust — built on `rag_engine` + `rmcp` + `axum`.
 
@@ -42,7 +42,7 @@ SQLite + HNSW handles the vast majority of RAG use cases without the complexity 
 ## Architecture
 
 ```
-rag-lab (single binary, N instances)
+rag-ferrite (single binary, N instances)
 ├── config.toml          ← Which RAG, port, embedding provider
 ├── data/
 │   ├── rag-code.sqlite3

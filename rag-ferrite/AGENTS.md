@@ -1,4 +1,4 @@
-# rag-lab — Custom RAG Engine (Rust)
+# rag-ferrite — Custom RAG Engine (Rust)
 
 Moteur RAG custom du lab, en Rust. Buildé sur `rag_engine` + `rmcp` + couches différenciantes.
 
@@ -16,7 +16,7 @@ Moteur RAG custom du lab, en Rust. Buildé sur `rag_engine` + `rmcp` + couches d
 ## Architecture
 
 ```
-rag-lab (binaire unique)
+rag-ferrite (binaire unique)
 ├── config.toml          ← Quel RAG, quel port, quel embedding provider
 ├── data/
 │   ├── rag-code.sqlite3
@@ -87,7 +87,7 @@ Query → MCP tool call
 
 ## Comparaison avec l'existant
 
-| | Avant (mcp-local-rag) | Après (rag-lab) |
+| | Avant (mcp-local-rag) | Après (rag-ferrite) |
 |---|---|---|
 | Runtime | Node.js, ~60 MB × 4 instances | Rust, ~10-15 MB × 4 |
 | Stockage | LanceDB (4 dossiers) | SQLite (4 fichiers) |

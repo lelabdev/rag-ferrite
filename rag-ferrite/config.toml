@@ -1,6 +1,7 @@
-# rag-lab configuration
+# rag-ferrite configuration
 
 data_dir = "./data"
+http_port = 3456
 
 [embedding]
 provider = "ollama"
@@ -12,5 +13,5 @@ dimensions = 1024
 provider = "zai"
 model = "glm-4.7-flash"
 context_enabled = true
-# api_key = "your-zai-api-key"  # or set ZAI_API_KEY env var
+# api_key loaded from ZAI_API_KEY env var
 # base_url = "https://api.z.ai/api/paas/v4"

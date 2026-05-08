@@ -120,15 +120,15 @@ impl Default for LlmConfig {
 }
 
 fn dirs_data_dir() -> Option<PathBuf> {
-    dirs::data_local_dir().map(|p| p.join("rag-lab"))
+    dirs::data_local_dir().map(|p| p.join("rag-ferrite"))
 }
 
 impl Config {
 pub fn load() -> Result<Self> {
-        // Try config.toml in current dir, then ~/.config/rag-lab/config.toml
+        // Try config.toml in current dir, then ~/.config/rag-ferrite/config.toml
         let paths = vec![
             PathBuf::from("config.toml"),
-            dirs::config_dir().unwrap_or_else(|| PathBuf::from(".")).join("rag-lab").join("config.toml"),
+            dirs::config_dir().unwrap_or_else(|| PathBuf::from(".")).join("rag-ferrite").join("config.toml"),
         ];
 
         for path in &paths {

@@ -2011,7 +2011,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "rag-lab"
+name = "rag-ferrite"
 version = "0.1.0"
 dependencies = [
  "anyhow",

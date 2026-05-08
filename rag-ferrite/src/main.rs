@@ -200,11 +200,11 @@ impl RagLabServer {
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
-        .with_env_filter("rag_lab=debug")
+        .with_env_filter("rag_ferrite=debug")
         .init();
 
     let config = config::Config::load()?;
-    tracing::info!("rag-lab v{} starting — data: {}", env!("CARGO_PKG_VERSION"), config.data_dir.display());
+    tracing::info!("rag-ferrite v{} starting — data: {}", env!("CARGO_PKG_VERSION"), config.data_dir.display());
 
     // Init rag_engine
     engine::init(&config.data_dir)?;
