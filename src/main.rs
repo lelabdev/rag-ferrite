@@ -47,6 +47,8 @@ fn default_limit() -> Option<usize> { Some(10) }
 #[derive(Debug, Default, Serialize, Deserialize, JsonSchema)]
 struct IngestFileParams {
     pub file_path: String,
+    #[serde(default)]
+    pub collection: Option<String>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize, JsonSchema)]
@@ -55,6 +57,8 @@ struct IngestDataParams {
     pub source: String,
     #[serde(default)]
     pub format: Option<String>,
+    #[serde(default)]
+    pub collection: Option<String>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize, JsonSchema)]
@@ -116,23 +120,26 @@ impl RagLabServer {
         }
     }
 
-    #[tool(name = "ingest_file", description = "Parse and index a document file (PDF, DOCX, TXT, MD) into the RAG.")]
+    #[tool(name = "ingest_file", description = "Parse and index a document file (PDF, DOCX, TXT, MD) into the RAG. Optionally specify a collection.")]
     async fn ingest_file(&self, params: Parameters<IngestFileParams>) -> String {
         let p = params.0;
-        match engine::ingest_file(&self.pipeline.embedder, self.pipeline.llm.as_ref(), &p.file_path).await {
+        let coll = p.collection.as_deref();
+        match engine::ingest_file(&self.pipeline.embedder, self.pipeline.llm.as_ref(), &p.file_path, coll).await {
             Ok(id) => serde_json::json!({
                 "status": "ok",
                 "source_id": id,
-                "file_path": p.file_path
+                "file_path": p.file_path,
+                "collection": p.collection
             }).to_string(),
             Err(e) => serde_json::json!({ "error": e.to_string() }).to_string(),
         }
     }
 
-    #[tool(name = "ingest_data", description = "Index content directly (text, HTML, or markdown) with a source identifier.")]
+    #[tool(name = "ingest_data", description = "Index content directly (text, HTML, or markdown) with a source identifier. Optionally specify a collection.")]
     async fn ingest_data(&self, params: Parameters<IngestDataParams>) -> String {
         let p = params.0;
-        match engine::ingest_text(&self.pipeline.embedder, self.pipeline.llm.as_ref(), &p.content, &p.source, None).await {
+        let coll = p.collection.as_deref();
+        match engine::ingest_text(&self.pipeline.embedder, self.pipeline.llm.as_ref(), &p.content, &p.source, None, coll).await {
             Ok(id) => serde_json::json!({
                 "status": "ok",
                 "source_id": id,

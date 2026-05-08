@@ -1,1 +1,6 @@
-rag-ferrite/data/
+target/
+data/
+*.sqlite3
+*.sqlite3-shm
+*.sqlite3-wal
+rag-ferrite.log

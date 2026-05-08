@@ -27,15 +27,25 @@ pub async fn ingest_text(
     content: &str,
     source_name: &str,
     metadata: Option<&str>,
+    collection: Option<&str>,
 ) -> Result<i64> {
-    let source = source_rag::add_source(
-        content.to_string(),
-        metadata.map(|m| m.to_string()),
-        Some(source_name.to_string()),
-    )?;
+    let source = if let Some(coll) = collection {
+        source_rag::add_source_in_collection(
+            coll.to_string(),
+            content.to_string(),
+            metadata.map(|m| m.to_string()),
+            Some(source_name.to_string()),
+        )?
+    } else {
+        source_rag::add_source(
+            content.to_string(),
+            metadata.map(|m| m.to_string()),
+            Some(source_name.to_string()),
+        )?
+    };
 
     // Semantic chunking
-    let chunks = semantic_chunker::semantic_chunk(content.to_string(), 600);
+    let chunks = semantic_chunker::semantic_chunk(content.to_string(), 1500);
 
     // Contextual retrieval: generate context prefixes via LLM
     let contexts: Vec<Option<String>> = if let Some(llm_provider) = llm {
@@ -107,6 +117,7 @@ pub async fn ingest_file(
     embedder: &EmbeddingProvider,
     llm: Option<&LlmProvider>,
     file_path: &str,
+    collection: Option<&str>,
 ) -> Result<i64> {
     let bytes = std::fs::read(file_path)?;
     let text = rag_engine::api::document_parser::extract_text_from_document(bytes)?;
@@ -116,7 +127,7 @@ pub async fn ingest_file(
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_else(|| file_path.to_string());
 
-    ingest_text(embedder, llm, &text, &name, Some(&format!("{{\"path\":\"{}\"}}", file_path))).await
+    ingest_text(embedder, llm, &text, &name, Some(&format!("{{\"path\":\"{}\"}}", file_path)), collection).await
 }
 
 /// Delete a source by ID

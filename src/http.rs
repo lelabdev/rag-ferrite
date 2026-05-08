@@ -108,13 +108,16 @@ pub async fn query(
 #[derive(Debug, Deserialize)]
 pub struct IngestFileRequest {
     pub file_path: String,
+    #[serde(default)]
+    pub collection: Option<String>,
 }
 
 pub async fn ingest_file(
     State(state): State<AppState>,
     Json(req): Json<IngestFileRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
-    match engine::ingest_file(&state.embedder, state.llm.as_ref(), &req.file_path).await {
+    let coll = req.collection.as_deref();
+    match engine::ingest_file(&state.embedder, state.llm.as_ref(), &req.file_path, coll).await {
         Ok(id) => Ok(Json(serde_json::json!({
             "status": "ok",
             "source_id": id,
@@ -133,13 +136,16 @@ pub struct IngestDataRequest {
     pub source: String,
     #[serde(default)]
     pub format: Option<String>,
+    #[serde(default)]
+    pub collection: Option<String>,
 }
 
 pub async fn ingest_data(
     State(state): State<AppState>,
     Json(req): Json<IngestDataRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
-    match engine::ingest_text(&state.embedder, state.llm.as_ref(), &req.content, &req.source, None).await {
+    let coll = req.collection.as_deref();
+    match engine::ingest_text(&state.embedder, state.llm.as_ref(), &req.content, &req.source, None, coll).await {
         Ok(id) => Ok(Json(serde_json::json!({
             "status": "ok",
             "source_id": id,
