@@ -105,9 +105,14 @@ pub async fn ingest_text(
     let count = source_rag::add_chunks(source.source_id, chunk_data)?;
     tracing::info!("Ingested {} chunks for source {} ({})", count, source.source_id, source_name);
 
-    // Rebuild indexes
-    let _ = source_rag::rebuild_chunk_hnsw_index();
-    let _ = source_rag::rebuild_chunk_bm25_index();
+    // Rebuild indexes for the collection (or global if no collection)
+    let coll_id = collection.unwrap_or("default").to_string();
+    if let Err(e) = source_rag::rebuild_chunk_hnsw_index_for_collection(coll_id.clone()) {
+        tracing::warn!("Failed to rebuild HNSW index for {}: {}", coll_id, e);
+    }
+    if let Err(e) = source_rag::rebuild_chunk_bm25_index_for_collection(coll_id) {
+        tracing::warn!("Failed to rebuild BM25 index: {}", e);
+    }
 
     Ok(source.source_id)
 }
@@ -133,6 +138,7 @@ pub async fn ingest_file(
 /// Delete a source by ID
 pub fn delete_source(source_id: i64) -> Result<()> {
     source_rag::delete_source(source_id)?;
+    // Rebuild all indexes (don't know which collection the source was in)
     let _ = source_rag::rebuild_chunk_hnsw_index();
     let _ = source_rag::rebuild_chunk_bm25_index();
     Ok(())

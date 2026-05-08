@@ -207,7 +207,7 @@ impl RagLabServer {
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
-        .with_env_filter("rag_ferrite=debug")
+        .with_env_filter("rag_ferrite=debug,rag_engine=debug")
         .init();
 
     let config = config::Config::load()?;
