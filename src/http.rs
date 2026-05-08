@@ -83,11 +83,19 @@ pub async fn query(
     _headers: HeaderMap,
     Json(req): Json<QueryRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
-    let filter = if req.source_ids.is_some() || req.metadata_like.is_some() || req.collection.is_some() {
+    // Map collection param to metadata_like filter (stored in source metadata as JSON)
+    let meta_filter = req.collection.map(|c| format!("%\"collection\":\"{}\"%", c));
+    let combined_metadata = match (meta_filter, req.metadata_like) {
+        (Some(cf), Some(mf)) => Some(format!("{}{}{}", cf.trim_end_matches('%'), "%", mf)),
+        (Some(cf), None) => Some(cf),
+        (None, mf) => mf,
+    };
+
+    let filter = if req.source_ids.is_some() || combined_metadata.is_some() {
         Some(rag_engine::api::hybrid_search::SearchFilter {
             source_ids: req.source_ids,
-            metadata_like: req.metadata_like,
-            collection_id: req.collection,
+            metadata_like: combined_metadata,
+            collection_id: None,
         })
     } else {
         None

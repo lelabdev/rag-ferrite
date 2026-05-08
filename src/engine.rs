@@ -29,20 +29,11 @@ pub async fn ingest_text(
     metadata: Option<&str>,
     collection: Option<&str>,
 ) -> Result<i64> {
-    let source = if let Some(coll) = collection {
-        source_rag::add_source_in_collection(
-            coll.to_string(),
-            content.to_string(),
-            metadata.map(|m| m.to_string()),
-            Some(source_name.to_string()),
-        )?
-    } else {
-        source_rag::add_source(
-            content.to_string(),
-            metadata.map(|m| m.to_string()),
-            Some(source_name.to_string()),
-        )?
-    };
+    let source = source_rag::add_source(
+        content.to_string(),
+        Some(collection.map(|c| format!("{{\"collection\":\"{}\"}}", c)).unwrap_or_else(|| metadata.map(|m| m.to_string()).unwrap_or_default())),
+        Some(source_name.to_string()),
+    )?;
 
     // Semantic chunking
     let chunks = semantic_chunker::semantic_chunk(content.to_string(), 1500);
@@ -105,12 +96,12 @@ pub async fn ingest_text(
     let count = source_rag::add_chunks(source.source_id, chunk_data)?;
     tracing::info!("Ingested {} chunks for source {} ({})", count, source.source_id, source_name);
 
-    // Rebuild indexes for the collection (or global if no collection)
-    let coll_id = collection.unwrap_or("default").to_string();
-    if let Err(e) = source_rag::rebuild_chunk_hnsw_index_for_collection(coll_id.clone()) {
-        tracing::warn!("Failed to rebuild HNSW index for {}: {}", coll_id, e);
+    // Rebuild HNSW index with ALL chunks (not per-collection — rag_engine uses a single global HNSW)
+    if let Err(e) = source_rag::rebuild_chunk_hnsw_index() {
+        tracing::warn!("Failed to rebuild HNSW index: {}", e);
     }
-    if let Err(e) = source_rag::rebuild_chunk_bm25_index_for_collection(coll_id) {
+    // BM25 is also global
+    if let Err(e) = source_rag::rebuild_chunk_bm25_index() {
         tracing::warn!("Failed to rebuild BM25 index: {}", e);
     }
 
