@@ -1,137 +1,126 @@
-# rag-ferrite
+# rag-ferrite — Custom RAG Engine (Rust)
 
-Self-hosted RAG engine in Rust — hybrid search, contextual retrieval, reranking, and MCP server in a single binary.
+Moteur RAG custom du lab, en Rust. Buildé sur `rag_engine` + `rmcp` + couches différenciantes.
 
-Built for teams and individuals who want serious retrieval quality without the overhead of a vector database. Uses SQLite + HNSW under the hood — zero dependencies, one file per RAG instance, backup is a copy.
+## Stack technique
 
-## Features
+| Composant | Choix | Rôle |
+|---|---|---|
+| **Cœur RAG** | `rag_engine` v0.8.1 | HNSW vector search, BM25, hybrid fusion (RRF), SQLite storage, semantic chunking, doc parsing |
+| **MCP Server** | `rmcp` | Exposition en tant que MCP server (stdio + SSE) |
+| **Embeddings** | **BAAI/bge-m3 (Ollama)** | Modèle d'embedding multilingue SOTA, 1024 dimensions, 100+ langues |
+| **Compute** | **Ollama on TufTux GPU (RTX 4050)** | Acceleration GPU pour embeddings rapides (~230ms/embedding) |
+| **Stockage** | SQLite + HNSW | 1 fichier par RAG, backup = cp |
+| **HTTP Bridge** | `axum` | SSE endpoint (remplace le dojo) |
 
-**Search pipeline:**
-- Hybrid search (BM25 + vector HNSW + RRF fusion)
-- Contextual retrieval — LLM-generated context prefix before embedding
-- Cross-encoder reranking (LLM-based or Cohere API)
-- Query expansion for short/ambiguous queries
-- Corrective RAG — quality gate with automatic retry on low confidence
-- Adaptive query routing — Simple / Standard / Complex classification
+## Pourquoi bge-m3 ?
 
-**Infrastructure:**
-- MCP server (stdio + HTTP SSE) — drop-in replacement for mcp-local-rag
-- REST API (health, status, query, ingest, SSE)
-- Metadata filtering via SQL
-- Pluggable embedding providers (Ollama, OpenAI, Cohere)
-- Pluggable LLM providers for pipeline features (Z.ai, OpenAI, Ollama)
-- Semantic chunking + markdown-aware chunking
-- Evaluation metrics (precision, recall, NDCG, MRR)
+Après comparaison directe (mêmes queries, mêmes sources) entre **bge-m3** et **qwen3-embedding:0.6b** :
 
-## Why SQLite
+- **bge-m3** est clairement supérieur en qualité de retrieval — il trouve les bons chunks en top 1 plus souvent, surtout sur les queries en français et les questions précises.
+- qwen3 a tendance à remonter des résultats hors sujet en top 1.
+- bge-m3 supporte **multilingue** (FR + EN), **long-context** (8192 tokens), et **hybrid retrieval** (dense + sparse).
+- qwen3 n'est que anglais-focused et n'a pas l'hybrid search.
 
-SQLite + HNSW handles the vast majority of RAG use cases without the complexity of a dedicated vector database.
+**Verdict** : bge-m3 est le meilleur choix pour notre RAG multilingue Burning Wheel.
 
-| Use case | Docs | Chunks | Fits? |
+## Performances (benchmark avec bge-m3 sur RTX 4050)
+
+| Fichier | Taille | Chunks | Temps ingest |
 |---|---|---|---|
-| Personal knowledge base | ~500 | ~50k | ✅ |
-| Dev team docs & books | ~150 | ~100k | ✅ |
-| SME internal wiki | ~10k | ~400k | ✅ |
-| Multi-practice clinic | ~600k | ~2.5M | ✅ |
-| Enterprise search (500+ employees) | ~2M+ | ~10M+ | ⚠️ Consider pgvector |
-| Web-scale (Wikipedia FR) | ~2.4M articles | ~50M+ | ❌ Need Qdrant/Milvus |
+| Anthology | 191K | 154 | 5.2s |
+| Codex | 991K | ~800 | 24.2s |
+| Gold | 1.2M | ~950 | 25.7s |
+| **Total** | **2.4M** | **~1900** | **~55s** |
 
-**Rule of thumb:** Under ~1M chunks, SQLite is the right call. Simpler, portable, zero-dependency, SQL filtering.
-
-## Stack
-
-| Component | Choice | Purpose |
-|---|---|---|
-| RAG core | `rag_engine` 0.8.1 | HNSW, BM25, hybrid RRF, SQLite, semantic chunking |
-| MCP server | `rmcp` | stdio + SSE protocol |
-| Embeddings | Ollama / OpenAI / Cohere | Pluggable provider |
-| LLM | Z.ai (GLM-4.7-Flash) / OpenAI / Ollama | Context generation, query expansion, reranking |
-| Storage | SQLite + HNSW | One file per RAG instance |
-| HTTP bridge | `axum` | REST + SSE endpoint |
-
-## Quick Start
-
-```bash
-# Install Ollama and pull an embedding model
-ollama pull qwen3-embedding:0.6b
-
-# Set your LLM API key (for contextual retrieval)
-export ZAI_API_KEY=your-key
-
-# Build and run
-cargo build --release
-./target/release/rag-ferrite
-```
-
-Create a `config.toml` in the working directory:
-
-```toml
-data_dir = "./data"
-http_port = 3456    # 0 = stdio-only
-
-[embedding]
-provider = "ollama"
-model = "qwen3-embedding:0.6b"
-dimensions = 1024
-
-[llm]
-provider = "zai"
-model = "glm-4.7-flash"
-context_enabled = true
-```
-
-## API
-
-| Method | Endpoint | Description |
-|---|---|---|
-| GET | `/health` | Health check |
-| GET | `/status` | Document count + version |
-| POST | `/query` | Hybrid search with filters |
-| POST | `/ingest/file` | Ingest a file (PDF, DOCX) |
-| POST | `/ingest/data` | Ingest text/HTML/markdown |
-| GET | `/sse` | MCP over SSE stream |
-
-### Query example
-
-```bash
-curl -X POST http://localhost:3456/query \
-  -H "Content-Type: application/json" \
-  -d '{"query": "marketing strategy mistakes", "limit": 5}'
-```
-
-### Filter example
-
-```bash
-curl -X POST http://localhost:3456/query \
-  -H "Content-Type: application/json" \
-  -d '{"query": "marketing", "limit": 5, "metadata_like": "%.pdf"}'
-```
+Comparé à la config initiale (bge-m3 sur CPU aether) : **7m30s → 55s** = **~8x plus rapide**.
 
 ## Architecture
 
 ```
-rag-ferrite (single binary, N instances)
-├── config.toml          ← Per-instance config
+rag-ferrite (binaire unique)
+├── config.toml          ← Quel RAG, quel port, quel embedding provider
 ├── data/
 │   ├── rag-code.sqlite3
 │   ├── rag-business.sqlite3
-│   └── rag-general.sqlite3
-└── indexes/             ← Persisted HNSW indexes
+│   ├── rag-general.sqlite3
+│   └── rag-rpg.sqlite3
+└── indexes/             ← HNSW indexes persistés
 ```
 
-Each instance runs isolated — same binary, different data. Routing is handled by Hermes MCP config or the HTTP API.
+**4 instances du même binaire**, chacune avec son dossier de données. Comme des workers — même code, différentes données.
 
-## Query Pipeline
+Pourquoi séparé :
+- Routing clair — une instance Hermes utilise UN RAG ciblé
+- Partage sélectif — le dojo expose rag-business, pas rag-code
+- Cycle de vie indépendant — réindexer un RAG sans toucher les autres
+- Isolation — un RAG corrompu n'en touche pas un autre
+
+## Pipeline
 
 ```
-Query → classify (Simple / Standard / Complex)
-     → [Complex] Query expansion (multi-query)
-     → Hybrid retrieval (BM25 + HNSW + RRF)
-     → [Standard+] Cross-encoder reranking
-     → [Complex] Quality gate (confidence score)
-     → [Low confidence] Reformulate + retry
-     → Top-k results with confidence flag
+Document → Paragraph-based chunking (custom, ~1500 chars)
+         → Embedding (bge-m3 via Ollama on TufTux GPU)
+         → SQLite + HNSW index
+         → BM25 keyword index
+
+Query → MCP tool call
+      → Hybrid retrieval (BM25 + HNSW + RRF)
+      → Top-k chunks + neighbors
 ```
+
+## Ce que rag_engine donne GRATUITEMENT
+
+| Feature | Module | Statut |
+|---|---|---|
+| Vector search (HNSW) | `hnsw_index` | ✅ |
+| BM25 keyword search | `bm25_search` | ✅ |
+| Hybrid search + RRF | `hybrid_search` | ✅ |
+| SQLite storage | `db_pool` + `source_rag` | ✅ |
+| Multi-collections | `source_rag` collections | ✅ |
+| Chunk neighbors | `get_adjacent_chunks` | ✅ |
+| Metadata filtering | `SearchFilter` | ✅ |
+
+## Ce qu'on CODE par-dessus
+
+| Feature | Effort |
+|---|---|
+| Paragraph-based chunker (fix pour les petits paragraphes) | ⭐⭐ |
+| Cross-encoder reranking | ⭐⭐ |
+| MCP server (rmcp) | ⭐⭐ |
+| Corrective RAG (quality gate) | ⭐⭐ |
+| Adaptive RAG (query router) | ⭐⭐ |
+| Évaluation (metrics: recall, MRR, nDCG) | ⭐⭐⭐ |
+| HTTP SSE bridge (axum, remplace dojo) | ⭐⭐ |
+
+## Comparaison avec l'existant
+
+| | Avant (mcp-local-rag) | Après (rag-ferrite) |
+|---|---|---|
+| Runtime | Node.js, ~60 MB × 4 instances | Rust, ~10-15 MB × 4 |
+| Stockage | LanceDB (4 dossiers) | SQLite (4 fichiers) |
+| Recherche | Hybride basique | Hybride RRF + poids custom |
+| Chunking | Fixe, boîte noire | Paragraph-based, ~1500 chars |
+| Metadata filtering | ❌ | ✅ SQL |
+| Reranking | ❌ | ✅ |
+| MCP server | Via Hermes config | Natif (rmcp) |
+| Bridge HTTP | Dojo séparé | Intégré |
+| Évaluation | ❌ | ✅ Metrics intégrées |
+
+## Sources de recherche
+
+- *RAG with Python Cookbook* (Deepak Dhyani)
+- *Agentic Architectural Patterns* (Arsanjani & Bustos)
+- Anthropic — Contextual Retrieval (2024)
+- Hub France IA — Évaluation des Chaînes de RAG (2025)
+- rag_engine crate — https://lib.rs/crates/rag_engine
+- rmcp — Rust MCP SDK
+- Perplexity Research — "Best Embedding Models for RAG (2025)" comparison
+
+## Rôles
+
+- **Ludo** : priorisation, cas clients, go/no-go
+- **Mako** : implémentation Rust, benchmarks, tests, PRs
 
 ## License
 

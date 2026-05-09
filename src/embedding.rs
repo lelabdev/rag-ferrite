@@ -156,7 +156,6 @@ impl EmbeddingProvider {
 
     async fn embed_ollama(&self, texts: &[String]) -> Result<Vec<Vec<f32>>> {
         let base = self.base_url.as_deref().unwrap_or("http://localhost:11434");
-        let url = format!("{}/api/embed", base);
 
         #[derive(Debug, Serialize)]
         struct OllamaRequest {
@@ -164,29 +163,39 @@ impl EmbeddingProvider {
             input: Vec<String>,
         }
 
-        let body = OllamaRequest {
-            model: self.model.clone(),
-            input: texts.to_vec(),
-        };
-
-        let resp = self.client
-            .post(&url)
-            .json(&body)
-            .send()
-            .await?;
-
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let text = resp.text().await?;
-            return Err(anyhow!("Ollama API error {}: {}", status, text));
-        }
-
         #[derive(Debug, Deserialize)]
         struct OllamaResponse {
             embeddings: Vec<Vec<f32>>,
         }
 
-        let data: OllamaResponse = resp.json().await?;
-        Ok(data.embeddings)
+        // Ollama batch can be large, so we limit to 20 texts per request
+        // to avoid timeout and memory issues
+        let mut results = Vec::with_capacity(texts.len());
+
+        for batch in texts.chunks(20) {
+            let url = format!("{}/api/embed", base);
+
+            let body = OllamaRequest {
+                model: self.model.clone(),
+                input: batch.to_vec(),
+            };
+
+            let resp = self.client
+                .post(&url)
+                .json(&body)
+                .send()
+                .await?;
+
+            if !resp.status().is_success() {
+                let status = resp.status();
+                let text = resp.text().await?;
+                return Err(anyhow!("Ollama API error {}: {}", status, text));
+            }
+
+            let data: OllamaResponse = resp.json().await?;
+            results.extend(data.embeddings);
+        }
+
+        Ok(results)
     }
 }

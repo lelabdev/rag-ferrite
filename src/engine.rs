@@ -7,6 +7,7 @@ use rag_engine::api::{
     source_rag::{self, ChunkData, ChunkSearchResult},
 };
 use crate::embedding::EmbeddingProvider;
+use crate::extractor;
 use crate::llm::LlmProvider;
 
 /// Initialize rag_engine: logger + DB pool + schema
@@ -35,7 +36,7 @@ pub async fn ingest_text(
         Some(source_name.to_string()),
     )?;
 
-    // Semantic chunking
+    // Semantic chunking (rag_engine built-in)
     let chunks = semantic_chunker::semantic_chunk(content.to_string(), 1500);
 
     // Contextual retrieval: generate context prefixes via LLM
@@ -108,22 +109,31 @@ pub async fn ingest_text(
     Ok(source.source_id)
 }
 
-/// Ingest a file (PDF, DOCX, TXT, MD)
+/// Ingest a file (PDF, TXT, MD)
+/// Uses our custom extractor for reliable text extraction
 pub async fn ingest_file(
     embedder: &EmbeddingProvider,
     llm: Option<&LlmProvider>,
     file_path: &str,
     collection: Option<&str>,
 ) -> Result<i64> {
-    let bytes = std::fs::read(file_path)?;
-    let text = rag_engine::api::document_parser::extract_text_from_document(bytes)?;
+    // Use our custom extractor instead of rag_engine's document_parser
+    let text = extractor::extract_text(file_path)?;
 
     let name = std::path::Path::new(file_path)
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_else(|| file_path.to_string());
 
-    ingest_text(embedder, llm, &text, &name, Some(&format!("{{\"path\":\"{}\"}}", file_path)), collection).await
+    ingest_text(
+        embedder,
+        llm,
+        &text,
+        &name,
+        Some(&format!("{{\"path\":\"{}\"}}", file_path)),
+        collection,
+    )
+    .await
 }
 
 /// Delete a source by ID

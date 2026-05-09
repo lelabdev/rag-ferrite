@@ -8,8 +8,10 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 mod config;
+mod chunker;
 mod embedding;
 mod engine;
+mod extractor;
 mod http;
 mod llm;
 mod pipeline;
