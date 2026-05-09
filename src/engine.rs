@@ -37,7 +37,7 @@ pub async fn ingest_text(
     )?;
 
     // Custom recursive character chunker (faster, no freeze on large docs)
-    let chunk_size = 2000;
+    let chunk_size = 800;
     let chunks = chunker::chunk_text(content, chunk_size);
     tracing::info!("Chunked into {} chunks (size={})", chunks.len(), chunk_size);
 
