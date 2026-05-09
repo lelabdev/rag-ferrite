@@ -5,13 +5,13 @@ http_port = 3456
 
 [embedding]
 provider = "ollama"
-model = "qwen3-embedding:0.6b"
+model = "bge-m3:latest"
 dimensions = 1024
-# base_url = "http://localhost:11434"
+base_url = "http://192.168.1.111:11434"
 
 [llm]
 provider = "zai"
 model = "glm-4.7-flash"
-context_enabled = true
+context_enabled = false
 # api_key loaded from ZAI_API_KEY env var
 # base_url = "https://api.z.ai/api/paas/v4"

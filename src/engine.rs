@@ -2,10 +2,10 @@ use anyhow::Result;
 use rag_engine::api::{
     db_pool,
     hybrid_search,
-    semantic_chunker,
     simple,
     source_rag::{self, ChunkData, ChunkSearchResult},
 };
+use crate::chunker;
 use crate::embedding::EmbeddingProvider;
 use crate::extractor;
 use crate::llm::LlmProvider;
@@ -36,8 +36,10 @@ pub async fn ingest_text(
         Some(source_name.to_string()),
     )?;
 
-    // Semantic chunking (rag_engine built-in)
-    let chunks = semantic_chunker::semantic_chunk(content.to_string(), 1500);
+    // Custom recursive character chunker (faster, no freeze on large docs)
+    let chunk_size = 2000;
+    let chunks = chunker::chunk_text(content, chunk_size);
+    tracing::info!("Chunked into {} chunks (size={})", chunks.len(), chunk_size);
 
     // Contextual retrieval: generate context prefixes via LLM
     let contexts: Vec<Option<String>> = if let Some(llm_provider) = llm {
