@@ -47,6 +47,18 @@ pub fn chunk_text(text: &str, chunk_size: usize) -> Vec<Chunk> {
         char_pos = next;
     }
 
+    // Merge last chunk with previous if it's too short (< 200 chars)
+    if chunks.len() > 1 {
+        let last_idx = chunks.len() - 1;
+        if chunks[last_idx].content.len() < 200 {
+            let last_end = chunks[last_idx].end_pos;
+            let last_content = chunks.pop().unwrap();
+            let prev = chunks.last_mut().unwrap();
+            prev.content = format!("{}\n\n{}", prev.content, last_content.content);
+            prev.end_pos = last_end;
+        }
+    }
+
     chunks
 }
 
