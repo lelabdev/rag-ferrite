@@ -1,126 +1,121 @@
-# rag-ferrite — Custom RAG Engine (Rust)
+# rag-ferrite
 
-Moteur RAG custom du lab, en Rust. Buildé sur `rag_engine` + `rmcp` + couches différenciantes.
+Custom RAG engine in Rust. Single binary, multi-collection, hybrid search (BM25 + HNSW + RRF fusion).
 
-## Stack technique
+Built on [rag_engine](https://lib.rs/crates/rag_engine) + [rmcp](https://github.com/anthropics/rmcp-rust-sdk) for MCP server support.
 
-| Composant | Choix | Rôle |
+## Stack
+
+| Component | Choice | Purpose |
 |---|---|---|
-| **Cœur RAG** | `rag_engine` v0.8.1 | HNSW vector search, BM25, hybrid fusion (RRF), SQLite storage, semantic chunking, doc parsing |
-| **MCP Server** | `rmcp` | Exposition en tant que MCP server (stdio + SSE) |
-| **Embeddings** | **BAAI/bge-m3 (Ollama)** | Modèle d'embedding multilingue SOTA, 1024 dimensions, 100+ langues |
-| **Compute** | **Ollama on TufTux GPU (RTX 4050)** | Acceleration GPU pour embeddings rapides (~230ms/embedding) |
-| **Stockage** | SQLite + HNSW | 1 fichier par RAG, backup = cp |
-| **HTTP Bridge** | `axum` | SSE endpoint (remplace le dojo) |
-
-## Pourquoi bge-m3 ?
-
-Après comparaison directe (mêmes queries, mêmes sources) entre **bge-m3** et **qwen3-embedding:0.6b** :
-
-- **bge-m3** est clairement supérieur en qualité de retrieval — il trouve les bons chunks en top 1 plus souvent, surtout sur les queries en français et les questions précises.
-- qwen3 a tendance à remonter des résultats hors sujet en top 1.
-- bge-m3 supporte **multilingue** (FR + EN), **long-context** (8192 tokens), et **hybrid retrieval** (dense + sparse).
-- qwen3 n'est que anglais-focused et n'a pas l'hybrid search.
-
-**Verdict** : bge-m3 est le meilleur choix pour notre RAG multilingue Burning Wheel.
-
-## Performances (benchmark avec bge-m3 sur RTX 4050)
-
-| Fichier | Taille | Chunks | Temps ingest |
-|---|---|---|---|
-| Anthology | 191K | 154 | 5.2s |
-| Codex | 991K | ~800 | 24.2s |
-| Gold | 1.2M | ~950 | 25.7s |
-| **Total** | **2.4M** | **~1900** | **~55s** |
-
-Comparé à la config initiale (bge-m3 sur CPU aether) : **7m30s → 55s** = **~8x plus rapide**.
+| **RAG core** | `rag_engine` v0.8.1 | HNSW vector search, BM25, hybrid fusion (RRF), SQLite storage |
+| **MCP server** | `rmcp` | Expose as MCP server (stdio + HTTP) |
+| **Embeddings** | BAAI/bge-m3 via Ollama | Multilingual SOTA model, 1024 dims, GPU-accelerated |
+| **Storage** | SQLite + HNSW | Single DB file, backup = cp |
+| **HTTP bridge** | `axum` | SSE endpoint on port 3456 |
 
 ## Architecture
 
+Single binary, single database, **collections** for routing:
+
 ```
-rag-ferrite (binaire unique)
-├── config.toml          ← Quel RAG, quel port, quel embedding provider
+rag-ferrite/
+├── config.toml
 ├── data/
-│   ├── rag-code.sqlite3
-│   ├── rag-business.sqlite3
-│   ├── rag-general.sqlite3
-│   └── rag-rpg.sqlite3
-└── indexes/             ← HNSW indexes persistés
+│   ├── rag.sqlite3          ← all collections in one DB
+│   ├── hnsw_rpg.index       ← persisted HNSW indexes
+│   ├── hnsw_growth.index
+│   ├── hnsw_code.index
+│   └── hnsw_general.index
+└── rag-ferrite.log
 ```
 
-**4 instances du même binaire**, chacune avec son dossier de données. Comme des workers — même code, différentes données.
+**Collections** are first-class — each document belongs to one. The HNSW index is loaded on-demand per collection (`activate_collection_for_hybrid_search`), and persisted to disk after ingestion for fast startup.
 
-Pourquoi séparé :
-- Routing clair — une instance Hermes utilise UN RAG ciblé
-- Partage sélectif — le dojo expose rag-business, pas rag-code
-- Cycle de vie indépendant — réindexer un RAG sans toucher les autres
-- Isolation — un RAG corrompu n'en touche pas un autre
+## Collections
+
+| Collection | Content |
+|---|---|
+| `rpg` | Tabletop RPG rules (Burning Wheel) |
+| `growth` | Business, marketing, psychology, self-help, health |
+| `code` | Development, AI/ML, security, architecture |
+| `general` | Everything else (cooking, culture, philosophy, misc) |
+
+Collections are created on-the-fly during ingestion — no setup needed.
 
 ## Pipeline
 
 ```
-Document → Paragraph-based chunking (custom, ~1500 chars)
-         → Embedding (bge-m3 via Ollama on TufTux GPU)
-         → SQLite + HNSW index
-         → BM25 keyword index
+Document → Custom pdftotext extractor (for PDFs)
+         → Recursive character chunker (800 chars, 160 overlap)
+         → Batch embedding (bge-m3 via Ollama on GPU)
+         → SQLite + HNSW + BM25 indexes
+         → Persist HNSW to disk
 
 Query → MCP tool call
+      → Activate target collection (load or rebuild index)
       → Hybrid retrieval (BM25 + HNSW + RRF)
+      → Adaptive pipeline (simple/standard/complex routing)
       → Top-k chunks + neighbors
 ```
 
-## Ce que rag_engine donne GRATUITEMENT
+## Performance
 
-| Feature | Module | Statut |
-|---|---|---|
-| Vector search (HNSW) | `hnsw_index` | ✅ |
-| BM25 keyword search | `bm25_search` | ✅ |
-| Hybrid search + RRF | `hybrid_search` | ✅ |
-| SQLite storage | `db_pool` + `source_rag` | ✅ |
-| Multi-collections | `source_rag` collections | ✅ |
-| Chunk neighbors | `get_adjacent_chunks` | ✅ |
-| Metadata filtering | `SearchFilter` | ✅ |
-
-## Ce qu'on CODE par-dessus
-
-| Feature | Effort |
+| Metric | Value |
 |---|---|
-| Paragraph-based chunker (fix pour les petits paragraphes) | ⭐⭐ |
-| Cross-encoder reranking | ⭐⭐ |
-| MCP server (rmcp) | ⭐⭐ |
-| Corrective RAG (quality gate) | ⭐⭐ |
-| Adaptive RAG (query router) | ⭐⭐ |
-| Évaluation (metrics: recall, MRR, nDCG) | ⭐⭐⭐ |
-| HTTP SSE bridge (axum, remplace dojo) | ⭐⭐ |
+| Embedding model | bge-m3 on RTX 4050 (TufTux) |
+| Chunk size | 800 chars, 160 overlap |
+| Ingestion speed | ~3.5 chunks/sec (including embedding) |
+| Query latency | ~300ms (index load from disk) or ~4s (first-time rebuild) |
+| Memory | ~15 MB idle, spikes during index rebuild |
+| 3 Burning Wheel books (1.4M chars) | 4,699 chunks in ~200s |
+| 8 general books (4.7 MB) | 9,198 chunks in ~20 min |
 
-## Comparaison avec l'existant
+## MCP Tools
 
-| | Avant (mcp-local-rag) | Après (rag-ferrite) |
-|---|---|---|
-| Runtime | Node.js, ~60 MB × 4 instances | Rust, ~10-15 MB × 4 |
-| Stockage | LanceDB (4 dossiers) | SQLite (4 fichiers) |
-| Recherche | Hybride basique | Hybride RRF + poids custom |
-| Chunking | Fixe, boîte noire | Paragraph-based, ~1500 chars |
-| Metadata filtering | ❌ | ✅ SQL |
-| Reranking | ❌ | ✅ |
-| MCP server | Via Hermes config | Natif (rmcp) |
-| Bridge HTTP | Dojo séparé | Intégré |
-| Évaluation | ❌ | ✅ Metrics intégrées |
+| Tool | Description |
+|---|---|
+| `query_documents` | Hybrid search with optional collection filter |
+| `ingest_file` | Ingest PDF/TXT/MD with optional collection |
+| `ingest_data` | Ingest raw text with source identifier |
+| `delete_file` | Remove document by source ID |
+| `list_files` | List all indexed documents |
+| `status` | Document count + version |
+| `read_chunk_neighbors` | Expand context around a chunk |
 
-## Sources de recherche
+## Custom Code (on top of rag_engine)
 
-- *RAG with Python Cookbook* (Deepak Dhyani)
-- *Agentic Architectural Patterns* (Arsanjani & Bustos)
-- Anthropic — Contextual Retrieval (2024)
-- Hub France IA — Évaluation des Chaînes de RAG (2025)
-- rag_engine crate — https://lib.rs/crates/rag_engine
-- rmcp — Rust MCP SDK
-- Perplexity Research — "Best Embedding Models for RAG (2025)" comparison
+- `src/extractor.rs` — PDF text extraction via `pdftotext` (10x better than pdf-extract crate)
+- `src/chunker.rs` — Recursive character text splitter with UTF-8 boundary safety
+- `src/engine.rs` — Collection-aware ingestion, status tracking, index persistence
+- `src/pipeline.rs` — Adaptive query routing (simple/standard/complex)
+- `src/embedding.rs` — Ollama batch embedding with proper API format
+- `src/main.rs` — MCP server + HTTP dual mode, file logging
 
-## Rôles
+## Configuration
 
-- **Ludo** : priorisation, cas clients, go/no-go
-- **Mako** : implémentation Rust, benchmarks, tests, PRs
+```toml
+# config.toml
+data_dir = "/home/loops/services/rag-ferrite/data"
+http_port = 3456
+
+[embedding]
+provider = "ollama"
+model = "bge-m3:latest"
+dimensions = 1024
+base_url = "http://192.168.1.111:11434"
+
+[llm]
+provider = "zai"
+model = "glm-4.7-flash"
+context_enabled = false
+```
+
+## Requirements
+
+- Rust toolchain (edition 2021)
+- Ollama with bge-m3 model (on GPU for performance)
+- `poppler-utils` for pdftotext PDF extraction
 
 ## License
 
