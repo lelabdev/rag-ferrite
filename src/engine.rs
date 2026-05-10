@@ -47,7 +47,20 @@ pub async fn ingest_text(
 
     // Custom recursive character chunker (faster, no freeze on large docs)
     let chunk_size = 800;
-    let chunks = chunker::chunk_text(content, chunk_size);
+
+    // Skip chunking for small sources — single chunk is better than 2 tiny ones
+    let chunks = if content.len() < chunk_size {
+        tracing::info!("Source below chunk size ({} chars), ingesting as single chunk", content.len());
+        vec![chunker::Chunk {
+            content: content.trim().to_string(),
+            index: 0,
+            start_pos: 0,
+            end_pos: content.len() as i32,
+            chunk_type: chunker::ChunkType::Text,
+        }]
+    } else {
+        chunker::chunk_text(content, chunk_size)
+    };
     tracing::info!("Chunked into {} chunks (size={})", chunks.len(), chunk_size);
 
     // Contextual retrieval: generate context prefixes via LLM
