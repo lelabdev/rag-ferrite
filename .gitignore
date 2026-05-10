@@ -5,3 +5,4 @@ data/
 *.sqlite3-wal
 rag-ferrite.log
 svelteforge/
+config.toml

@@ -63,7 +63,7 @@ Query → MCP tool call
 
 | Metric | Value |
 |---|---|
-| Embedding model | bge-m3 on RTX 4050 (TufTux) |
+| Embedding model | bge-m3 on RTX 4050 (GPU) |
 | Chunk size | 800 chars, 160 overlap |
 | Ingestion speed | ~3.5 chunks/sec (including embedding) |
 | Query latency | ~300ms (index load from disk) or ~4s (first-time rebuild) |
@@ -96,18 +96,18 @@ Query → MCP tool call
 
 ```toml
 # config.toml
-data_dir = "/home/loops/services/rag-ferrite/data"
+data_dir = "./data"
 http_port = 3456
 
 [embedding]
 provider = "ollama"
 model = "bge-m3:latest"
 dimensions = 1024
-base_url = "http://192.168.1.111:11434"
+base_url = "http://localhost:11434"
 
 [llm]
-provider = "zai"
-model = "glm-4.7-flash"
+provider = "openai"
+model = "gpt-4o-mini"
 context_enabled = false
 ```
 
