@@ -12,7 +12,7 @@ rag-ferrite is the opposite approach:
 
 - **One binary** — no containers, no orchestration, no YAML files
 - **One database** — SQLite, backup with `cp`
-- **One model** — bge-m3 on a local GPU, no API keys needed
+- **Any embedding provider** — local GPU (Ollama), OpenAI, OpenRouter, whatever fits your setup
 - **Collections** — not separate databases, not separate services, just a column
 
 Think of it like Obsidian's graph — you organize notes into folders, link them together, search across everything. rag-ferrite does the same for any document: books, docs, papers, whatever. You throw text at it, it makes it searchable with semantic understanding.
@@ -41,7 +41,7 @@ The main difference: **mcp-local-rag runs 3 separate services for 3 collections.
 |---|---|---|
 | **RAG core** | [`rag_engine`](https://lib.rs/crates/rag_engine) v0.8.1 | HNSW, BM25, hybrid RRF fusion, SQLite — does the heavy lifting |
 | **MCP server** | [`rmcp`](https://github.com/anthropics/rmcp-rust-sdk) | Standard MCP protocol — works with Claude, Hermes, any MCP client |
-| **Embeddings** | BAAI/bge-m3 via Ollama | SOTA multilingual model, 1024 dims, GPU-accelerated |
+| **Embeddings** | BAAI/bge-m3 via Ollama | SOTA multilingual model, 1024 dims — but any OpenAI-compatible API works |
 | **Storage** | SQLite + HNSW | One file, one backup, zero ops |
 | **HTTP bridge** | `axum` | REST API on port 3456 for non-MCP clients |
 
@@ -82,7 +82,7 @@ Query → MCP tool call
 
 | Metric | Value |
 |---|---|
-| Embedding | bge-m3 on RTX 4050 GPU — 46ms/embedding |
+| Embedding | bge-m3 via Ollama on RTX 4050 — 46ms/embedding (swap for any OpenAI-compatible endpoint) |
 | Ingestion | ~3.5 chunks/sec including embedding |
 | Query (warm) | ~300ms (index loaded from disk) |
 | Query (cold) | ~4s (first-time index build) |
@@ -124,7 +124,7 @@ http_port = 3456
 provider = "ollama"
 model = "bge-m3:latest"
 dimensions = 1024
-base_url = "http://192.168.1.111:11434"   # Ollama on GPU machine
+base_url = "http://192.168.1.111:11434"   # Ollama on GPU machine (or OpenRouter, OpenAI, etc.)
 
 [llm]
 context_enabled = false   # Disable for bulk ingestion (rate limit avoidance)
@@ -133,7 +133,7 @@ context_enabled = false   # Disable for bulk ingestion (rate limit avoidance)
 ## Requirements
 
 - Rust toolchain (edition 2021)
-- Ollama with bge-m3 model (GPU recommended, CPU works)
+- Ollama with bge-m3 model (GPU recommended, CPU works) — or any OpenAI-compatible embedding API
 - `poppler-utils` for PDF extraction (`apt install poppler-utils`)
 
 ## License
