@@ -184,7 +184,7 @@ impl QueryPipeline {
             .await?
         };
 
-        // Rerank if enabled
+        // Rerank if enabled, otherwise pass through results directly
         let reranked = if self.reranker.is_enabled() && !results.is_empty() {
             let candidates: Vec<crate::reranker::RerankCandidate> = results
                 .into_iter()
@@ -208,7 +208,17 @@ impl QueryPipeline {
                 }
             }
         } else {
-            Vec::new()
+            // No reranker — pass through results directly
+            results.into_iter().map(|r| RerankedResult {
+                doc_id: r.doc_id,
+                content: r.content,
+                score: r.score,
+                source_id: r.source_id,
+                chunk_index: r.chunk_index,
+                metadata: r.metadata,
+                vector_rank: r.vector_rank,
+                bm25_rank: r.bm25_rank,
+            }).collect()
         };
 
         let top_score = reranked.first().map(|r| r.score).unwrap_or(0.0);
@@ -274,7 +284,17 @@ impl QueryPipeline {
                     }
                 }
             } else {
-                Vec::new()
+                // No reranker — pass through results directly
+                results.into_iter().map(|r| RerankedResult {
+                    doc_id: r.doc_id,
+                    content: r.content,
+                    score: r.score,
+                    source_id: r.source_id,
+                    chunk_index: r.chunk_index,
+                    metadata: r.metadata,
+                    vector_rank: r.vector_rank,
+                    bm25_rank: r.bm25_rank,
+                }).collect()
             };
 
             // Step 3: Quality gate — check top score

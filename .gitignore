@@ -4,3 +4,4 @@ data/
 *.sqlite3-shm
 *.sqlite3-wal
 rag-ferrite.log
+svelteforge/

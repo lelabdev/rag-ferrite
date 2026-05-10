@@ -5,6 +5,7 @@ use rag_engine::api::{
     simple,
     source_rag::{self, ChunkData, ChunkSearchResult},
 };
+use rag_engine::api::source_rag::DEFAULT_COLLECTION_ID;
 use crate::chunker;
 use crate::embedding::EmbeddingProvider;
 use crate::extractor;
@@ -30,9 +31,12 @@ pub async fn ingest_text(
     metadata: Option<&str>,
     collection: Option<&str>,
 ) -> Result<i64> {
-    let source = source_rag::add_source(
+    let collection_id = collection.unwrap_or(DEFAULT_COLLECTION_ID).to_string();
+    let meta = metadata.map(|m| m.to_string()).unwrap_or_default();
+    let source = source_rag::add_source_in_collection(
+        collection_id.clone(),
         content.to_string(),
-        Some(collection.map(|c| format!("{{\"collection\":\"{}\"}}", c)).unwrap_or_else(|| metadata.map(|m| m.to_string()).unwrap_or_default())),
+        if meta.is_empty() { None } else { Some(meta) },
         Some(source_name.to_string()),
     )?;
 
@@ -99,13 +103,23 @@ pub async fn ingest_text(
     let count = source_rag::add_chunks(source.source_id, chunk_data)?;
     tracing::info!("Ingested {} chunks for source {} ({})", count, source.source_id, source_name);
 
-    // Rebuild HNSW index with ALL chunks (not per-collection — rag_engine uses a single global HNSW)
-    if let Err(e) = source_rag::rebuild_chunk_hnsw_index() {
-        tracing::warn!("Failed to rebuild HNSW index: {}", e);
+    // Mark source as completed
+    if let Err(e) = source_rag::update_source_status(source.source_id, "completed".to_string()) {
+        tracing::warn!("Failed to update source status: {}", e);
     }
-    // BM25 is also global
-    if let Err(e) = source_rag::rebuild_chunk_bm25_index() {
-        tracing::warn!("Failed to rebuild BM25 index: {}", e);
+
+    // Rebuild indexes for the target collection
+    if let Err(e) = source_rag::rebuild_chunk_hnsw_index_for_collection(collection_id.clone()) {
+        tracing::warn!("Failed to rebuild HNSW index for {}: {}", collection_id, e);
+    }
+    if let Err(e) = source_rag::rebuild_chunk_bm25_index_for_collection(collection_id.clone()) {
+        tracing::warn!("Failed to rebuild BM25 index for {}: {}", collection_id, e);
+    }
+
+    // Persist HNSW index to disk for fast startup
+    let index_path = format!("/home/loops/services/rag-ferrite/data/hnsw_{}.index", collection_id);
+    if let Err(e) = source_rag::save_collection_hnsw_index(collection_id.clone(), index_path) {
+        tracing::warn!("Failed to save HNSW index: {}", e);
     }
 
     Ok(source.source_id)
@@ -166,6 +180,16 @@ pub async fn search_hybrid_with_expansion(
     limit: usize,
     filter: Option<hybrid_search::SearchFilter>,
 ) -> Result<Vec<hybrid_search::HybridSearchResult>> {
+    // Activate the correct collection's indexes before searching
+    if let Some(ref f) = filter {
+        if let Some(ref coll) = f.collection_id {
+            let index_path = format!("/home/loops/services/rag-ferrite/data/hnsw_{}.index", coll);
+            if let Err(e) = source_rag::activate_collection_for_hybrid_search(coll.clone(), index_path) {
+                tracing::warn!("Failed to activate collection '{}': {}", coll, e);
+            }
+        }
+    }
+
     // Expand short queries (< 5 words) if LLM is available
     let queries = if let Some(llm_provider) = llm {
         let word_count = query.split_whitespace().count();

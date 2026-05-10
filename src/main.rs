@@ -90,19 +90,12 @@ impl RagLabServer {
         let p = params.0;
         let limit = p.limit.unwrap_or(10);
 
-        // Map collection param to metadata_like filter (stored in source metadata as JSON)
-        let meta_filter = p.collection.map(|c| format!("%\"collection\":\"{}\"%", c));
-        let combined_metadata = match (meta_filter, p.metadata_like) {
-            (Some(cf), Some(mf)) => Some(format!("{}{}{}", cf.trim_end_matches('%'), "%", mf)),
-            (Some(cf), None) => Some(cf),
-            (None, mf) => mf,
-        };
-
-        let filter = if p.source_ids.is_some() || combined_metadata.is_some() {
+        // Map collection param to collection_id filter
+        let filter = if p.source_ids.is_some() || p.collection.is_some() || p.metadata_like.is_some() {
             Some(rag_engine::api::hybrid_search::SearchFilter {
                 source_ids: p.source_ids,
-                metadata_like: combined_metadata,
-                collection_id: None,
+                metadata_like: p.metadata_like,
+                collection_id: p.collection,
             })
         } else {
             None
@@ -216,8 +209,14 @@ impl RagLabServer {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Log to file for debugging MCP issues
+    let log_file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("/home/loops/services/rag-ferrite/rag-ferrite.log")?;
     tracing_subscriber::fmt()
         .with_env_filter("rag_ferrite=debug,rag_engine=debug")
+        .with_writer(std::sync::Mutex::new(log_file))
         .init();
 
     let config = config::Config::load()?;
