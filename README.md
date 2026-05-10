@@ -6,34 +6,35 @@ Single binary, single database, multi-collection. Built in Rust because your per
 
 ## Why this exists
 
-Most RAG frameworks are built for enterprise. LangChain, LlamaIndex — they're powerful, but for a personal knowledge base they're overkill. You don't need 47 abstractions, a vector database, and 12 microservices to search through your PDFs.
+The RAG space is dominated by business solutions. LangChain, LlamaIndex, Pinecone, Weaviate — they're built for teams, for scale, for enterprise. And that's fine. But when you want to search through your own books, docs, and notes? You end up with 47 abstractions, a managed vector database subscription, and 12 microservices to do what amounts to: *put text in, get text out.*
 
-rag-ferrite is the opposite approach:
+**rag-ferrite is the personal take.**
 
-- **One binary** — no containers, no orchestration, no YAML files
-- **One database** — SQLite, backup with `cp`
-- **Any embedding provider** — local GPU (Ollama), OpenAI, OpenRouter, whatever fits your setup
-- **Collections** — not separate databases, not separate services, just a column
+- **One binary** — `cargo build --release`, done. No containers, no orchestration.
+- **One database** — SQLite. Backup with `cp`. No Pinecone, no Weaviate, no subscription.
+- **Any embedding provider** — Ollama on a GPU, OpenAI, OpenRouter, whatever. Change one URL in config.
+- **Collections** — not separate databases, not separate services. Just a column. Create on-the-fly.
 
-Think of it like Obsidian's graph — you organize notes into folders, link them together, search across everything. rag-ferrite does the same for any document: books, docs, papers, whatever. You throw text at it, it makes it searchable with semantic understanding.
+Think of it like Obsidian's graph for any document. You organize into collections, you search semantically across everything. Books, papers, API docs, RPG manuals — throw text at it, it makes it searchable.
+
+**Simple doesn't mean dumb.** Hybrid BM25 + HNSW search with RRF fusion. Custom chunker. GPU-accelerated embeddings. Persistent indexes. All in 15 MB of RAM at idle.
+
+## Why not just use LangChain?
+
+You absolutely can. LangChain is great — if you need multi-tenant isolation, pluggable retriever chains, agent orchestration, and a team to maintain the pipeline. For personal use, that's a lot of machinery for what boils down to: chunk text → embed → store → query. rag-ferrite does exactly that, no more, no less.
 
 ## Why not mcp-local-rag?
 
-We used [mcp-local-rag](https://github.com/nicholasgriffintn/mcp-local-rag) before building this. It's a fine project, but we hit walls:
+We used [mcp-local-rag](https://github.com/nicholasgriffintn/mcp-local-rag) before building this. It works, it's simple, and it got us started. But we wanted more control over the pipeline:
 
 | | mcp-local-rag | rag-ferrite |
 |---|---|---|
 | **Language** | TypeScript | Rust |
-| **Collections** | 3 separate instances (3× RAM, 3× processes) | 1 instance, native collection routing |
 | **Chunking** | Basic line-based | Custom recursive character splitter (800 chars, 20% overlap) |
 | **PDF extraction** | pdf-extract crate (75% empty pages on complex PDFs) | pdftotext via poppler-utils (gold standard) |
-| **Embeddings** | Local or API | bge-m3 on GPU (46ms/embedding) |
 | **Search** | Vector only | Hybrid BM25 + HNSW + RRF fusion |
 | **Index persistence** | Rebuild on every restart | HNSW saved to disk, lazy-loaded |
-| **Memory** | ~500 MB × 3 instances | ~15 MB idle, single process |
-| **Scalability** | Max ~3 collections before RAM runs out | Collections created on-the-fly, no limit |
-
-The main difference: **mcp-local-rag runs 3 separate services for 3 collections.** rag-ferrite runs 1 service with native collection support. On a home server with 8 GB RAM, that matters.
+| **Embeddings** | Local or API | Configurable — any OpenAI-compatible provider |
 
 ## Stack
 
@@ -41,7 +42,7 @@ The main difference: **mcp-local-rag runs 3 separate services for 3 collections.
 |---|---|---|
 | **RAG core** | [`rag_engine`](https://lib.rs/crates/rag_engine) v0.8.1 | HNSW, BM25, hybrid RRF fusion, SQLite — does the heavy lifting |
 | **MCP server** | [`rmcp`](https://github.com/anthropics/rmcp-rust-sdk) | Standard MCP protocol — works with Claude, Hermes, any MCP client |
-| **Embeddings** | BAAI/bge-m3 via Ollama | SOTA multilingual model, 1024 dims — but any OpenAI-compatible API works |
+| **Embeddings** | Configurable | Defaults to bge-m3 via Ollama, but any OpenAI-compatible API works |
 | **Storage** | SQLite + HNSW | One file, one backup, zero ops |
 | **HTTP bridge** | `axum` | REST API on port 3456 for non-MCP clients |
 
@@ -68,7 +69,7 @@ Collections are created on-the-fly during ingestion. No setup, no schema, just s
 ```
 Document → pdftotext extractor (PDFs) or raw text
          → Recursive character chunker (800 chars, 20% overlap)
-         → Batch embedding (bge-m3 on GPU)
+         → Batch embedding (any OpenAI-compatible provider)
          → SQLite + HNSW + BM25 indexes
          → Persist HNSW to disk
 
@@ -82,7 +83,7 @@ Query → MCP tool call
 
 | Metric | Value |
 |---|---|
-| Embedding | bge-m3 via Ollama on RTX 4050 — 46ms/embedding (swap for any OpenAI-compatible endpoint) |
+| Embedding | bge-m3 via Ollama on RTX 4050 — 46ms/embedding (swap for any provider) |
 | Ingestion | ~3.5 chunks/sec including embedding |
 | Query (warm) | ~300ms (index loaded from disk) |
 | Query (cold) | ~4s (first-time index build) |
@@ -110,7 +111,7 @@ rag_engine provides the core (HNSW, BM25, SQLite). We added:
 - **`src/chunker.rs`** — Recursive character text splitter with UTF-8 boundary safety. rag_engine's semantic chunker freezes on documents >100K chars and over-splits short paragraphs.
 - **`src/engine.rs`** — Collection-aware ingestion with proper `collection_id` routing, status tracking, and HNSW index persistence per collection.
 - **`src/pipeline.rs`** — Adaptive query routing (simple/standard/complex) with reranker passthrough when disabled.
-- **`src/embedding.rs`** — Batch Ollama embedding with correct API format (`input` not `prompt`, `embeddings` not `embedding`).
+- **`src/embedding.rs`** — Batch embedding with proper API format (`input` not `prompt`, `embeddings` not `embedding`).
 - **`src/main.rs`** — Dual MCP + HTTP mode with file logging for debugging.
 
 ## Configuration
@@ -124,7 +125,7 @@ http_port = 3456
 provider = "ollama"
 model = "bge-m3:latest"
 dimensions = 1024
-base_url = "http://192.168.1.111:11434"   # Ollama on GPU machine (or OpenRouter, OpenAI, etc.)
+base_url = "http://192.168.1.111:11434"   # Ollama, OpenRouter, OpenAI — your call
 
 [llm]
 context_enabled = false   # Disable for bulk ingestion (rate limit avoidance)
@@ -133,7 +134,7 @@ context_enabled = false   # Disable for bulk ingestion (rate limit avoidance)
 ## Requirements
 
 - Rust toolchain (edition 2021)
-- Ollama with bge-m3 model (GPU recommended, CPU works) — or any OpenAI-compatible embedding API
+- An embedding provider — Ollama with bge-m3 (GPU recommended, CPU works), or any OpenAI-compatible API
 - `poppler-utils` for PDF extraction (`apt install poppler-utils`)
 
 ## License
