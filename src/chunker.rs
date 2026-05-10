@@ -1,10 +1,10 @@
 /// Recursive character text splitter with overlap (UTF-8 safe)
 ///
 /// chunk_size: ~1000 chars (~250 tokens, optimal per RAG Cookbook)
-/// overlap: 20% for context preservation
+/// overlap: 10% for context preservation
 pub fn chunk_text(text: &str, chunk_size: usize) -> Vec<Chunk> {
     let separators = ["\n\n", "\n", ". ", " "];
-    let overlap = (chunk_size as f64 * 0.2) as usize;
+    let overlap = (chunk_size as f64 * 0.1) as usize;
 
     let mut chunks = Vec::new();
     let chars: Vec<char> = text.chars().collect();
