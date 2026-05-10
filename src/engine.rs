@@ -11,13 +11,18 @@ use crate::embedding::EmbeddingProvider;
 use crate::extractor;
 use crate::llm::LlmProvider;
 
+/// Stored DB path so list_sources/stats can query across all collections.
+static DB_PATH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
 /// Initialize rag_engine: logger + DB pool + schema
 pub fn init(data_dir: &std::path::Path) -> Result<()> {
     simple::init_core();
     let db_path = data_dir.join("rag.sqlite3");
     std::fs::create_dir_all(data_dir)?;
-    db_pool::init_db_pool(db_path.to_string_lossy().to_string(), 4)?;
+    let db_path_str = db_path.to_string_lossy().to_string();
+    db_pool::init_db_pool(db_path_str.clone(), 4)?;
     source_rag::init_source_db()?;
+    let _ = DB_PATH.set(db_path_str);
     tracing::info!("rag_engine DB initialized at {}", db_path.display());
     Ok(())
 }
@@ -250,16 +255,47 @@ pub fn get_neighbors(source_id: i64, chunk_index: i64, before: i64, after: i64) 
     Ok(chunks)
 }
 
-/// List all sources
+/// List all sources across all collections.
+///
+/// Queries the `sources` table directly instead of using
+/// `source_rag::list_sources()` which hardcodes the `__default__` collection.
 pub fn list_sources() -> Result<Vec<source_rag::SourceEntry>> {
-    Ok(source_rag::list_sources()?)
+    let db_path = DB_PATH.get().ok_or_else(|| anyhow::anyhow!("DB not initialized"))?;
+    let conn = rusqlite::Connection::open(db_path)?;
+
+    let mut stmt = conn.prepare(
+        "SELECT id, name, created_at, metadata, status, collection_id
+         FROM sources
+         ORDER BY id DESC",
+    )?;
+
+    let entries: Vec<source_rag::SourceEntry> = stmt.query_map([], |row| {
+        Ok(source_rag::SourceEntry {
+            id: row.get(0)?,
+            name: row.get(1)?,
+            created_at: row.get(2)?,
+            metadata: row.get(3)?,
+            status: row.get(4)?,
+            collection_id: row.get(5)?,
+        })
+    })?.filter_map(|e| e.ok()).collect();
+
+    Ok(entries)
 }
 
-/// Get stats
+/// Get stats across all collections.
 pub fn stats() -> Result<Stats> {
-    let sources = source_rag::list_sources()?;
+    let db_path = DB_PATH.get().ok_or_else(|| anyhow::anyhow!("DB not initialized"))?;
+    let conn = rusqlite::Connection::open(db_path)?;
+
+    let count: usize = conn.query_row(
+        "SELECT COUNT(*) FROM sources",
+        [],
+        |row| row.get::<_, i64>(0),
+    )? as usize;
+
     Ok(Stats {
-        document_count: sources.len(),
+        document_count: count,
     })
 }
 
