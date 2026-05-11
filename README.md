@@ -56,6 +56,18 @@ Think of it as a semantic search engine for your personal library. Books, papers
 
 **Simple doesn't mean dumb.** Hybrid BM25 + HNSW search with RRF fusion. Custom chunker. GPU-accelerated embeddings. Persistent indexes. All in 15 MB of RAM at idle.
 
+## What rag-ferrite is (and isn't)
+
+rag-ferrite is a **textual document retrieval engine**. It excels at making dense, structured content searchable — books, technical documentation, research papers, RPG manuals, API docs.
+
+**It is not:**
+
+- **A knowledge graph.** There's no entity extraction, no relationship mapping, no graph traversal. If your use case is connecting hundreds of fragmented notes via semantic links (à la Obsidian), you need a different tool — one that builds and queries a graph, not just a vector index.
+- **A multimodal processor.** Images, tables, equations, charts — rag-ferrite doesn't process them. It manages text. Extract text first, then feed it to the engine. This is by design: separation of concerns keeps the pipeline predictable and debuggable.
+- **An Obsidian plugin.** Pointing a vector search at a vault of 500 three-line notes won't give you a "second brain." It'll give you 500 poorly-embedded chunks with no structure. The value of Obsidian is the graph of links between notes — and that graph is lost the moment you chunk files into vectors.
+
+**Why no knowledge graph?** Because for structured documents (books, papers, docs), vector + keyword search is simpler, faster, and often more accurate than graph-based retrieval. A knowledge graph becomes essential when you're dealing with fragmented, interconnected notes — a fundamentally different problem that deserves its own tool.
+
 ## Why not just use LangChain?
 
 You absolutely can. LangChain is great — if you need multi-tenant isolation, pluggable retriever chains, agent orchestration, and a team to maintain the pipeline. For personal use, that's a lot of machinery for what boils down to: chunk text → embed → store → query. rag-ferrite does exactly that, no more, no less.
