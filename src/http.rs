@@ -25,6 +25,7 @@ pub struct AppState {
     pub embedder: EmbeddingProvider,
     pub llm: Option<LlmProvider>,
     pub api_key: Option<String>,
+    pub max_concurrent: usize,
 }
 
 // --- Request/Response types ---
@@ -117,7 +118,7 @@ pub async fn ingest_file(
     Json(req): Json<IngestFileRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
     let coll = req.collection.as_deref();
-    match engine::ingest_file(&state.embedder, state.llm.as_ref(), &req.file_path, coll).await {
+    match engine::ingest_file(&state.embedder, state.llm.as_ref(), &req.file_path, coll, state.max_concurrent).await {
         Ok(id) => Ok(Json(serde_json::json!({
             "status": "ok",
             "source_id": id,
@@ -145,7 +146,7 @@ pub async fn ingest_data(
     Json(req): Json<IngestDataRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
     let coll = req.collection.as_deref();
-    match engine::ingest_text(&state.embedder, state.llm.as_ref(), &req.content, &req.source, None, coll).await {
+    match engine::ingest_text(&state.embedder, state.llm.as_ref(), &req.content, &req.source, None, coll, state.max_concurrent).await {
         Ok(id) => Ok(Json(serde_json::json!({
             "status": "ok",
             "source_id": id,

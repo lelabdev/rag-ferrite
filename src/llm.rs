@@ -2,6 +2,7 @@ use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 
 /// LLM provider for contextual retrieval and other text generation tasks.
+/// Supports a primary provider with an optional fallback for resilience.
 #[derive(Debug, Clone)]
 pub struct LlmProvider {
     provider: String,
@@ -9,6 +10,8 @@ pub struct LlmProvider {
     api_key: Option<String>,
     base_url: String,
     client: reqwest::Client,
+    /// Fallback provider used when primary fails (rate limit, network, etc.)
+    fallback: Option<Box<LlmProvider>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -17,6 +20,8 @@ struct ChatRequest {
     messages: Vec<ChatMessage>,
     temperature: f32,
     max_tokens: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    thinking: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -44,13 +49,33 @@ impl LlmProvider {
     ) -> Self {
         let api_key = api_key
             .or_else(|| std::env::var("LLM_API_KEY").ok())
-            .or_else(|| std::env::var("ZAI_API_KEY").ok());
+            .or_else(|| std::env::var("FALLBACK_API_KEY").ok());
 
-        let base_url = base_url.unwrap_or_else(|| match provider.as_str() {
-            "zai" => "https://api.z.ai/api/paas/v4".into(),
-            "openai" => "https://api.openai.com/v1".into(),
-            "ollama" => "http://localhost:11434".into(),
-            _ => "https://api.openai.com/v1".into(),
+        Self::build(provider, model, api_key, base_url)
+    }
+
+    pub fn new_fallback(
+        provider: String,
+        model: String,
+        api_key: Option<String>,
+        base_url: Option<String>,
+    ) -> Self {
+        let api_key = api_key
+            .or_else(|| std::env::var("FALLBACK_API_KEY").ok())
+            .or_else(|| std::env::var("LLM_API_KEY").ok());
+
+        Self::build(provider, model, api_key, base_url)
+    }
+
+    fn build(
+        provider: String,
+        model: String,
+        api_key: Option<String>,
+        base_url: Option<String>,
+    ) -> Self {
+        let base_url = base_url.unwrap_or_else(|| {
+            tracing::warn!("No base_url configured for LLM provider '{}', using http://localhost:11434", provider);
+            "http://localhost:11434".into()
         });
 
         Self {
@@ -59,7 +84,14 @@ impl LlmProvider {
             api_key,
             base_url,
             client: reqwest::Client::new(),
+            fallback: None,
         }
+    }
+
+    /// Set a fallback LLM provider. Used when primary fails.
+    pub fn with_fallback(mut self, fallback: LlmProvider) -> Self {
+        self.fallback = Some(Box::new(fallback));
+        self
     }
 
     /// Generate a context prefix for a chunk using the LLM.
@@ -87,7 +119,18 @@ impl LlmProvider {
             content: prompt,
         }];
 
-        let response_text = self.chat(messages).await?;
+        let response_text = match self.chat(messages.clone()).await {
+            Ok(text) => text,
+            Err(e) => {
+                if let Some(ref fb) = self.fallback {
+                    tracing::warn!("Primary LLM ({}/{}) failed: {}. Trying fallback ({}/{})",
+                        self.provider, self.model, e, fb.provider, fb.model);
+                    fb.chat(messages).await?
+                } else {
+                    return Err(e);
+                }
+            }
+        };
         Ok(response_text.trim().to_string())
     }
 
@@ -97,8 +140,9 @@ impl LlmProvider {
         &self,
         whole_document: &str,
         chunks: &[String],
+        max_concurrent: usize,
     ) -> Vec<Result<String>> {
-        let sem = Arc::new(tokio::sync::Semaphore::new(10));
+        let sem = Arc::new(tokio::sync::Semaphore::new(max_concurrent));
         let mut handles = Vec::with_capacity(chunks.len());
 
         for chunk in chunks {
@@ -126,7 +170,7 @@ impl LlmProvider {
     /// Send a chat completion request.
     async fn chat(&self, messages: Vec<ChatMessage>) -> Result<String> {
         match self.provider.as_str() {
-            "zai" | "openai" => self.chat_openai_compatible(messages).await,
+            _ => self.chat_openai_compatible(messages).await,
             "ollama" => self.chat_ollama(messages).await,
             _ => Err(anyhow!("Unknown LLM provider: {}", self.provider)),
         }
@@ -191,9 +235,9 @@ impl LlmProvider {
         max_tokens: u32,
     ) -> Result<String> {
         match self.provider.as_str() {
-            "zai" | "openai" => {
+            _ => {
                 let api_key = self.api_key.as_ref()
-                    .ok_or_else(|| anyhow!("API key required for {}. Set LLM_API_KEY or ZAI_API_KEY.", self.provider))?;
+                    .ok_or_else(|| anyhow!("API key required for {}. Set LLM_API_KEY or FALLBACK_API_KEY.", self.provider))?;
 
                 let url = format!("{}/chat/completions", self.base_url);
 
@@ -202,6 +246,7 @@ impl LlmProvider {
                     messages,
                     temperature,
                     max_tokens,
+                    thinking: Some(serde_json::json!({"type": "disabled"})),
                 };
 
                 let resp = self.client
@@ -278,7 +323,7 @@ impl LlmProvider {
     /// OpenAI-compatible chat endpoint (Z.ai, OpenAI, etc.)
     async fn chat_openai_compatible(&self, messages: Vec<ChatMessage>) -> Result<String> {
         let api_key = self.api_key.as_ref()
-            .ok_or_else(|| anyhow!("API key required for {}. Set LLM_API_KEY or ZAI_API_KEY.", self.provider))?;
+            .ok_or_else(|| anyhow!("API key required for {}. Set LLM_API_KEY or FALLBACK_API_KEY.", self.provider))?;
 
         let url = format!("{}/chat/completions", self.base_url);
 
@@ -287,6 +332,7 @@ impl LlmProvider {
             messages,
             temperature: 0.3,
             max_tokens: 150,
+            thinking: Some(serde_json::json!({"type": "disabled"})),
         };
 
         let resp = self.client

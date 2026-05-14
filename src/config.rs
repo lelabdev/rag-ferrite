@@ -74,7 +74,7 @@ impl Default for EmbeddingConfig {
 
 #[derive(Debug, Deserialize)]
 pub struct LlmConfig {
-    /// LLM provider: "zai", "openai", "ollama"
+    /// LLM provider: "ollama", "zai", "openai"
     #[serde(default = "default_llm_provider")]
     pub provider: String,
 
@@ -93,18 +93,40 @@ pub struct LlmConfig {
     /// Enable contextual retrieval (LLM context prefix)
     #[serde(default = "default_context_enabled")]
     pub context_enabled: bool,
+
+    /// Max concurrent LLM requests for contextual retrieval
+    #[serde(default = "default_max_concurrent")]
+    pub max_concurrent: usize,
+
+    /// Fallback LLM config — used when primary fails (rate limit, network, etc.)
+    #[serde(default)]
+    pub fallback: Option<FallbackLlmConfig>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct FallbackLlmConfig {
+    pub provider: String,
+    pub model: String,
+    #[serde(default)]
+    pub api_key: Option<String>,
+    #[serde(default)]
+    pub base_url: Option<String>,
 }
 
 fn default_llm_provider() -> String {
-    "zai".into()
+    "ollama".into()
 }
 
 fn default_llm_model() -> String {
-    "glm-4.7-flash".into()
+    "gemma4:e4b".into()
 }
 
 fn default_context_enabled() -> bool {
     true
+}
+
+fn default_max_concurrent() -> usize {
+    3
 }
 
 impl Default for LlmConfig {
@@ -115,6 +137,8 @@ impl Default for LlmConfig {
             api_key: None,
             base_url: None,
             context_enabled: true,
+            max_concurrent: 3,
+            fallback: None,
         }
     }
 }

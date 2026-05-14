@@ -197,20 +197,35 @@ rag_engine provides the core (HNSW, BM25, SQLite). We added:
 ```toml
 # config.toml
 data_dir = "./data"
+http_port = 3456
 
 [embedding]
-provider = "ollama"             # "ollama" or "openai" (any OpenAI-compatible API)
+provider = "ollama"
 model = "bge-m3:latest"
 dimensions = 1024
 base_url = "http://localhost:11434"
-# api_key = "sk-..."           # For OpenAI/OpenRouter — or set EMBEDDING_API_KEY env var
-
-[http]
-port = 3456
 
 [llm]
-context_enabled = false         # Enable contextual retrieval (needs LLM API key)
+provider = "your-provider"              # Any OpenAI-compatible provider
+model = "your-model-here"
+base_url = "https://your-provider-url/v1"
+context_enabled = true              # Enable contextual retrieval (Anthropic technique)
+max_concurrent = 3                 # Max parallel LLM requests (lower for rate-limited APIs)
+# api_key loaded from LLM_API_KEY env var
+
+# Optional: fallback LLM when primary is unavailable
+# [llm.fallback]
+# provider = "your-provider"
+# model = "your-fallback-model"
+# base_url = "https://your-provider-url/v1"
+# api_key loaded from FALLBACK_API_KEY env var
 ```
+
+### Contextual retrieval
+
+The LLM is used for **contextual retrieval** — generating a 1-2 sentence context prefix for each chunk before embedding. This dramatically improves search quality (Anthropic's technique). Any instruction-following model works. Popular free options on OpenRouter include Qwen3 Next 80B, GLM 4.5 Air, and Gemma 4 31B. For local inference, Gemma 4 E2B Q4 fits in 6GB VRAM.
+
+Set your API key in the `.env` file (see `.env.example`).
 
 ## Requirements
 

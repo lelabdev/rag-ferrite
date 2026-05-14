@@ -21,6 +21,7 @@ mod types;
 #[derive(Debug, Clone)]
 struct RagLabServer {
     pipeline: pipeline::QueryPipeline,
+    max_concurrent: usize,
 }
 
 // --- Tool parameter structs ---
@@ -127,7 +128,7 @@ impl RagLabServer {
     async fn ingest_file(&self, params: Parameters<IngestFileParams>) -> String {
         let p = params.0;
         let coll = p.collection.as_deref();
-        match engine::ingest_file(&self.pipeline.embedder, self.pipeline.llm.as_ref(), &p.file_path, coll).await {
+        match engine::ingest_file(&self.pipeline.embedder, self.pipeline.llm.as_ref(), &p.file_path, coll, self.max_concurrent).await {
             Ok(id) => serde_json::json!({
                 "status": "ok",
                 "source_id": id,
@@ -142,7 +143,7 @@ impl RagLabServer {
     async fn ingest_data(&self, params: Parameters<IngestDataParams>) -> String {
         let p = params.0;
         let coll = p.collection.as_deref();
-        match engine::ingest_text(&self.pipeline.embedder, self.pipeline.llm.as_ref(), &p.content, &p.source, None, coll).await {
+        match engine::ingest_text(&self.pipeline.embedder, self.pipeline.llm.as_ref(), &p.content, &p.source, None, coll, self.max_concurrent).await {
             Ok(id) => serde_json::json!({
                 "status": "ok",
                 "source_id": id,
@@ -237,13 +238,29 @@ async fn main() -> Result<()> {
 
     // Init LLM provider (optional, for contextual retrieval)
     let llm = if config.llm.context_enabled {
-        let provider = llm::LlmProvider::new(
+        let mut provider = llm::LlmProvider::new(
             config.llm.provider.clone(),
             config.llm.model.clone(),
             config.llm.api_key.clone(),
             config.llm.base_url.clone(),
         );
-        tracing::info!("LLM provider: {} / {} (contextual retrieval enabled)", config.llm.provider, config.llm.model);
+
+        // Set up fallback if configured
+        if let Some(ref fb) = config.llm.fallback {
+            let fb_provider = llm::LlmProvider::new_fallback(
+                fb.provider.clone(),
+                fb.model.clone(),
+                fb.api_key.clone(),
+                fb.base_url.clone(),
+            );
+            provider = provider.with_fallback(fb_provider);
+            tracing::info!("LLM provider: {} / {} → fallback: {} / {} (contextual retrieval enabled)",
+                config.llm.provider, config.llm.model, fb.provider, fb.model);
+        } else {
+            tracing::info!("LLM provider: {} / {} (contextual retrieval enabled)",
+                config.llm.provider, config.llm.model);
+        }
+
         Some(provider)
     } else {
         tracing::info!("Contextual retrieval disabled");
@@ -258,6 +275,7 @@ async fn main() -> Result<()> {
             quality_threshold: 0.3,
             max_retries: 1,
         },
+        max_concurrent: config.llm.max_concurrent,
     };
 
     // Mode: stdio-only or dual (stdio + HTTP)
@@ -266,19 +284,11 @@ async fn main() -> Result<()> {
             embedder,
             llm,
             api_key: None,
+            max_concurrent: config.llm.max_concurrent,
         };
 
-        tracing::info!("Starting dual mode: MCP stdio + HTTP on port {}", config.http_port);
-        let http_port = config.http_port;
-
-        tokio::select! {
-            r = async {
-                let service = server.serve(rmcp::transport::io::stdio()).await?;
-                service.waiting().await?;
-                Ok::<(), anyhow::Error>(())
-            } => r?,
-            r = http::start_server(http_state, http_port) => r?,
-        }
+        tracing::info!("Starting HTTP server on port {} (no MCP stdio)", config.http_port);
+        http::start_server(http_state, config.http_port).await?;
     } else {
         tracing::info!("Starting MCP server on stdio...");
         let service = server.serve(rmcp::transport::io::stdio()).await?;

@@ -35,6 +35,7 @@ pub async fn ingest_text(
     source_name: &str,
     metadata: Option<&str>,
     collection: Option<&str>,
+    max_concurrent: usize,
 ) -> Result<i64> {
     let collection_id = collection.unwrap_or(DEFAULT_COLLECTION_ID).to_string();
     let meta = metadata.map(|m| m.to_string()).unwrap_or_default();
@@ -71,7 +72,7 @@ pub async fn ingest_text(
         // Process in batches of 20 for rate limiting
         let mut all_contexts: Vec<Option<String>> = Vec::with_capacity(chunks.len());
         for batch in chunk_texts.chunks(20) {
-            let results = llm_provider.generate_context_batch(content, batch).await;
+            let results = llm_provider.generate_context_batch(content, batch, max_concurrent).await;
             for result in results {
                 match result {
                     Ok(ctx) => all_contexts.push(Some(ctx)),
@@ -150,6 +151,7 @@ pub async fn ingest_file(
     llm: Option<&LlmProvider>,
     file_path: &str,
     collection: Option<&str>,
+    max_concurrent: usize,
 ) -> Result<i64> {
     // Use our custom extractor instead of rag_engine's document_parser
     let text = extractor::extract_text(file_path)?;
@@ -158,7 +160,6 @@ pub async fn ingest_file(
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_else(|| file_path.to_string());
-
     ingest_text(
         embedder,
         llm,
@@ -166,6 +167,7 @@ pub async fn ingest_file(
         &name,
         Some(&format!("{{\"path\":\"{}\"}}", file_path)),
         collection,
+        max_concurrent,
     )
     .await
 }
