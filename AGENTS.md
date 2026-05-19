@@ -1,121 +1,128 @@
 # rag-ferrite — Custom RAG Engine (Rust)
 
-Moteur RAG custom du lab, en Rust. Buildé sur `rag_engine` + `rmcp` + couches différenciantes.
+Moteur RAG personnel, en Rust. MCP server unique exposé via stdio a Hermes.
 
-## Stack technique
+## Stack
 
-| Composant | Choix | Rôle |
+| Composant | Choix | Role |
 |---|---|---|
-| **Cœur RAG** | `rag_engine` v0.8.1 | HNSW vector search, BM25, hybrid fusion (RRF), SQLite storage, semantic chunking, doc parsing |
-| **MCP Server** | `rmcp` | Exposition en tant que MCP server (stdio + SSE) |
-| **Embeddings** | API externe (OpenAI/Cohere/Qwen) ou Ollama local | Vecteurs — plug notre propre provider |
-| **Stockage** | SQLite + HNSW | 1 fichier par RAG, backup = cp |
-| **HTTP Bridge** | `axum` | SSE endpoint (remplace le dojo) |
-| **LLM calls** | `rig` ou custom | Contextual retrieval, query expansion, reranking |
+| Coeur RAG | rag_engine v0.8.1 | HNSW vector search, BM25, hybrid fusion (RRF), SQLite storage, semantic chunking, doc parsing |
+| MCP Server | rmcp | Exposition stdio via Hermes |
+| Embeddings | Ollama (bge-m3) | Vecteurs locaux |
+| Stockage | SQLite + HNSW | 1 fichier DB, backup = cp |
+| LLM | Z.AI (glm-4.5-flash) | Contextual retrieval |
 
 ## Architecture
 
-```
-rag-ferrite (binaire unique)
-├── config.toml          ← Quel RAG, quel port, quel embedding provider
-├── data/
-│   ├── rag-code.sqlite3
-│   ├── rag-business.sqlite3
-│   ├── rag-general.sqlite3
-│   └── rag-rpg.sqlite3
-└── indexes/             ← HNSW indexes persistés
-```
+Binaire unique, mode MCP stdio uniquement. Pas de HTTP, pas de SSE, pas de bridge.
 
-**4 instances du même binaire**, chacune avec son dossier de données. Comme des workers — même code, différentes données.
+~/services/rag-ferrite/
+  rag-ferrite          <- binaire
+  rag-ferrite-mcp      <- wrapper (cd + exec)
+  config.toml          <- config runtime
+  .env                 <- LLM_API_KEY
+  data/
+    rag.sqlite3
+    rag.sqlite3-shm
+    rag.sqlite3-wal
+    hnsw_*.hnsw.data
+    hnsw_*.hnsw.graph
+  rag-ferrite.log
 
-Pourquoi séparé :
-- Routing clair — une instance Hermes utilise UN RAG ciblé
-- Partage sélectif — le dojo expose rag-business, pas rag-code
-- Cycle de vie indépendant — réindexer un RAG sans toucher les autres
-- Isolation — un RAG corrompu n'en touche pas un autre
+Code source : ~/dev/rag-ferrite/rag-ferrite/
+Deploiement : copie du binaire compile vers ~/services/rag-ferrite/
 
-## Pipeline cible
+## Config
 
-```
-Document → Document-aware chunking (markdown_chunk / semantic_chunk)
-         → Contextual retrieval (LLM context prefix)
-         → Metadata enrichment (section, source, type, date)
-         → Embedding (API ou local)
-         → SQLite + HNSW index
+config.toml (dans le cwd au lancement) :
 
-Query → MCP tool call
-      → [Router] simple / standard / complex
-      → [Si complexe] Query expansion (multi-query)
-      → Hybrid retrieval (BM25 + HNSW + RRF)
-      → Cross-encoder reranking
-      → [Quality gate] Score de confiance
-      → [Si faible] Corrective RAG (retry / fallback)
-      → Top-k chunks + neighbors
-```
+  data_dir = "/home/loops/services/rag-ferrite/data"
 
-## Ce que rag_engine donne GRATUITEMENT
+  [embedding]
+  provider = "ollama"
+  model = "bge-m3:latest"
+  dimensions = 1024
+  base_url = "http://100.88.8.1:11434"   # Tailscale TufTux
 
-| Feature | Module | Statut |
-|---|---|---|
-| Vector search (HNSW) | `hnsw_index` | ✅ |
-| BM25 keyword search | `bm25_search` | ✅ |
-| Hybrid search + RRF | `hybrid_search` + `RrfConfig` | ✅ |
-| Semantic chunking | `semantic_chunker` | ✅ |
-| Markdown-aware chunking | `markdown_chunk` avec header path | ✅ |
-| PDF parsing | `pdf-extract` | ✅ |
-| DOCX parsing | `docx-lite` | ✅ |
-| SQLite storage | `db_pool` + `source_rag` | ✅ |
-| Multi-collections | `source_rag` collections | ✅ |
-| Chunk neighbors | `get_adjacent_chunks` | ✅ |
-| Metadata filtering | `SearchFilter` | ✅ (partiel) |
-| Tokenization | HuggingFace tokenizers | ✅ |
-| Compression | `compression_utils` | ✅ Bonus |
+  [llm]
+  provider = "zai"
+  model = "glm-4.5-flash"
+  base_url = "https://api.z.ai/api/coding/paas/v4"
+  context_enabled = true
+  max_concurrent = 2
 
-## Ce qu'on CODE par-dessus
+API key via .env -> LLM_API_KEY.
 
-| Feature | Effort |
+## Collections
+
+Multi-collections dans la meme DB. Chaque outil MCP accepte un parametre collection optionnel.
+
+## Pipeline
+
+  Document -> Document-aware chunking (markdown_chunk / semantic_chunk)
+           -> Contextual retrieval (LLM context prefix)
+           -> Metadata enrichment (section, source, type, date)
+           -> Embedding (Ollama bge-m3)
+           -> SQLite + HNSW index
+
+  Query -> MCP tool call
+        -> [Si complexe] Query expansion (multi-query)
+        -> Hybrid retrieval (BM25 + HNSW + RRF)
+        -> Cross-encoder reranking
+        -> [Quality gate] Score de confiance
+        -> [Si faible] Corrective RAG (retry / fallback)
+        -> Top-k chunks + neighbors
+
+## Outils MCP (7)
+
+| Outil | Description |
 |---|---|
-| Contextual retrieval (LLM context prefix) | ⭐⭐ |
-| Cross-encoder reranking | ⭐⭐ |
-| Query expansion (multi-query) | ⭐⭐ |
-| MCP server (rmcp) | ⭐⭐ |
-| Corrective RAG (quality gate) | ⭐⭐ |
-| Adaptive RAG (query router) | ⭐⭐ |
-| Évaluation (metrics: recall, MRR, nDCG) | ⭐⭐⭐ |
-| Embedding provider abstraction | ⭐⭐ |
-| HTTP SSE bridge (axum, remplace dojo) | ⭐⭐ |
+| query_documents | Recherche hybride (BM25 + vector + RRF) avec filtres |
+| ingest_file | Ingest un fichier (PDF, DOCX, TXT, MD) |
+| ingest_data | Ingest du contenu brut (texte, HTML, markdown) |
+| delete_file | Supprime un document par source_id |
+| list_files | Liste les documents indexes |
+| status | Stats : nombre de documents |
+| read_chunk_neighbors | Chunks adjacents pour expansion de contexte |
 
-## Comparaison avec l'existant
+## Ce que rag_engine fournit
 
-| | Avant (mcp-local-rag) | Après (rag-ferrite) |
-|---|---|---|
-| Runtime | Node.js, ~60 MB × 4 instances | Rust, ~10-15 MB × 4 |
-| Stockage | LanceDB (4 dossiers) | SQLite (4 fichiers) |
-| Recherche | Hybride basique | Hybride RRF + poids custom + filtres SQL |
-| Chunking | Fixe, boîte noire | Sémantique + Markdown-aware + overlap |
-| Metadata filtering | ❌ | ✅ SQL |
-| Contextual retrieval | ❌ | ✅ |
-| Reranking | ❌ | ✅ |
-| Query expansion | ❌ | ✅ |
-| Corrective RAG | ❌ | ✅ |
-| MCP server | Via Hermes config | Natif (rmcp) |
-| Bridge HTTP | Dojo séparé | Intégré |
-| Évaluation | ❌ | ✅ Metrics intégrées |
+| Feature | Module |
+|---|---|
+| Vector search (HNSW) | hnsw_index |
+| BM25 keyword search | bm25_search |
+| Hybrid search + RRF | hybrid_search |
+| Semantic chunking | semantic_chunker |
+| Markdown-aware chunking | markdown_chunk |
+| PDF / DOCX parsing | pdf-extract / docx-lite |
+| SQLite storage | db_pool + source_rag |
+| Multi-collections | source_rag |
+| Chunk neighbors | get_adjacent_chunks |
+| Metadata filtering | SearchFilter |
+| Tokenization | HuggingFace tokenizers |
+| Compression | compression_utils |
 
-## Sources de recherche
+## Ce qu on code par-dessus
 
-- *RAG with Python Cookbook* (Deepak Dhyani)
-- *Agentic Architectural Patterns* (Arsanjani & Bustos)
-- Anthropic — Contextual Retrieval (2024)
-- Hub France IA — Évaluation des Chaînes de RAG (2025)
-- rag_engine crate — https://lib.rs/crates/rag_engine
-- rmcp — Rust MCP SDK
-- rig — https://github.com/0xPlaygrounds/rig (4.6k stars)
+- Contextual retrieval (LLM context prefix)
+- Cross-encoder reranking
+- Query expansion (multi-query)
+- Corrective RAG (quality gate)
+- Embedding provider abstraction
+- Evaluation (metrics: recall, MRR, nDCG)
 
-## Rôles
+## Build & Deploy
 
-- **Ludo** : priorisation, cas clients, go/no-go
-- **Mako** : implémentation Rust, benchmarks, tests, PRs
+  cd ~/dev/rag-ferrite/rag-ferrite
+  cargo build --release
+  cp target/release/rag-ferrite ~/services/rag-ferrite/rag-ferrite
+
+Pas de docker, pas de systemd. Hermes lance le wrapper rag-ferrite-mcp en stdio.
+
+## Roles
+
+- Ludo : priorisation, go/no-go
+- Mako : implementation Rust, tests, PRs
 
 ## License
 

@@ -2,7 +2,7 @@
 
 A personal RAG engine that does one thing well: **turn your documents into queryable knowledge, fast.**
 
-Single binary, single database, multi-collection. Built in Rust because your personal knowledge base shouldn't need a Kubernetes cluster.
+Single binary, single database, multi-collection. MCP-native. Built in Rust because your personal knowledge base shouldn't need a Kubernetes cluster.
 
 ## Quick start
 
@@ -17,29 +17,13 @@ cp config.example.toml config.toml
 
 # 3. Run
 ./target/release/rag-ferrite
-# → MCP server on stdin, HTTP API on http://localhost:3456
+# → MCP server on stdin, ready for Hermes / Claude / any MCP client
 ```
 
-That's it. Ingest your first document:
+That's it. Use it from your MCP client, or ingest your first document via the MCP tools:
 
-```bash
-# Via HTTP API
-curl -X POST http://localhost:3456/ingest/data \
-  -H "Content-Type: application/json" \
-  -d '{"content": "Your text here", "source": "my-first-doc"}'
-
-# Or ingest a PDF
-curl -X POST http://localhost:3456/ingest/file \
-  -H "Content-Type: application/json" \
-  -d '{"file_path": "/path/to/document.pdf", "collection": "my-docs"}'
-
-# Query it
-curl -X POST http://localhost:3456/query \
-  -H "Content-Type: application/json" \
-  -d '{"query": "what did I write about?"}'
-```
-
-For MCP integration (Claude, Hermes, etc.), see [Configuration](#configuration) below.
+- `ingest_file("/path/to/document.pdf", collection: "my-docs")`
+- `query_documents("what did I write about?", collection: "my-docs")`
 
 ## Why this exists
 
@@ -51,10 +35,11 @@ The RAG space is dominated by business solutions. LangChain, LlamaIndex, Pinecon
 - **One database** — SQLite. Backup with `cp`. No Pinecone, no Weaviate, no subscription.
 - **Any embedding provider** — Ollama (local, free), OpenAI, OpenRouter, whatever. Change one URL in config.
 - **Collections** — not separate databases, not separate services. Just a column. Create on-the-fly.
+- **MCP-native** — runs as a stdio MCP server. No HTTP overhead, no auth layer, no port to expose.
 
 Think of it as a semantic search engine for your personal library. Books, papers, API docs, RPG manuals — throw text at it, it makes it searchable.
 
-**Simple doesn't mean dumb.** Hybrid BM25 + HNSW search with RRF fusion. Custom chunker. GPU-accelerated embeddings. Persistent indexes. All in 15 MB of RAM at idle.
+**Simple doesn't mean dumb.** Hybrid BM25 + HNSW search with RRF fusion. Contextual retrieval. Custom chunker. Persistent indexes. All in 15 MB of RAM at idle.
 
 ## What rag-ferrite is (and isn't)
 
@@ -93,19 +78,17 @@ We used [mcp-local-rag](https://github.com/nicholasgriffintn/mcp-local-rag) befo
 | **MCP server** | [`rmcp`](https://github.com/anthropics/rmcp-rust-sdk) | Standard MCP protocol — works with Claude, Hermes, any MCP client |
 | **Embeddings** | Configurable | Defaults to bge-m3 via Ollama, but any OpenAI-compatible API works |
 | **Storage** | SQLite + HNSW | One file, one backup, zero ops |
-| **HTTP bridge** | `axum` | REST API on port 3456 for non-MCP clients |
 
 ## Architecture
 
 ```
 rag-ferrite/
 ├── config.toml
+├── .env                 ← LLM_API_KEY for contextual retrieval
 ├── data/
-│   ├── rag.sqlite3          ← all collections, one DB
-│   ├── hnsw_rpg.index       ← persisted HNSW indexes
-│   ├── hnsw_growth.index
-│   ├── hnsw_code.index
-│   └── hnsw_general.index
+│   ├── rag.sqlite3      ← all collections, one DB
+│   ├── hnsw_*.hnsw.data ← persisted HNSW indexes
+│   └── hnsw_*.hnsw.graph
 └── rag-ferrite.log
 ```
 
@@ -118,11 +101,12 @@ Collections are created on-the-fly during ingestion. No setup, no schema, just s
 ```
 Document → pdftotext extractor (PDFs) or raw text
          → Recursive character chunker (800 chars, 10% overlap)
+         → Contextual retrieval (LLM context prefix per chunk)
          → Batch embedding (any OpenAI-compatible provider)
          → SQLite + HNSW + BM25 indexes
          → Persist HNSW to disk
 
-Query → MCP tool call or HTTP POST
+Query → MCP tool call
       → Activate collection (load index from disk)
       → Hybrid retrieval (BM25 + HNSW + RRF fusion)
       → Top-k chunks with optional neighbor expansion
@@ -150,7 +134,7 @@ rag-ferrite runs as a native MCP server via stdio. Add it to your MCP client con
       "command": "/path/to/rag-ferrite",
       "args": [],
       "env": {
-        "EMBEDDING_API_KEY": "sk-..." 
+        "LLM_API_KEY": "sk-..."
       }
     }
   }
@@ -169,18 +153,6 @@ Available tools:
 | `status()` | Engine status and document count |
 | `read_chunk_neighbors(source_id, chunk_index)` | Expand context around a chunk |
 
-## HTTP API
-
-For non-MCP clients, rag-ferrite exposes a REST API:
-
-```
-GET  /health       # Health check
-GET  /status       # Document count, version
-POST /query        # Hybrid search — {"query": "...", "collection": "...", "limit": 10}
-POST /ingest/file  # Ingest PDF/DOCX — {"file_path": "...", "collection": "..."}
-POST /ingest/data  # Ingest raw text — {"content": "...", "source": "...", "collection": "..."}
-```
-
 ## What we built on top of rag_engine
 
 rag_engine provides the core (HNSW, BM25, SQLite). We added:
@@ -190,14 +162,13 @@ rag_engine provides the core (HNSW, BM25, SQLite). We added:
 - **`src/engine.rs`** — Collection-aware ingestion with proper `collection_id` routing, status tracking, and HNSW index persistence per collection.
 - **`src/pipeline.rs`** — Adaptive query routing (simple/standard/complex) with reranker passthrough when disabled.
 - **`src/embedding.rs`** — Batch embedding with proper API format (`input` not `prompt`, `embeddings` not `embedding`).
-- **`src/main.rs`** — Dual MCP + HTTP mode with file logging for debugging.
+- **`src/main.rs`** — MCP stdio server with file logging for debugging.
 
 ## Configuration
 
 ```toml
 # config.toml
 data_dir = "./data"
-http_port = 3456
 
 [embedding]
 provider = "ollama"

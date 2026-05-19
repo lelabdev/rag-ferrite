@@ -2,7 +2,7 @@
 name = "rag-ferrite"
 version = "0.1.0"
 edition = "2024"
-description = "Custom RAG engine — rag_engine + rmcp + axum"
+description = "Custom RAG engine — rag_engine + rmcp"
 license = "MIT"
 
 [dependencies]
@@ -14,12 +14,6 @@ rmcp = { version = "1.6", features = ["server", "transport-io"] }
 
 # Async runtime
 tokio = { version = "1", features = ["full"] }
-
-# HTTP (future: SSE bridge)
-axum = "0.8"
-tower-http = { version = "0.6", features = ["cors"] }
-tokio-stream = "0.1"
-futures = "0.3"
 
 # Serialization
 serde = { version = "1", features = ["derive"] }

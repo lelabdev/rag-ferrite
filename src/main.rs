@@ -12,7 +12,6 @@ mod chunker;
 mod embedding;
 mod engine;
 mod extractor;
-mod http;
 mod llm;
 mod pipeline;
 mod reranker;
@@ -91,7 +90,6 @@ impl RagLabServer {
         let p = params.0;
         let limit = p.limit.unwrap_or(10);
 
-        // Map collection param to collection_id filter
         let filter = if p.source_ids.is_some() || p.collection.is_some() || p.metadata_like.is_some() {
             Some(rag_engine::api::hybrid_search::SearchFilter {
                 source_ids: p.source_ids,
@@ -278,22 +276,9 @@ async fn main() -> Result<()> {
         max_concurrent: config.llm.max_concurrent,
     };
 
-    // Mode: stdio-only or dual (stdio + HTTP)
-    if config.http_port > 0 {
-        let http_state = http::AppState {
-            embedder,
-            llm,
-            api_key: None,
-            max_concurrent: config.llm.max_concurrent,
-        };
-
-        tracing::info!("Starting HTTP server on port {} (no MCP stdio)", config.http_port);
-        http::start_server(http_state, config.http_port).await?;
-    } else {
-        tracing::info!("Starting MCP server on stdio...");
-        let service = server.serve(rmcp::transport::io::stdio()).await?;
-        service.waiting().await?;
-    }
+    tracing::info!("Starting MCP server on stdio...");
+    let service = server.serve(rmcp::transport::io::stdio()).await?;
+    service.waiting().await?;
 
     Ok(())
 }

@@ -15,10 +15,6 @@ pub struct Config {
     /// LLM configuration for contextual retrieval
     #[serde(default)]
     pub llm: LlmConfig,
-
-    /// HTTP server port (0 = disabled, stdio-only mode)
-    #[serde(default)]
-    pub http_port: u16,
 }
 
 #[derive(Debug, Deserialize)]
@@ -148,7 +144,7 @@ fn dirs_data_dir() -> Option<PathBuf> {
 }
 
 impl Config {
-pub fn load() -> Result<Self> {
+    pub fn load() -> Result<Self> {
         // Try config.toml in current dir, then ~/.config/rag-ferrite/config.toml
         let paths = vec![
             PathBuf::from("config.toml"),
@@ -175,7 +171,6 @@ impl Default for Config {
             data_dir: default_data_dir(),
             embedding: EmbeddingConfig::default(),
             llm: LlmConfig::default(),
-            http_port: 0,
         }
     }
 }
