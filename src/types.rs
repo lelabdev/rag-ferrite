@@ -28,6 +28,21 @@ impl From<rag_engine::api::hybrid_search::HybridSearchResult> for HybridResult {
     }
 }
 
+impl From<crate::reranker::RerankedResult> for HybridResult {
+    fn from(r: crate::reranker::RerankedResult) -> Self {
+        HybridResult {
+            doc_id: r.doc_id,
+            content: r.content,
+            score: r.score,
+            vector_rank: r.vector_rank,
+            bm25_rank: r.bm25_rank,
+            source_id: r.source_id,
+            chunk_index: r.chunk_index,
+            metadata: r.metadata,
+        }
+    }
+}
+
 /// Source info for listing documents.
 #[derive(Debug, Serialize)]
 pub struct SourceInfo {
@@ -36,6 +51,7 @@ pub struct SourceInfo {
     pub created_at: i64,
     pub metadata: Option<String>,
     pub status: Option<String>,
+    pub collection_id: String,
 }
 
 impl From<rag_engine::api::source_rag::SourceEntry> for SourceInfo {
@@ -46,6 +62,7 @@ impl From<rag_engine::api::source_rag::SourceEntry> for SourceInfo {
             created_at: s.created_at,
             metadata: s.metadata,
             status: s.status,
+            collection_id: s.collection_id,
         }
     }
 }
