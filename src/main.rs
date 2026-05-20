@@ -1,4 +1,5 @@
 use anyhow::Result;
+use std::sync::Arc;
 use rmcp::{
     ServiceExt,
     handler::server::wrapper::Parameters,
@@ -7,6 +8,7 @@ use rmcp::{
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+mod api;
 mod config;
 mod chunker;
 mod embedding;
@@ -19,10 +21,10 @@ mod types;
 
 #[derive(Debug, Clone)]
 struct RagLabServer {
-    pipeline: pipeline::QueryPipeline,
-    max_concurrent: usize,
-    relevance_scoring: bool,
-    min_relevance_score: f32,
+    pub pipeline: pipeline::QueryPipeline,
+    pub max_concurrent: usize,
+    pub relevance_scoring: bool,
+    pub min_relevance_score: f32,
 }
 
 // --- Tool parameter structs ---
@@ -280,6 +282,19 @@ async fn main() -> Result<()> {
         min_relevance_score: config.llm.min_relevance_score,
     };
 
+    let server = Arc::new(server);
+
+    // Spawn HTTP server if http_port > 0
+    if config.http_port > 0 {
+        let http_server = server.clone();
+        let http_port = config.http_port;
+        tokio::spawn(async move {
+            api::serve(http_server, http_port).await;
+        });
+        tracing::info!("HTTP API enabled on port {}", config.http_port);
+    }
+
+    // MCP server on stdio (existing)
     tracing::info!("Starting MCP server on stdio...");
     let service = server.serve(rmcp::transport::io::stdio()).await?;
     service.waiting().await?;
