@@ -90,3 +90,27 @@ impl From<rag_engine::api::source_rag::ChunkSearchResult> for ChunkResult {
         }
     }
 }
+
+// --- Graph types ---
+
+/// Graph data for document similarity visualization.
+#[derive(Debug, Serialize)]
+pub struct GraphData {
+    pub nodes: Vec<GraphNode>,
+    pub edges: Vec<GraphEdge>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct GraphNode {
+    pub id: i64,
+    pub name: String,
+    pub collection: String,
+    pub chunk_count: i32,
+}
+
+#[derive(Debug, Serialize)]
+pub struct GraphEdge {
+    pub source: i64,
+    pub target: i64,
+    pub similarity: f32,
+}

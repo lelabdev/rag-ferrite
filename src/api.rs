@@ -63,6 +63,37 @@ pub struct NeighborsPath {
 
 // --- Handlers ---
 
+#[derive(Debug, Deserialize)]
+pub struct GraphQuery {
+    #[serde(default)]
+    pub collection: Option<String>,
+    #[serde(default = "default_threshold")]
+    pub threshold: f32,
+    #[serde(default = "default_max_edges")]
+    pub max_edges: usize,
+}
+
+fn default_threshold() -> f32 {
+    0.5
+}
+
+fn default_max_edges() -> usize {
+    50
+}
+
+async fn get_graph(
+    State(_server): State<Arc<RagLabServer>>,
+    Query(params): Query<GraphQuery>,
+) -> impl IntoResponse {
+    match engine::get_graph_data(params.collection.as_deref(), params.threshold, params.max_edges) {
+        Ok(graph) => (StatusCode::OK, Json(serde_json::json!(graph))),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        ),
+    }
+}
+
 async fn status(State(_server): State<Arc<RagLabServer>>) -> impl IntoResponse {
     match engine::stats() {
         Ok(s) => (
@@ -298,6 +329,7 @@ pub async fn serve(server: Arc<RagLabServer>, port: u16) {
         .route("/api/ingest/data", post(ingest_data))
         .route("/api/ingest/file", post(ingest_file))
         .route("/api/documents/{source}", delete(delete_document))
+        .route("/api/graph", get(get_graph))
         .layer(CorsLayer::permissive())
         .with_state(server);
 
