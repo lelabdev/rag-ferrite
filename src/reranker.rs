@@ -11,8 +11,10 @@ pub struct Reranker {
 #[derive(Debug, Clone, PartialEq)]
 pub enum RerankerType {
     /// LLM-based reranking using scoring prompt
+    #[allow(dead_code)]
     Llm { provider: String, model: String, api_key: Option<String>, base_url: String },
     /// Cohere Rerank API
+    #[allow(dead_code)]
     Cohere { api_key: String },
     /// No reranking
     Disabled,
@@ -96,7 +98,7 @@ impl Reranker {
         &self,
         query: &str,
         candidates: Vec<RerankCandidate>,
-        provider: &str,
+        _provider: &str,
         model: &str,
         api_key: &Option<String>,
         base_url: &str,
@@ -229,7 +231,7 @@ impl Reranker {
         api_key: &str,
     ) -> Result<Vec<RerankedResult>> {
         // Extract text for Cohere, keep candidates for later mapping
-        let n = candidates.len();
+        let _n = candidates.len();
         let doc_texts: Vec<String> = candidates.iter()
             .map(|c| c.content.chars().take(500).collect())
             .collect();
