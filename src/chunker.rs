@@ -85,6 +85,8 @@ pub struct Chunk {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ChunkType {
     Text,
+    #[allow(dead_code)]
     Title,
+    #[allow(dead_code)]
     Code,
 }

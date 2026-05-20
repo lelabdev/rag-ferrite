@@ -186,9 +186,8 @@ impl LlmProvider {
     /// Send a chat completion request.
     async fn chat(&self, messages: Vec<ChatMessage>) -> Result<String> {
         match self.provider.as_str() {
-            _ => self.chat_openai_compatible(messages).await,
             "ollama" => self.chat_ollama(messages).await,
-            _ => Err(anyhow!("Unknown LLM provider: {}", self.provider)),
+            _ => self.chat_openai_compatible(messages).await,
         }
     }
 
@@ -251,40 +250,6 @@ impl LlmProvider {
         max_tokens: u32,
     ) -> Result<String> {
         match self.provider.as_str() {
-            _ => {
-                let api_key = self.api_key.as_ref()
-                    .ok_or_else(|| anyhow!("API key required for {}. Set LLM_API_KEY or FALLBACK_API_KEY.", self.provider))?;
-
-                let url = format!("{}/chat/completions", self.base_url);
-
-                let body = ChatRequest {
-                    model: self.model.clone(),
-                    messages,
-                    temperature,
-                    max_tokens,
-                    thinking: Some(serde_json::json!({"type": "disabled"})),
-                };
-
-                let resp = self.client
-                    .post(&url)
-                    .header("Authorization", format!("Bearer {}", api_key))
-                    .json(&body)
-                    .send()
-                    .await?;
-
-                if !resp.status().is_success() {
-                    let status = resp.status();
-                    let text = resp.text().await?;
-                    return Err(anyhow!("{} API error {}: {}", self.provider, status, text));
-                }
-
-                let data: ChatResponse = resp.json().await?;
-                data.choices
-                    .into_iter()
-                    .next()
-                    .map(|c| c.message.content)
-                    .ok_or_else(|| anyhow!("No response from {}", self.provider))
-            }
             "ollama" => {
                 let url = format!("{}/api/chat", self.base_url);
 
@@ -332,7 +297,40 @@ impl LlmProvider {
                 let data: OllamaChatResponse = resp.json().await?;
                 Ok(data.message.content)
             }
-            _ => Err(anyhow!("Unknown LLM provider: {}", self.provider)),
+            _ => {
+                let api_key = self.api_key.as_ref()
+                    .ok_or_else(|| anyhow!("API key required for {}. Set LLM_API_KEY or FALLBACK_API_KEY.", self.provider))?;
+
+                let url = format!("{}/chat/completions", self.base_url);
+
+                let body = ChatRequest {
+                    model: self.model.clone(),
+                    messages,
+                    temperature,
+                    max_tokens,
+                    thinking: Some(serde_json::json!({"type": "disabled"})),
+                };
+
+                let resp = self.client
+                    .post(&url)
+                    .header("Authorization", format!("Bearer {}", api_key))
+                    .json(&body)
+                    .send()
+                    .await?;
+
+                if !resp.status().is_success() {
+                    let status = resp.status();
+                    let text = resp.text().await?;
+                    return Err(anyhow!("{} API error {}: {}", self.provider, status, text));
+                }
+
+                let data: ChatResponse = resp.json().await?;
+                data.choices
+                    .into_iter()
+                    .next()
+                    .map(|c| c.message.content)
+                    .ok_or_else(|| anyhow!("No response from {}", self.provider))
+            }
         }
     }
 
