@@ -21,6 +21,8 @@ mod types;
 struct RagLabServer {
     pipeline: pipeline::QueryPipeline,
     max_concurrent: usize,
+    relevance_scoring: bool,
+    min_relevance_score: f32,
 }
 
 // --- Tool parameter structs ---
@@ -126,7 +128,7 @@ impl RagLabServer {
     async fn ingest_file(&self, params: Parameters<IngestFileParams>) -> String {
         let p = params.0;
         let coll = p.collection.as_deref();
-        match engine::ingest_file(&self.pipeline.embedder, self.pipeline.llm.as_ref(), &p.file_path, coll, self.max_concurrent).await {
+        match engine::ingest_file(&self.pipeline.embedder, self.pipeline.llm.as_ref(), &p.file_path, coll, self.max_concurrent, self.relevance_scoring, self.min_relevance_score).await {
             Ok(id) => serde_json::json!({
                 "status": "ok",
                 "source_id": id,
@@ -141,7 +143,7 @@ impl RagLabServer {
     async fn ingest_data(&self, params: Parameters<IngestDataParams>) -> String {
         let p = params.0;
         let coll = p.collection.as_deref();
-        match engine::ingest_text(&self.pipeline.embedder, self.pipeline.llm.as_ref(), &p.content, &p.source, None, coll, self.max_concurrent).await {
+        match engine::ingest_text(&self.pipeline.embedder, self.pipeline.llm.as_ref(), &p.content, &p.source, None, coll, self.max_concurrent, self.relevance_scoring, self.min_relevance_score).await {
             Ok(id) => serde_json::json!({
                 "status": "ok",
                 "source_id": id,
@@ -274,6 +276,8 @@ async fn main() -> Result<()> {
             max_retries: 1,
         },
         max_concurrent: config.llm.max_concurrent,
+        relevance_scoring: config.llm.relevance_scoring,
+        min_relevance_score: config.llm.min_relevance_score,
     };
 
     tracing::info!("Starting MCP server on stdio...");

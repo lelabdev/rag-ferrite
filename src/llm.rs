@@ -1,6 +1,13 @@
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 
+/// Result of contextual retrieval: optional context prefix and optional relevance score (1-10).
+#[derive(Debug, Clone)]
+pub struct ContextResult {
+    pub context: Option<String>,
+    pub relevance_score: Option<f32>,
+}
+
 /// LLM provider for contextual retrieval and other text generation tasks.
 /// Supports a primary provider with an optional fallback for resilience.
 #[derive(Debug, Clone)]
@@ -101,15 +108,18 @@ impl LlmProvider {
         &self,
         whole_document: &str,
         chunk_content: &str,
-    ) -> Result<String> {
+    ) -> Result<ContextResult> {
         let prompt = format!(
             "<document>\n{}\n</document>\n\n\
              Here is the chunk we want to situate within the whole document:\n\
              <chunk>\n{}\n</chunk>\n\n\
-             Please give a short succinct context to situate this chunk within the overall document \
-             for the purposes of improving search retrieval of the chunk. \
-             Answer only with the succinct context, nothing else. \
-             Use the same language as the document.",
+             Assess the relevance of this chunk for informative retrieval on a scale of 1 to 10, \
+             where 1 is noise (TOC, index, legal mentions, boilerplate) and 10 is highly informative content.\n\
+             Also give a short succinct context to situate this chunk within the overall document \
+             for the purposes of improving search retrieval of the chunk.\n\n\
+             Answer ONLY in this exact format:\n\
+             SCORE: <number 1-10>\n\
+             CONTEXT: <short succinct context, same language as document>",
             truncate_for_prompt(whole_document, 8000),
             truncate_for_prompt(chunk_content, 2000),
         );
@@ -131,7 +141,13 @@ impl LlmProvider {
                 }
             }
         };
-        Ok(response_text.trim().to_string())
+
+        let trimmed = response_text.trim();
+        let (score, context) = parse_context_response(trimmed);
+        Ok(ContextResult {
+            context,
+            relevance_score: score,
+        })
     }
 
     /// Generate context prefixes for multiple chunks in a single batch.
@@ -141,7 +157,7 @@ impl LlmProvider {
         whole_document: &str,
         chunks: &[String],
         max_concurrent: usize,
-    ) -> Vec<Result<String>> {
+    ) -> Vec<Result<ContextResult>> {
         let sem = Arc::new(tokio::sync::Semaphore::new(max_concurrent));
         let mut handles = Vec::with_capacity(chunks.len());
 
@@ -411,3 +427,55 @@ fn truncate_for_prompt(text: &str, max_chars: usize) -> String {
 }
 
 use std::sync::Arc;
+
+/// Parse the LLM response for SCORE and CONTEXT lines.
+/// Returns (relevance_score, context). If parsing fails, uses the whole
+/// response as context and returns score = None (backward compat).
+fn parse_context_response(response: &str) -> (Option<f32>, Option<String>) {
+    let mut score: Option<f32> = None;
+    let mut context_lines: Vec<&str> = Vec::new();
+    let mut found_score = false;
+    let mut found_context = false;
+
+    for line in response.lines() {
+        let trimmed_line = line.trim();
+        if trimmed_line.starts_with("SCORE:") && !found_score {
+            let score_str = trimmed_line["SCORE:".len()..].trim();
+            if let Ok(s) = score_str.parse::<f32>() {
+                score = Some(s);
+                found_score = true;
+                continue;
+            }
+        }
+        if trimmed_line.starts_with("CONTEXT:") && !found_context {
+            let ctx = trimmed_line["CONTEXT:".len()..].trim();
+            if !ctx.is_empty() {
+                context_lines.push(ctx);
+            }
+            found_context = true;
+            continue;
+        }
+        // After CONTEXT: line, collect remaining lines as part of context
+        if found_context {
+            if !trimmed_line.is_empty() {
+                context_lines.push(trimmed_line);
+            }
+        }
+    }
+
+    if found_score || found_context {
+        let context = if context_lines.is_empty() {
+            None
+        } else {
+            Some(context_lines.join(" "))
+        };
+        (score, context)
+    } else {
+        // Parsing failed — backward compat: use whole response as context
+        if response.is_empty() {
+            (None, None)
+        } else {
+            (None, Some(response.to_string()))
+        }
+    }
+}

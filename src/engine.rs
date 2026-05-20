@@ -9,7 +9,7 @@ use rag_engine::api::source_rag::DEFAULT_COLLECTION_ID;
 use crate::chunker;
 use crate::embedding::EmbeddingProvider;
 use crate::extractor;
-use crate::llm::LlmProvider;
+use crate::llm::{ContextResult, LlmProvider};
 
 /// Stored DB path so list_sources/stats can query across all collections.
 static DB_PATH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
@@ -36,6 +36,8 @@ pub async fn ingest_text(
     metadata: Option<&str>,
     collection: Option<&str>,
     max_concurrent: usize,
+    relevance_scoring: bool,
+    min_relevance_score: f32,
 ) -> Result<i64> {
     let collection_id = collection.unwrap_or(DEFAULT_COLLECTION_ID).to_string();
     let meta = metadata.map(|m| m.to_string()).unwrap_or_default();
@@ -64,38 +66,66 @@ pub async fn ingest_text(
     };
     tracing::info!("Chunked into {} chunks (size={})", chunks.len(), chunk_size);
 
-    // Contextual retrieval: generate context prefixes via LLM
-    let contexts: Vec<Option<String>> = if let Some(llm_provider) = llm {
+    // Contextual retrieval: generate context prefixes + relevance scores via LLM
+    let context_results: Vec<ContextResult> = if let Some(llm_provider) = llm {
         tracing::info!("Generating context prefixes for {} chunks via LLM...", chunks.len());
         let chunk_texts: Vec<String> = chunks.iter().map(|c| c.content.clone()).collect();
 
         // Process in batches of 20 for rate limiting
-        let mut all_contexts: Vec<Option<String>> = Vec::with_capacity(chunks.len());
+        let mut all_results: Vec<ContextResult> = Vec::with_capacity(chunks.len());
         for batch in chunk_texts.chunks(20) {
             let results = llm_provider.generate_context_batch(content, batch, max_concurrent).await;
             for result in results {
                 match result {
-                    Ok(ctx) => all_contexts.push(Some(ctx)),
+                    Ok(ctx_result) => all_results.push(ctx_result),
                     Err(e) => {
                         tracing::warn!("Context generation failed for chunk: {}, using raw content", e);
-                        all_contexts.push(None);
+                        all_results.push(ContextResult { context: None, relevance_score: None });
                     }
                 }
             }
         }
-        let with_ctx = all_contexts.iter().filter(|c| c.is_some()).count();
+        let with_ctx = all_results.iter().filter(|c| c.context.is_some()).count();
         tracing::info!("Generated {}/{} context prefixes", with_ctx, chunks.len());
-        all_contexts
+        all_results
     } else {
-        vec![None; chunks.len()]
+        vec![ContextResult { context: None, relevance_score: None }; chunks.len()]
     };
 
-    // Build final texts for embedding: context prefix + chunk content
-    let final_texts: Vec<String> = chunks
+    // Filter chunks by relevance score if enabled
+    let mut filtered_count = 0usize;
+    let kept: Vec<(usize, &chunker::Chunk, &ContextResult)> = chunks
         .iter()
-        .zip(contexts.iter())
-        .map(|(chunk, ctx)| {
-            match ctx {
+        .enumerate()
+        .zip(context_results.iter())
+        .filter(|((_, _), ctx_result)| {
+            if relevance_scoring {
+                if let Some(score) = ctx_result.relevance_score {
+                    if score < min_relevance_score {
+                        filtered_count += 1;
+                        tracing::info!("Filtered chunk (score={:.1} < threshold={:.1})", score, min_relevance_score);
+                        return false;
+                    }
+                }
+            }
+            true
+        })
+        .map(|((idx, chunk), ctx_result)| (idx, chunk, ctx_result))
+        .collect();
+
+    if filtered_count > 0 {
+        tracing::info!("Relevance scoring: filtered {}/{} chunks (threshold={:.1})", filtered_count, chunks.len(), min_relevance_score);
+    }
+
+    if kept.is_empty() {
+        tracing::warn!("All chunks filtered by relevance scoring, ingesting anyway");
+    }
+
+    // Build final texts for embedding: context prefix + chunk content
+    let final_texts: Vec<String> = kept
+        .iter()
+        .map(|(_, chunk, ctx_result)| {
+            match &ctx_result.context {
                 Some(context) => format!("{}\n\n{}", context, chunk.content),
                 None => chunk.content.clone(),
             }
@@ -106,15 +136,15 @@ pub async fn ingest_text(
     let embeddings = embedder.embed_batch(&final_texts).await?;
 
     // Store original chunk content (not the prefixed version)
-    let chunk_data: Vec<ChunkData> = chunks
+    let chunk_data: Vec<ChunkData> = kept
         .into_iter()
         .zip(embeddings.into_iter())
-        .map(|(c, emb)| ChunkData {
-            content: c.content.clone(),
-            chunk_index: c.index,
-            start_pos: c.start_pos,
-            end_pos: c.end_pos,
-            chunk_type: format!("{:?}", c.chunk_type),
+        .map(|((_, chunk, _), emb)| ChunkData {
+            content: chunk.content.clone(),
+            chunk_index: chunk.index,
+            start_pos: chunk.start_pos,
+            end_pos: chunk.end_pos,
+            chunk_type: format!("{:?}", chunk.chunk_type),
             embedding: emb,
         })
         .collect();
@@ -152,6 +182,8 @@ pub async fn ingest_file(
     file_path: &str,
     collection: Option<&str>,
     max_concurrent: usize,
+    relevance_scoring: bool,
+    min_relevance_score: f32,
 ) -> Result<i64> {
     // Use our custom extractor instead of rag_engine's document_parser
     let text = extractor::extract_text(file_path)?;
@@ -168,6 +200,8 @@ pub async fn ingest_file(
         Some(&format!("{{\"path\":\"{}\"}}", file_path)),
         collection,
         max_concurrent,
+        relevance_scoring,
+        min_relevance_score,
     )
     .await
 }

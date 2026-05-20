@@ -102,6 +102,7 @@ Collections are created on-the-fly during ingestion. No setup, no schema, just s
 Document → pdftotext extractor (PDFs) or raw text
          → Recursive character chunker (800 chars, 10% overlap)
          → Contextual retrieval (LLM context prefix per chunk)
+         → Relevance filtering (discard low-quality chunks, optional)
          → Batch embedding (any OpenAI-compatible provider)
          → SQLite + HNSW + BM25 indexes
          → Persist HNSW to disk
@@ -182,6 +183,8 @@ model = "your-model-here"
 base_url = "https://your-provider-url/v1"
 context_enabled = true              # Enable contextual retrieval (Anthropic technique)
 max_concurrent = 3                 # Max parallel LLM requests (lower for rate-limited APIs)
+# relevance_scoring = true         # Enable ingestion-time quality filter (requires context_enabled)
+# min_relevance_score = 5.0         # Discard chunks rated below this (1–10, default 5.0)
 # api_key loaded from LLM_API_KEY env var
 
 # Optional: fallback LLM when primary is unavailable
@@ -197,6 +200,29 @@ max_concurrent = 3                 # Max parallel LLM requests (lower for rate-l
 The LLM is used for **contextual retrieval** — generating a 1-2 sentence context prefix for each chunk before embedding. This dramatically improves search quality (Anthropic's technique). Any instruction-following model works. Popular free options on OpenRouter include Qwen3 Next 80B, GLM 4.5 Air, and Gemma 4 31B. For local inference, Gemma 4 E2B Q4 fits in 6GB VRAM.
 
 Set your API key in the `.env` file (see `.env.example`).
+
+### Relevance scoring
+
+Optional ingestion-time quality filter. When enabled, the LLM rates each chunk on a 1–10 relevance scale during contextual retrieval. Chunks scoring below the threshold are **discarded before embedding** — they never enter the vector space.
+
+**What it filters out:** table-of-contents entries, index pages, legal mentions / copyright notices, blank or near-blank pages, and transition text ("Chapter 3 begins on the next page").
+
+**Why use it:** cleaner vector space, less RAM usage, better retrieval precision. Junk chunks that would dilute search results are simply never indexed.
+
+**Cost:** zero extra LLM calls. The relevance score is produced alongside the contextual retrieval prefix in the same prompt — it's a single additional line in the output.
+
+**Backward compatible:** off by default. Existing configs work without any changes.
+
+**How to enable:**
+
+```toml
+[llm]
+context_enabled = true
+relevance_scoring = true              # Enable relevance filtering
+min_relevance_score = 5.0             # Discard chunks rated below this (1–10, default 5.0)
+```
+
+Both `relevance_scoring` and `context_enabled` must be true. If contextual retrieval is off, there's no LLM call to piggyback on, so relevance scoring has nothing to attach to.
 
 ## Requirements
 

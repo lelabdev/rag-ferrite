@@ -94,6 +94,16 @@ pub struct LlmConfig {
     #[serde(default = "default_max_concurrent")]
     pub max_concurrent: usize,
 
+    /// Enable relevance scoring during ingestion — LLM rates each chunk 1-10
+    /// and chunks below min_relevance_score are filtered out before embedding.
+    #[serde(default)]
+    pub relevance_scoring: bool,
+
+    /// Minimum relevance score to keep a chunk (1-10). Only used when relevance_scoring = true.
+    /// Default: 5.0 (filters out noise like TOC, index, legal mentions).
+    #[serde(default = "default_min_relevance_score")]
+    pub min_relevance_score: f32,
+
     /// Fallback LLM config — used when primary fails (rate limit, network, etc.)
     #[serde(default)]
     pub fallback: Option<FallbackLlmConfig>,
@@ -125,6 +135,10 @@ fn default_max_concurrent() -> usize {
     3
 }
 
+fn default_min_relevance_score() -> f32 {
+    5.0
+}
+
 impl Default for LlmConfig {
     fn default() -> Self {
         Self {
@@ -134,6 +148,8 @@ impl Default for LlmConfig {
             base_url: None,
             context_enabled: true,
             max_concurrent: 3,
+            relevance_scoring: false,
+            min_relevance_score: default_min_relevance_score(),
             fallback: None,
         }
     }
