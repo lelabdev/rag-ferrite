@@ -284,20 +284,24 @@ async fn main() -> Result<()> {
 
     let server = Arc::new(server);
 
-    // Spawn HTTP server if http_port > 0
     if config.http_port > 0 {
         let http_server = server.clone();
         let http_port = config.http_port;
-        tokio::spawn(async move {
-            api::serve(http_server, http_port).await;
-        });
-        tracing::info!("HTTP API enabled on port {}", config.http_port);
-    }
+        tracing::info!("Starting dual mode: MCP stdio + HTTP on port {}", http_port);
 
-    // MCP server on stdio (existing)
-    tracing::info!("Starting MCP server on stdio...");
-    let service = server.serve(rmcp::transport::io::stdio()).await?;
-    service.waiting().await?;
+        tokio::select! {
+            r = async {
+                let service = server.serve(rmcp::transport::io::stdio()).await?;
+                service.waiting().await?;
+                Ok::<(), anyhow::Error>(())
+            } => r?,
+            r = api::serve(http_server, http_port) => r?,
+        }
+    } else {
+        tracing::info!("Starting MCP server on stdio...");
+        let service = server.serve(rmcp::transport::io::stdio()).await?;
+        service.waiting().await?;
+    }
 
     Ok(())
 }

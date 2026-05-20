@@ -316,7 +316,7 @@ async fn delete_document(
 
 // --- Server startup ---
 
-pub async fn serve(server: Arc<RagLabServer>, port: u16) {
+pub async fn serve(server: Arc<RagLabServer>, port: u16) -> anyhow::Result<()> {
     let app = Router::new()
         .route("/api/status", get(status))
         .route("/api/documents", get(list_documents))
@@ -336,14 +336,13 @@ pub async fn serve(server: Arc<RagLabServer>, port: u16) {
     let addr = format!("0.0.0.0:{}", port);
     tracing::info!("HTTP server listening on {}", addr);
 
-    match tokio::net::TcpListener::bind(&addr).await {
-        Ok(listener) => {
-            if let Err(e) = axum::serve(listener, app).await {
-                tracing::error!("HTTP server error: {}", e);
-            }
-        }
-        Err(e) => {
-            tracing::error!("Failed to bind HTTP server on {}: {}", addr, e);
-        }
-    }
+    let listener = tokio::net::TcpListener::bind(&addr)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to bind HTTP server on {}: {}", addr, e))?;
+
+    axum::serve(listener, app)
+        .await
+        .map_err(|e| anyhow::anyhow!("HTTP server error: {}", e))?;
+
+    Ok(())
 }
