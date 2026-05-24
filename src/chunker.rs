@@ -374,3 +374,102 @@ impl ChunkType {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_short_text() {
+        let text = "Hello, this is a short text.";
+        let chunks = chunk_text(text, 1000);
+        assert_eq!(chunks.len(), 1);
+        assert_eq!(chunks[0].content, text);
+        assert_eq!(chunks[0].index, 0);
+        assert_eq!(chunks[0].start_pos, 0);
+        assert_eq!(chunks[0].end_pos, text.len() as i32);
+    }
+
+    #[test]
+    fn test_long_text() {
+        // Generate text long enough to produce multiple chunks
+        let paragraph = "This is a paragraph with some meaningful content. ".repeat(40);
+        let text = paragraph.repeat(3);
+        let chunks = chunk_text(&text, 1000);
+        assert!(chunks.len() > 1, "Expected multiple chunks, got {}", chunks.len());
+        // All chunks should have non-empty content
+        for chunk in &chunks {
+            assert!(!chunk.content.is_empty());
+        }
+        // Indices should be sequential
+        for (i, chunk) in chunks.iter().enumerate() {
+            assert_eq!(chunk.index, i as i32);
+        }
+    }
+
+    #[test]
+    fn test_empty_input() {
+        let chunks = chunk_text("", 1000);
+        assert!(chunks.is_empty(), "Empty input should produce no chunks");
+    }
+
+    #[test]
+    fn test_utf8_boundary() {
+        // Multi-byte characters: emojis (4 bytes each), accented chars (2 bytes)
+        let chars = "éàüö ñ ç ß 🙂🎉🔥 💩";
+        let text = (chars.to_string() + "\n\n").repeat(100);
+        let chunks = chunk_text(&text, 500);
+
+        assert!(chunks.len() >= 1);
+
+        // Verify no chunk panics on re-encoding — all content strings are valid
+        for chunk in &chunks {
+            assert!(chunk.content.chars().all(|c| !c.is_control() || c == '\n'),
+                "Unexpected control char in chunk");
+        }
+
+        // Verify start_pos and end_pos point to valid UTF-8 boundaries
+        let full_bytes = text.as_bytes();
+        for chunk in &chunks {
+            let start = chunk.start_pos as usize;
+            let end = chunk.end_pos as usize;
+            assert!(start < full_bytes.len());
+            assert!(end <= full_bytes.len());
+            assert!(std::str::from_utf8(&full_bytes[start..end]).is_ok(),
+                "Chunk byte range {}..{} is not valid UTF-8", start, end);
+        }
+    }
+
+    #[test]
+    fn test_overlap() {
+        // Create text with paragraph breaks so splits are predictable
+        let paragraph = "Word ".repeat(250); // ~1250 chars
+        let text = format!("{}\n\n{}\n\n{}", paragraph, paragraph, paragraph);
+        let chunks = chunk_text(&text, 1000);
+
+        assert!(chunks.len() > 1, "Expected multiple chunks, got {}", chunks.len());
+
+        // Verify overlap: the end of one chunk should share content with the start of the next
+        if chunks.len() >= 2 {
+            let first_end = &chunks[0].content;
+            let second_start = &chunks[1].content;
+
+            // With 10% overlap (100 chars), there should be some shared text
+            let overlap_found = first_end
+                .lines()
+                .last()
+                .map(|last_line| second_start.contains(last_line.trim()))
+                .unwrap_or(false);
+
+            // At minimum, chunks should not have a gap — the second chunk
+            // should start at or before the first chunk's end position
+            assert!(chunks[1].start_pos <= chunks[0].end_pos,
+                "Chunks should overlap: second starts at {} but first ends at {}",
+                chunks[1].start_pos, chunks[0].end_pos);
+
+            // Overlap or adjacency is acceptable
+            assert!(overlap_found || chunks[1].start_pos < chunks[0].end_pos,
+                "Expected overlap between consecutive chunks");
+        }
+    }
+}
