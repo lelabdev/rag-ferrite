@@ -2,6 +2,24 @@ use anyhow::Result;
 use serde::Deserialize;
 use std::path::PathBuf;
 
+#[derive(Debug, Deserialize, Clone)]
+pub struct MetadataField {
+    pub name: String,
+    #[serde(default = "default_field_type")]
+    pub field_type: String,
+    #[serde(default)]
+    pub required: bool,
+    #[serde(default)]
+    pub description: Option<String>,
+}
+
+fn default_field_type() -> String { "string".to_string() }
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct MetadataConfig {
+    pub fields: Vec<MetadataField>,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct Config {
     /// Directory for SQLite databases and indexes
@@ -23,6 +41,10 @@ pub struct Config {
     /// HTTP server port (0 = disabled, stdio-only mode)
     #[serde(default)]
     pub http_port: u16,
+
+    /// Metadata extraction configuration
+    #[serde(default)]
+    pub metadata: Option<MetadataConfig>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -235,6 +257,7 @@ impl Default for Config {
             llm: LlmConfig::default(),
             reranker: RerankerConfig::default(),
             http_port: 0,
+            metadata: None,
         }
     }
 }

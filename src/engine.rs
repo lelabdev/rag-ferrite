@@ -160,7 +160,7 @@ chunk_type: chunker::detect_chunk_type(content.trim(), true),
                     Err(e) => {
                         tracing::warn!("Context generation failed for chunk: {}, using raw content", e);
                         context_failures += 1;
-                        all_results.push(ContextResult { context: None, relevance_score: None });
+                        all_results.push(ContextResult { context: None, relevance_score: None, extracted_metadata: None });
                     }
                 }
             }
@@ -169,7 +169,7 @@ chunk_type: chunker::detect_chunk_type(content.trim(), true),
         tracing::info!("Generated {}/{} context prefixes", with_ctx, chunks.len());
         all_results
     } else {
-        vec![ContextResult { context: None, relevance_score: None }; chunks.len()]
+        vec![ContextResult { context: None, relevance_score: None, extracted_metadata: None }; chunks.len()]
     };
     let llm_duration_ms = llm_start.elapsed().as_millis() as u64;
 
