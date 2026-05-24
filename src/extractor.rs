@@ -74,25 +74,45 @@ mod tests {
     use super::*;
 
     #[test]
-    #[ignore = "requires actual files"]
-    fn test_extract_pdf() {
-        // Test with real PDF
-        let result = extract_text("/path/to/test.pdf");
-        assert!(result.is_ok());
-        assert!(result.unwrap().len() > 100);
-    }
-
-    #[test]
-    #[ignore = "requires actual files"]
-    fn test_extract_txt() {
-        // Test with real TXT
-        let result = extract_text("/path/to/test.txt");
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_extract_nonexistent() {
-        let result = extract_text("/nonexistent/file.pdf");
+    fn test_missing_file() {
+        let result = extract_text("/nonexistent/path/to/file.pdf");
         assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("not found"), "Expected 'not found' in error, got: {}", err);
+    }
+
+    #[test]
+    fn test_non_pdf() {
+        // Create a temp file with .txt extension but test .xyz (unsupported)
+        let dir = std::env::temp_dir().join("rag_ferrite_test_extractor");
+        std::fs::create_dir_all(&dir).unwrap();
+        let file_path = dir.join("test.xyz");
+        std::fs::write(&file_path, "some content").unwrap();
+
+        let path_str = file_path.to_string_lossy().to_string();
+        let result = extract_text(&path_str);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("Unsupported") || err.contains("unsupported"),
+            "Expected 'Unsupported' in error, got: {}", err);
+
+        // Cleanup
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_extract_txt_file() {
+        let dir = std::env::temp_dir().join("rag_ferrite_test_extractor");
+        std::fs::create_dir_all(&dir).unwrap();
+        let file_path = dir.join("test.txt");
+        let content = "Hello, this is a test file.";
+        std::fs::write(&file_path, content).unwrap();
+
+        let path_str = file_path.to_string_lossy().to_string();
+        let result = extract_text(&path_str);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), content);
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
