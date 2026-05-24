@@ -85,6 +85,16 @@ struct ChunkNeighborsParams {
 fn default_before() -> Option<i64> { Some(2) }
 fn default_after() -> Option<i64> { Some(2) }
 
+#[derive(Debug, Default, Serialize, Deserialize, JsonSchema)]
+struct CheckIngestionParams {
+    /// Path to the file to check
+    pub file_path: Option<String>,
+    /// Raw content to check (alternative to file_path)
+    pub content: Option<String>,
+    /// Source name for duplicate detection (used with content)
+    pub source_name: Option<String>,
+}
+
 // --- MCP Tools ---
 
 #[tool_router(server_handler)]
@@ -198,6 +208,31 @@ impl RagLabServer {
             }).to_string(),
             Err(e) => serde_json::json!({ "error": e.to_string() }).to_string(),
         }
+    }
+
+    #[tool(name = "check_ingestion", description = "Pre-ingestion quality check: analyze a document before indexing. Returns char count, estimated chunks, language, duplicate detection, and warnings.")]
+    async fn check_ingestion(&self, params: Parameters<CheckIngestionParams>) -> String {
+        let p = params.0;
+        let (content, filename) = if let Some(ref file_path) = p.file_path {
+            match crate::extractor::extract_text(file_path) {
+                Ok(text) => {
+                    let name = std::path::Path::new(file_path)
+                        .file_name()
+                        .map(|n| n.to_string_lossy().to_string())
+                        .unwrap_or_else(|| file_path.clone());
+                    (text, name)
+                }
+                Err(e) => return serde_json::json!({ "error": format!("Failed to extract text: {}", e) }).to_string(),
+            }
+        } else if let Some(ref content) = p.content {
+            let name = p.source_name.unwrap_or_else(|| "inline_content".to_string());
+            (content.clone(), name)
+        } else {
+            return serde_json::json!({ "error": "Provide either file_path or content" }).to_string();
+        };
+
+        let report = engine::pre_check_document(&content, &filename);
+        serde_json::json!({ "pre_check": report }).to_string()
     }
 
     #[tool(name = "read_chunk_neighbors", description = "Get chunks adjacent to a specific chunk for context expansion.")]

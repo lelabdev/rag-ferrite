@@ -1,4 +1,15 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+
+/// Pre-ingestion quality check report.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PreCheckReport {
+    pub extraction_ok: bool,
+    pub char_count: usize,
+    pub estimated_chunks: usize,
+    pub language: String,
+    pub is_duplicate: bool,
+    pub warnings: Vec<String>,
+}
 
 /// Shared result type for hybrid search, used by both MCP and HTTP.
 #[derive(Debug, Serialize)]

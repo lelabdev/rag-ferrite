@@ -512,6 +512,128 @@ pub struct Stats {
     pub document_count: usize,
 }
 
+/// Pre-ingestion document quality check.
+/// Analyzes content and returns a report before committing to chunking+embedding.
+pub fn pre_check_document(content: &str, filename: &str) -> crate::types::PreCheckReport {
+    let mut warnings = Vec::new();
+
+    let char_count = content.len();
+
+    // Extraction check: non-empty after trimming
+    let extraction_ok = !content.trim().is_empty();
+
+    // Empty content warning
+    if char_count < 100 {
+        warnings.push(format!("Very short content ({} chars), may not provide useful retrieval results", char_count));
+    }
+
+    // Size warning
+    if char_count > 500_000 {
+        warnings.push(format!("Large document ({} chars), ingestion may take a while", char_count));
+    }
+
+    // Estimated chunks (matching the 800-char chunk size used in ingest_text)
+    let chunk_size = 800;
+    let estimated_chunks = if char_count == 0 {
+        0
+    } else if char_count < chunk_size {
+        1
+    } else {
+        (char_count + chunk_size - 1) / chunk_size
+    };
+
+    // Language detection via simple heuristic
+    let language = detect_language(content);
+
+    // Duplicate detection: check if a source with the same name already exists
+    let is_duplicate = check_duplicate_source(filename);
+    if is_duplicate {
+        warnings.push(format!("A document named '{}' already exists in the index", filename));
+    }
+
+    crate::types::PreCheckReport {
+        extraction_ok,
+        char_count,
+        estimated_chunks,
+        language,
+        is_duplicate,
+        warnings,
+    }
+}
+
+/// Simple language detection heuristic based on character frequency.
+fn detect_language(text: &str) -> String {
+    let sample = &text[..text.len().min(5000)];
+    let mut french_accents = 0usize;
+    let mut cjk_chars = 0usize;
+    let mut latin_chars = 0usize;
+    let mut arabic_chars = 0usize;
+    let mut cyrillic_chars = 0usize;
+
+    for ch in sample.chars() {
+        match ch {
+            'à' | 'â' | 'é' | 'è' | 'ê' | 'ë' | 'î' | 'ï' | 'ô' | 'ù' | 'û' | 'ü' | 'ÿ' | 'ç'
+            | 'À' | 'Â' | 'É' | 'È' | 'Ê' | 'Ë' | 'Î' | 'Ï' | 'Ô' | 'Ù' | 'Û' | 'Ü' | 'Ÿ' | 'Ç' => {
+                french_accents += 1;
+                latin_chars += 1;
+            }
+            c if c >= '\u{4E00}' && c <= '\u{9FFF}' => cjk_chars += 1,
+            c if c >= '\u{3040}' && c <= '\u{309F}' || c >= '\u{30A0}' && c <= '\u{30FF}' => cjk_chars += 1,
+            c if c >= '\u{0600}' && c <= '\u{06FF}' || c >= '\u{0750}' && c <= '\u{077F}' => arabic_chars += 1,
+            c if c >= '\u{0400}' && c <= '\u{04FF}' => cyrillic_chars += 1,
+            'a'..='z' | 'A'..='Z' => latin_chars += 1,
+            _ => {}
+        }
+    }
+
+    let total = latin_chars + cjk_chars + arabic_chars + cyrillic_chars;
+    if total == 0 {
+        return "unknown".to_string();
+    }
+
+    // CJK detection
+    if cjk_chars as f64 / total as f64 > 0.3 {
+        return "cjk".to_string();
+    }
+
+    // Arabic detection
+    if arabic_chars as f64 / total as f64 > 0.3 {
+        return "arabic".to_string();
+    }
+
+    // Cyrillic detection
+    if cyrillic_chars as f64 / total as f64 > 0.3 {
+        return "cyrillic".to_string();
+    }
+
+    // French vs English: if notable French accent count, assume French
+    if french_accents >= 3 {
+        return "french".to_string();
+    }
+
+    "english".to_string()
+}
+
+/// Check if a source with the given name already exists in the DB.
+fn check_duplicate_source(filename: &str) -> bool {
+    let db_path = match DB_PATH.get() {
+        Some(p) => p,
+        None => return false,
+    };
+    let conn = match rusqlite::Connection::open(db_path) {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+    let count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sources WHERE name = ?1",
+            rusqlite::params![filename],
+            |row| row.get(0),
+        )
+        .unwrap_or(0);
+    count > 0
+}
+
 /// Graph data for document similarity visualization.
 pub fn get_graph_data(
     collection: Option<&str>,
