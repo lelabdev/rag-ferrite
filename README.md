@@ -159,11 +159,12 @@ Available tools:
 rag_engine provides the core (HNSW, BM25, SQLite). We added:
 
 - **`src/extractor.rs`** — PDF extraction via `pdftotext` (poppler-utils). rag_engine's built-in `pdf-extract` crate returns 75% empty pages on complex PDFs. pdftotext is the gold standard.
-- **`src/chunker.rs`** — Recursive character text splitter with UTF-8 boundary safety. rag_engine's semantic chunker freezes on documents >100K chars and over-splits short paragraphs.
-- **`src/engine.rs`** — Collection-aware ingestion with proper `collection_id` routing, status tracking, and HNSW index persistence per collection.
-- **`src/pipeline.rs`** — Adaptive query routing (simple/standard/complex) with reranker passthrough when disabled.
+- **`src/chunker.rs`** — Recursive character text splitter with UTF-8 boundary safety, content-type detection, section path tracking, and page-aware chunking.
+- **`src/engine.rs`** — Collection-aware ingestion with chunk metadata persistence, HNSW index management, and reranker initialization.
+- **`src/pipeline.rs`** — Adaptive query routing (simple/standard/complex) with LLM reranking and corrective RAG.
+- **`src/reranker.rs`** — Post-retrieval reranking via LLM scoring or Cohere API. Keeps hybrid score + rerank score separate.
 - **`src/embedding.rs`** — Batch embedding with proper API format (`input` not `prompt`, `embeddings` not `embedding`).
-- **`src/main.rs`** — MCP stdio server with file logging for debugging.
+- **`src/main.rs`** — MCP stdio server with HTTP API (Axum) and file logging for debugging.
 
 ## Configuration
 
@@ -194,6 +195,25 @@ max_concurrent = 3                 # Max parallel LLM requests (lower for rate-l
 # base_url = "https://your-provider-url/v1"
 # api_key loaded from FALLBACK_API_KEY env var
 ```
+
+### Reranking
+
+Post-retrieval reranking improves precision by scoring the top-k results with an LLM. When enabled, results carry both the **hybrid score** (BM25 + HNSW fusion) and a **rerank_score** (0.0–1.0 LLM relevance). Results are sorted by rerank_score when available.
+
+**Two backends:**
+- `llm` — Uses your configured LLM to score each passage. Inherits provider/model/api_key/base_url from `[llm]` if not specified.
+- `cohere` — Cohere Rerank API (requires `api_key`).
+
+```toml
+[reranker]
+reranker_type = "llm"    # "disabled" (default), "llm", or "cohere"
+top_k = 10               # Number of top results to rerank
+# model = "..."          # Override LLM model (defaults to llm.model)
+# api_key = "..."        # Override API key (defaults to llm.api_key)
+# base_url = "..."       # Override base URL (defaults to llm.base_url)
+```
+
+When reranking fails (API error, rate limit), results fall back to hybrid scores with a warning log. No data loss, no silent degradation.
 
 ### Contextual retrieval
 
