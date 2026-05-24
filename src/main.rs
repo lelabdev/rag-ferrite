@@ -151,11 +151,12 @@ impl RagLabServer {
         let p = params.0;
         let coll = p.collection.as_deref();
         match engine::ingest_file(&self.pipeline.embedder, self.pipeline.llm.as_ref(), &p.file_path, coll, self.max_concurrent, self.relevance_scoring, self.min_relevance_score).await {
-            Ok(id) => serde_json::json!({
+            Ok((id, report)) => serde_json::json!({
                 "status": "ok",
                 "source_id": id,
                 "file_path": p.file_path,
-                "collection": p.collection
+                "collection": p.collection,
+                "report": report
             }).to_string(),
             Err(e) => serde_json::json!({ "error": e.to_string() }).to_string(),
         }
@@ -166,11 +167,12 @@ impl RagLabServer {
         let p = params.0;
         let coll = p.collection.as_deref();
         match engine::ingest_text(&self.pipeline.embedder, self.pipeline.llm.as_ref(), &p.content, &p.source, None, coll, self.max_concurrent, self.relevance_scoring, self.min_relevance_score).await {
-            Ok(id) => serde_json::json!({
+            Ok((id, report)) => serde_json::json!({
                 "status": "ok",
                 "source_id": id,
                 "source": p.source,
-                "content_length": p.content.len()
+                "content_length": p.content.len(),
+                "report": report
             }).to_string(),
             Err(e) => serde_json::json!({ "error": e.to_string() }).to_string(),
         }

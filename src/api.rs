@@ -244,13 +244,14 @@ async fn ingest_data(
     )
     .await
     {
-        Ok(id) => (
+        Ok((id, report)) => (
             StatusCode::OK,
             Json(serde_json::json!({
                 "status": "ok",
                 "source_id": id,
                 "source": req.source,
-                "content_length": req.content.len()
+                "content_length": req.content.len(),
+                "report": report
             })),
         ),
         Err(e) => (
@@ -276,13 +277,14 @@ async fn ingest_file(
     )
     .await
     {
-        Ok(id) => (
+        Ok((id, report)) => (
             StatusCode::OK,
             Json(serde_json::json!({
                 "status": "ok",
                 "source_id": id,
                 "file_path": req.file_path,
-                "collection": req.collection
+                "collection": req.collection,
+                "report": report
             })),
         ),
         Err(e) => (
