@@ -15,6 +15,9 @@ pub struct HybridResult {
     pub section_path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub page: Option<u32>,
+    /// LLM reranker score (0.0-1.0). None = not reranked, use `score`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rerank_score: Option<f64>,
 }
 
 impl From<rag_engine::api::hybrid_search::HybridSearchResult> for HybridResult {
@@ -30,6 +33,7 @@ impl From<rag_engine::api::hybrid_search::HybridSearchResult> for HybridResult {
             metadata: r.metadata,
             section_path: None,
             page: None,
+            rerank_score: None,
         }
     }
 }
@@ -47,6 +51,7 @@ impl From<crate::reranker::RerankedResult> for HybridResult {
             metadata: r.metadata,
             section_path: None,
             page: None,
+            rerank_score: r.rerank_score,
         }
     }
 }

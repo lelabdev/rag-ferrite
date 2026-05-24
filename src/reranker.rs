@@ -36,7 +36,10 @@ pub struct RerankCandidate {
 pub struct RerankedResult {
     pub doc_id: i64,
     pub content: String,
+    /// Hybrid search score (original)
     pub score: f64,
+    /// LLM relevance score (0.0-1.0). None = not reranked.
+    pub rerank_score: Option<f64>,
     pub source_id: i64,
     pub chunk_index: u32,
     pub metadata: Option<String>,
@@ -73,6 +76,7 @@ impl Reranker {
                     doc_id: c.doc_id,
                     content: c.content,
                     score: c.initial_score,
+                    rerank_score: None,
                     source_id: c.source_id,
                     chunk_index: c.chunk_index,
                     metadata: c.metadata,
@@ -201,14 +205,14 @@ impl Reranker {
             .into_iter()
             .enumerate()
             .map(|(i, c)| {
-                let score = scores.iter()
+                let llm_score = scores.iter()
                     .find(|(idx, _)| *idx == i)
-                    .map(|(_, s)| *s)
-                    .unwrap_or(c.initial_score);
+                    .map(|(_, s)| *s);
                 RerankedResult {
                     doc_id: c.doc_id,
                     content: c.content,
-                    score,
+                    score: c.initial_score,
+                    rerank_score: llm_score,
                     source_id: c.source_id,
                     chunk_index: c.chunk_index,
                     metadata: c.metadata,
@@ -286,7 +290,8 @@ impl Reranker {
                 cand_map.get(&entry.index).map(|c| RerankedResult {
                     doc_id: c.doc_id,
                     content: c.content.clone(),
-                    score: entry.relevance_score,
+                    score: c.initial_score,
+                    rerank_score: Some(entry.relevance_score),
                     source_id: c.source_id,
                     chunk_index: c.chunk_index,
                     metadata: c.metadata.clone(),

@@ -123,6 +123,7 @@ impl RagLabServer {
                         bm25_rank: r.bm25_rank,
                         section_path: sp,
                         page: None,
+                        rerank_score: r.rerank_score,
                     }
                 }).collect();
                 serde_json::json!({

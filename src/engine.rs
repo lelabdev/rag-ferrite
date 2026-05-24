@@ -11,7 +11,7 @@ use crate::config::RerankerConfig;
 use crate::embedding::EmbeddingProvider;
 use crate::extractor;
 use crate::llm::{ContextResult, LlmProvider};
-use crate::reranker::{Reranker, RerankCandidate, RerankerType};
+use crate::reranker::{Reranker, RerankerType};
 
 /// Stored DB path so list_sources/stats can query across all collections.
 static DB_PATH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
@@ -421,40 +421,6 @@ pub async fn search_hybrid_with_expansion(
     // Sort by score descending
     all_results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
     all_results.truncate(limit);
-
-    // Rerank if enabled
-    if let Some(reranker) = RERANKER.get() {
-        if reranker.is_enabled() && !all_results.is_empty() {
-            let candidates: Vec<RerankCandidate> = all_results.iter().map(|r| RerankCandidate {
-                doc_id: r.doc_id,
-                content: r.content.clone(),
-                initial_score: r.score,
-                source_id: r.source_id,
-                chunk_index: r.chunk_index,
-                metadata: r.metadata.clone(),
-                vector_rank: r.vector_rank,
-                bm25_rank: r.bm25_rank,
-            }).collect();
-            match reranker.rerank(query, candidates).await {
-                Ok(reranked) => {
-                    tracing::info!("Reranked {} results", reranked.len());
-                    all_results = reranked.into_iter().take(limit).map(|r| hybrid_search::HybridSearchResult {
-                        doc_id: r.doc_id,
-                        content: r.content,
-                        score: r.score,
-                        source_id: r.source_id,
-                        chunk_index: r.chunk_index,
-                        metadata: r.metadata,
-                        vector_rank: r.vector_rank,
-                        bm25_rank: r.bm25_rank,
-                    }).collect();
-                }
-                Err(e) => {
-                    tracing::warn!("Reranking failed, using hybrid scores: {}", e);
-                }
-            }
-        }
-    }
 
     Ok(all_results)
 }
