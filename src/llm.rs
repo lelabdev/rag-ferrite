@@ -193,7 +193,17 @@ impl LlmProvider {
 
     /// Expand a short or ambiguous query into 2-3 reformulations.
     /// Returns the original query + reformulations for broader retrieval.
+    /// Gracefully degrades to just the original query if LLM is unavailable.
     pub async fn expand_query(&self, query: &str) -> Result<Vec<String>> {
+        // If no API key and not using Ollama, skip expansion gracefully
+        if self.provider.as_str() != "ollama" && self.api_key.is_none() {
+            tracing::debug!(
+                "Skipping query expansion: no API key for provider '{}'",
+                self.provider
+            );
+            return Ok(vec![query.to_string()]);
+        }
+
         let prompt = format!(
             "Generate 2 alternative reformulations of this search query to improve document retrieval. \
              Each reformulation should use different wording but seek the same information. \
@@ -207,7 +217,14 @@ impl LlmProvider {
             content: prompt,
         }];
 
-        let response = self.chat_with_options(messages, 0.7, 200).await?;
+        let response = match self.chat_with_options(messages, 0.7, 200).await {
+            Ok(text) => text,
+            Err(e) => {
+                tracing::warn!("Query expansion failed, using original query: {}", e);
+                return Ok(vec![query.to_string()]);
+            }
+        };
+
         let mut expansions = vec![query.to_string()]; // original first
 
         for line in response.lines() {
