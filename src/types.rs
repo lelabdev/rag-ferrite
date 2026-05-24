@@ -11,6 +11,8 @@ pub struct HybridResult {
     pub source_id: i64,
     pub chunk_index: u32,
     pub metadata: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub section_path: Option<String>,
 }
 
 impl From<rag_engine::api::hybrid_search::HybridSearchResult> for HybridResult {
@@ -24,6 +26,7 @@ impl From<rag_engine::api::hybrid_search::HybridSearchResult> for HybridResult {
             source_id: r.source_id,
             chunk_index: r.chunk_index,
             metadata: r.metadata,
+            section_path: None,
         }
     }
 }
@@ -39,6 +42,7 @@ impl From<crate::reranker::RerankedResult> for HybridResult {
             source_id: r.source_id,
             chunk_index: r.chunk_index,
             metadata: r.metadata,
+            section_path: None,
         }
     }
 }
@@ -76,10 +80,12 @@ pub struct ChunkResult {
     pub content: String,
     pub score: f64,
     pub metadata: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub section_path: Option<String>,
 }
 
-impl From<rag_engine::api::source_rag::ChunkSearchResult> for ChunkResult {
-    fn from(r: rag_engine::api::source_rag::ChunkSearchResult) -> Self {
+impl From<(rag_engine::api::source_rag::ChunkSearchResult, Option<String>)> for ChunkResult {
+    fn from((r, section_path): (rag_engine::api::source_rag::ChunkSearchResult, Option<String>)) -> Self {
         ChunkResult {
             chunk_id: r.chunk_id,
             source_id: r.source_id,
@@ -87,6 +93,7 @@ impl From<rag_engine::api::source_rag::ChunkSearchResult> for ChunkResult {
             content: r.content,
             score: r.similarity,
             metadata: r.metadata,
+            section_path,
         }
     }
 }
