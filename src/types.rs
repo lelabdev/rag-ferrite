@@ -1,6 +1,16 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+/// Post-chunking verification report.
+#[derive(Debug, Serialize)]
+pub struct ChunkVerification {
+    pub total_chunks: usize,
+    pub source_chars: usize,
+    pub chunk_chars: usize,
+    pub coverage_ratio: f64,
+    pub warnings: Vec<String>,
+}
+
 /// Pre-ingestion quality check report.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PreCheckReport {

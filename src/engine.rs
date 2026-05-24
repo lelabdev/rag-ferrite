@@ -13,7 +13,7 @@ use crate::embedding::EmbeddingProvider;
 use crate::extractor;
 use crate::llm::{ContextResult, LlmProvider};
 use crate::reranker::{Reranker, RerankerType};
-use crate::types::{BenchmarkDetail, BenchmarkResult, GoldenEntry, IngestionReport};
+use crate::types::{BenchmarkDetail, BenchmarkResult, ChunkVerification, GoldenEntry, IngestionReport};
 
 /// Stored DB path so list_sources/stats can query across all collections.
 static DB_PATH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
@@ -128,6 +128,15 @@ chunk_type: chunker::detect_chunk_type(content.trim(), true),
         chunker::chunk_text(content, chunk_size)
     };
     tracing::info!("Chunked into {} chunks (size={})", chunks.len(), chunk_size);
+
+    // Post-chunking verification
+    let chunk_texts: Vec<String> = chunks.iter().map(|c| c.content.clone()).collect();
+    let verification = verify_chunks(&chunk_texts, source_name);
+    if !verification.warnings.is_empty() {
+        for warning in &verification.warnings {
+            tracing::warn!("Chunk verification: {}", warning);
+        }
+    }
 
     // Contextual retrieval: generate context prefixes + relevance scores via LLM
     let mut context_failures = 0usize;
@@ -865,6 +874,42 @@ pub fn get_graph_data(
     let _active_ids: std::collections::HashSet<i64> = ids_with_centroids.into_iter().collect();
 
     Ok(crate::types::GraphData { nodes, edges })
+}
+
+/// Post-chunking verification: checks coverage, empty chunks, and logs warnings.
+fn verify_chunks(chunks: &[String], source: &str) -> ChunkVerification {
+    let total_chunks = chunks.len();
+    let source_chars = source.len();
+    let chunk_chars: usize = chunks.iter().map(|c| c.len()).sum();
+    let coverage_ratio = if source_chars == 0 {
+        1.0
+    } else {
+        chunk_chars as f64 / source_chars as f64
+    };
+
+    let mut warnings = Vec::new();
+
+    // Warn on empty chunks
+    let empty_count = chunks.iter().filter(|c| c.trim().is_empty()).count();
+    if empty_count > 0 {
+        warnings.push(format!("{} empty chunks found for source '{}'", empty_count, source));
+    }
+
+    // Warn if coverage < 90%
+    if coverage_ratio < 0.9 {
+        warnings.push(format!(
+            "Low chunk coverage {:.1}% for source '{}' ({} source chars, {} chunk chars)",
+            coverage_ratio * 100.0, source, source_chars, chunk_chars
+        ));
+    }
+
+    ChunkVerification {
+        total_chunks,
+        source_chars,
+        chunk_chars,
+        coverage_ratio,
+        warnings,
+    }
 }
 
 /// Decode a BLOB of native-endian f32 bytes into a Vec<f32>.
