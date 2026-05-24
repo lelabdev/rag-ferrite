@@ -95,6 +95,18 @@ struct CheckIngestionParams {
     pub source_name: Option<String>,
 }
 
+#[derive(Debug, Default, Serialize, Deserialize, JsonSchema)]
+struct BenchmarkParams {
+    /// Path to the golden dataset JSON file
+    pub file_path: String,
+    /// Optional collection to filter queries against
+    #[serde(default)]
+    pub collection: Option<String>,
+    /// Number of top results to consider per query (default: 10)
+    #[serde(default = "default_limit")]
+    pub limit: Option<usize>,
+}
+
 // --- MCP Tools ---
 
 #[tool_router(server_handler)]
@@ -235,6 +247,27 @@ impl RagLabServer {
 
         let report = engine::pre_check_document(&content, &filename);
         serde_json::json!({ "pre_check": report }).to_string()
+    }
+
+    #[tool(name = "benchmark", description = "Evaluate retrieval quality against a golden dataset JSON file (array of {question, expected_keywords, relevant_source_ids}). Returns hit rate and per-query details.")]
+    async fn benchmark(&self, params: Parameters<BenchmarkParams>) -> String {
+        let p = params.0;
+        let content = match std::fs::read_to_string(&p.file_path) {
+            Ok(c) => c,
+            Err(e) => return serde_json::json!({ "error": format!("Failed to read golden dataset: {}", e) }).to_string(),
+        };
+        let entries: Vec<types::GoldenEntry> = match serde_json::from_str(&content) {
+            Ok(e) => e,
+            Err(e) => return serde_json::json!({ "error": format!("Invalid JSON: {}", e) }).to_string(),
+        };
+        if entries.is_empty() {
+            return serde_json::json!({ "error": "Golden dataset is empty" }).to_string();
+        }
+        let limit = p.limit.unwrap_or(10);
+        match engine::run_benchmark(&self.pipeline.embedder, entries, p.collection, limit).await {
+            Ok(result) => serde_json::to_string(&result).unwrap_or_else(|e| serde_json::json!({ "error": e.to_string() }).to_string()),
+            Err(e) => serde_json::json!({ "error": e.to_string() }).to_string(),
+        }
     }
 
     #[tool(name = "read_chunk_neighbors", description = "Get chunks adjacent to a specific chunk for context expansion.")]

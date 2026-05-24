@@ -13,7 +13,7 @@ use crate::embedding::EmbeddingProvider;
 use crate::extractor;
 use crate::llm::{ContextResult, LlmProvider};
 use crate::reranker::{Reranker, RerankerType};
-use crate::types::IngestionReport;
+use crate::types::{BenchmarkDetail, BenchmarkResult, GoldenEntry, IngestionReport};
 
 /// Stored DB path so list_sources/stats can query across all collections.
 static DB_PATH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
@@ -670,6 +670,79 @@ fn check_duplicate_source(filename: &str) -> bool {
         )
         .unwrap_or(0);
     count > 0
+}
+
+/// Run a benchmark against a golden dataset.
+/// For each entry, queries the engine and checks if expected source_ids appear in top results.
+pub async fn run_benchmark(
+    embedder: &EmbeddingProvider,
+    entries: Vec<GoldenEntry>,
+    collection: Option<String>,
+    limit: usize,
+) -> Result<BenchmarkResult> {
+    let mut details = Vec::with_capacity(entries.len());
+    let mut total_score = 0.0;
+    let mut hits = 0usize;
+
+    for entry in &entries {
+        let filter = if collection.is_some() {
+            Some(hybrid_search::SearchFilter {
+                source_ids: None,
+                metadata_like: None,
+                collection_id: collection.clone(),
+            })
+        } else {
+            None
+        };
+
+        let results = search_hybrid(embedder, &entry.question, limit, filter).await.unwrap_or_default();
+
+        // Collect unique source_ids from results
+        let found_ids: Vec<i64> = results
+            .iter()
+            .map(|r| r.source_id)
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .collect();
+
+        // Score: fraction of expected source_ids that appear in found_ids
+        let matched = entry.relevant_source_ids.iter().filter(|id| found_ids.contains(id)).count();
+        let score = if entry.relevant_source_ids.is_empty() {
+            0.0
+        } else {
+            matched as f64 / entry.relevant_source_ids.len() as f64
+        };
+        let is_hit = matched > 0;
+
+        if is_hit {
+            hits += 1;
+        }
+        total_score += score;
+
+        details.push(BenchmarkDetail {
+            query: entry.question.clone(),
+            expected_source_ids: entry.relevant_source_ids.clone(),
+            found_source_ids: found_ids,
+            score,
+            is_hit,
+        });
+    }
+
+    let total_queries = entries.len();
+    let misses = total_queries - hits;
+    let avg_score = if total_queries > 0 {
+        total_score / total_queries as f64
+    } else {
+        0.0
+    };
+
+    Ok(BenchmarkResult {
+        total_queries,
+        hits,
+        misses,
+        avg_score,
+        details,
+    })
 }
 
 /// Graph data for document similarity visualization.

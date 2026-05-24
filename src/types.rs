@@ -1,3 +1,4 @@
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Pre-ingestion quality check report.
@@ -136,6 +137,36 @@ chunk_type: r.chunk_type,
             page,
         }
     }
+}
+
+// --- Benchmark types ---
+
+/// A single entry in the golden dataset JSON file.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct GoldenEntry {
+    pub question: String,
+    pub expected_keywords: Vec<String>,
+    pub relevant_source_ids: Vec<i64>,
+}
+
+/// Result of a single query within the benchmark.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BenchmarkDetail {
+    pub query: String,
+    pub expected_source_ids: Vec<i64>,
+    pub found_source_ids: Vec<i64>,
+    pub score: f64,
+    pub is_hit: bool,
+}
+
+/// Aggregate result of running a benchmark.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BenchmarkResult {
+    pub total_queries: usize,
+    pub hits: usize,
+    pub misses: usize,
+    pub avg_score: f64,
+    pub details: Vec<BenchmarkDetail>,
 }
 
 // --- Graph types ---
