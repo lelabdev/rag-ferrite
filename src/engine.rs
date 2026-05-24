@@ -7,15 +7,18 @@ use rag_engine::api::{
 };
 use rag_engine::api::source_rag::DEFAULT_COLLECTION_ID;
 use crate::chunker;
+use crate::config::RerankerConfig;
 use crate::embedding::EmbeddingProvider;
 use crate::extractor;
 use crate::llm::{ContextResult, LlmProvider};
+use crate::reranker::{Reranker, RerankCandidate, RerankerType};
 
 /// Stored DB path so list_sources/stats can query across all collections.
 static DB_PATH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+static RERANKER: std::sync::OnceLock<Reranker> = std::sync::OnceLock::new();
 
-/// Initialize rag_engine: logger + DB pool + schema
-pub fn init(data_dir: &std::path::Path) -> Result<()> {
+/// Initialize rag_engine: logger + DB pool + schema + reranker
+pub fn init(data_dir: &std::path::Path, config: &crate::config::Config) -> Result<()> {
     simple::init_core();
     let db_path = data_dir.join("rag.sqlite3");
     std::fs::create_dir_all(data_dir)?;
@@ -41,7 +44,37 @@ pub fn init(data_dir: &std::path::Path) -> Result<()> {
 
     let _ = DB_PATH.set(db_path_str);
     tracing::info!("rag_engine DB initialized at {}", db_path.display());
+
+    // Initialize reranker from config
+    let reranker = build_reranker(&config.reranker, &config.llm);
+    let _ = RERANKER.set(reranker);
     Ok(())
+}
+
+/// Build a Reranker from config, falling back to LLM config for missing fields.
+fn build_reranker(cfg: &RerankerConfig, llm: &crate::config::LlmConfig) -> Reranker {
+    match cfg.reranker_type.as_str() {
+        "llm" => {
+            let model = cfg.model.clone().unwrap_or_else(|| llm.model.clone());
+            let api_key = cfg.api_key.clone().or_else(|| llm.api_key.clone());
+            let base_url = cfg.base_url.clone().unwrap_or_else(|| {
+                llm.base_url.clone().unwrap_or_else(|| "https://openrouter.ai/api/v1".into())
+            });
+            let provider = llm.provider.clone();
+            tracing::info!("Reranker: LLM ({}, {})", provider, model);
+            Reranker::new(RerankerType::Llm { provider, model, api_key, base_url })
+        }
+        "cohere" => {
+            let api_key = cfg.api_key.clone()
+                .expect("Cohere reranker requires reranker.api_key");
+            tracing::info!("Reranker: Cohere");
+            Reranker::new(RerankerType::Cohere { api_key })
+        }
+        _ => {
+            tracing::info!("Reranker: disabled");
+            Reranker::disabled()
+        }
+    }
 }
 
 /// Ingest a text document into the RAG
@@ -388,6 +421,40 @@ pub async fn search_hybrid_with_expansion(
     // Sort by score descending
     all_results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
     all_results.truncate(limit);
+
+    // Rerank if enabled
+    if let Some(reranker) = RERANKER.get() {
+        if reranker.is_enabled() && !all_results.is_empty() {
+            let candidates: Vec<RerankCandidate> = all_results.iter().map(|r| RerankCandidate {
+                doc_id: r.doc_id,
+                content: r.content.clone(),
+                initial_score: r.score,
+                source_id: r.source_id,
+                chunk_index: r.chunk_index,
+                metadata: r.metadata.clone(),
+                vector_rank: r.vector_rank,
+                bm25_rank: r.bm25_rank,
+            }).collect();
+            match reranker.rerank(query, candidates).await {
+                Ok(reranked) => {
+                    tracing::info!("Reranked {} results", reranked.len());
+                    all_results = reranked.into_iter().take(limit).map(|r| hybrid_search::HybridSearchResult {
+                        doc_id: r.doc_id,
+                        content: r.content,
+                        score: r.score,
+                        source_id: r.source_id,
+                        chunk_index: r.chunk_index,
+                        metadata: r.metadata,
+                        vector_rank: r.vector_rank,
+                        bm25_rank: r.bm25_rank,
+                    }).collect();
+                }
+                Err(e) => {
+                    tracing::warn!("Reranking failed, using hybrid scores: {}", e);
+                }
+            }
+        }
+    }
 
     Ok(all_results)
 }

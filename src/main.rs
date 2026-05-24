@@ -247,7 +247,7 @@ async fn main() -> Result<()> {
     tracing::info!("rag-ferrite v{} starting — data: {}", env!("CARGO_PKG_VERSION"), config.data_dir.display());
 
     // Init rag_engine
-    engine::init(&config.data_dir)?;
+    engine::init(&config.data_dir, &config)?;
 
     // Init embedding provider
     let embedder = embedding::EmbeddingProvider::new(
@@ -294,7 +294,7 @@ async fn main() -> Result<()> {
         pipeline: pipeline::QueryPipeline {
             embedder: embedder.clone(),
             llm: llm.clone(),
-            reranker: reranker::Reranker::disabled(),
+            reranker: reranker::Reranker::disabled(), // unused, engine has its own
             quality_threshold: 0.3,
             max_retries: 1,
         },

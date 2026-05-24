@@ -16,6 +16,10 @@ pub struct Config {
     #[serde(default)]
     pub llm: LlmConfig,
 
+    /// Reranker configuration
+    #[serde(default)]
+    pub reranker: RerankerConfig,
+
     /// HTTP server port (0 = disabled, stdio-only mode)
     #[serde(default)]
     pub http_port: u16,
@@ -159,6 +163,44 @@ impl Default for LlmConfig {
     }
 }
 
+#[derive(Debug, Deserialize)]
+pub struct RerankerConfig {
+    /// Reranker type: "disabled", "llm", "cohere"
+    #[serde(default = "default_reranker_type")]
+    pub reranker_type: String,
+
+    /// Model to use for LLM reranking (defaults to llm.model)
+    #[serde(default)]
+    pub model: Option<String>,
+
+    /// API key (defaults to llm.api_key)
+    #[serde(default)]
+    pub api_key: Option<String>,
+
+    /// Base URL (defaults to llm.base_url)
+    #[serde(default)]
+    pub base_url: Option<String>,
+
+    /// Number of top results to rerank (default 10)
+    #[serde(default = "default_rerank_top_k")]
+    pub top_k: usize,
+}
+
+fn default_reranker_type() -> String { "disabled".into() }
+fn default_rerank_top_k() -> usize { 10 }
+
+impl Default for RerankerConfig {
+    fn default() -> Self {
+        Self {
+            reranker_type: default_reranker_type(),
+            model: None,
+            api_key: None,
+            base_url: None,
+            top_k: default_rerank_top_k(),
+        }
+    }
+}
+
 fn dirs_data_dir() -> Option<PathBuf> {
     dirs::data_local_dir().map(|p| p.join("rag-ferrite"))
 }
@@ -191,6 +233,7 @@ impl Default for Config {
             data_dir: default_data_dir(),
             embedding: EmbeddingConfig::default(),
             llm: LlmConfig::default(),
+            reranker: RerankerConfig::default(),
             http_port: 0,
         }
     }
