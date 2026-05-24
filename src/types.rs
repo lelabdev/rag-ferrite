@@ -1,5 +1,20 @@
 use serde::Serialize;
 
+/// Ingestion quality report returned after ingesting a document.
+#[derive(Debug, Serialize)]
+pub struct IngestionReport {
+    pub total_chunks: usize,
+    pub filtered_chunks: usize,
+    pub avg_relevance: f64,
+    pub min_relevance: f64,
+    pub max_relevance: f64,
+    pub context_failures: usize,
+    pub total_duration_ms: u64,
+    pub embedding_duration_ms: u64,
+    pub llm_duration_ms: u64,
+    pub source_name: String,
+}
+
 /// Shared result type for hybrid search, used by both MCP and HTTP.
 #[derive(Debug, Serialize)]
 pub struct HybridResult {

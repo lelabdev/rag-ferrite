@@ -1,4 +1,5 @@
 use anyhow::Result;
+use std::time::Instant;
 use rag_engine::api::{
     db_pool,
     hybrid_search,
@@ -12,6 +13,7 @@ use crate::embedding::EmbeddingProvider;
 use crate::extractor;
 use crate::llm::{ContextResult, LlmProvider};
 use crate::reranker::{Reranker, RerankerType};
+use crate::types::IngestionReport;
 
 /// Stored DB path so list_sources/stats can query across all collections.
 static DB_PATH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
@@ -88,7 +90,8 @@ pub async fn ingest_text(
     max_concurrent: usize,
     relevance_scoring: bool,
     min_relevance_score: f32,
-) -> Result<i64> {
+) -> Result<(i64, IngestionReport)> {
+    let total_start = Instant::now();
     let collection_id = collection.unwrap_or(DEFAULT_COLLECTION_ID).to_string();
     let meta = metadata.map(|m| m.to_string()).unwrap_or_default();
     let source = source_rag::add_source_in_collection(
@@ -127,6 +130,8 @@ chunk_type: chunker::detect_chunk_type(content.trim(), true),
     tracing::info!("Chunked into {} chunks (size={})", chunks.len(), chunk_size);
 
     // Contextual retrieval: generate context prefixes + relevance scores via LLM
+    let mut context_failures = 0usize;
+    let llm_start = Instant::now();
     let context_results: Vec<ContextResult> = if let Some(llm_provider) = llm {
         tracing::info!("Generating context prefixes for {} chunks via LLM...", chunks.len());
         let chunk_texts: Vec<String> = chunks.iter().map(|c| c.content.clone()).collect();
@@ -137,9 +142,15 @@ chunk_type: chunker::detect_chunk_type(content.trim(), true),
             let results = llm_provider.generate_context_batch(content, batch, max_concurrent).await;
             for result in results {
                 match result {
-                    Ok(ctx_result) => all_results.push(ctx_result),
+                    Ok(ctx_result) => {
+                        if ctx_result.context.is_none() {
+                            context_failures += 1;
+                        }
+                        all_results.push(ctx_result)
+                    }
                     Err(e) => {
                         tracing::warn!("Context generation failed for chunk: {}, using raw content", e);
+                        context_failures += 1;
                         all_results.push(ContextResult { context: None, relevance_score: None });
                     }
                 }
@@ -151,6 +162,7 @@ chunk_type: chunker::detect_chunk_type(content.trim(), true),
     } else {
         vec![ContextResult { context: None, relevance_score: None }; chunks.len()]
     };
+    let llm_duration_ms = llm_start.elapsed().as_millis() as u64;
 
     // Filter chunks by relevance score if enabled
     let mut filtered_count = 0usize;
@@ -173,6 +185,15 @@ chunk_type: chunker::detect_chunk_type(content.trim(), true),
         .map(|((idx, chunk), ctx_result)| (idx, chunk, ctx_result))
         .collect();
 
+    // Compute relevance statistics from all context results
+    let relevance_scores: Vec<f64> = context_results
+        .iter()
+        .filter_map(|c| c.relevance_score.map(|s| s as f64))
+        .collect();
+    let avg_relevance = if relevance_scores.is_empty() { 0.0 } else { relevance_scores.iter().sum::<f64>() / relevance_scores.len() as f64 };
+    let min_relevance = relevance_scores.iter().cloned().fold(f64::INFINITY, f64::min).min(0.0);
+    let max_relevance = relevance_scores.iter().cloned().fold(f64::NEG_INFINITY, f64::max).max(0.0);
+
     if filtered_count > 0 {
         tracing::info!("Relevance scoring: filtered {}/{} chunks (threshold={:.1})", filtered_count, chunks.len(), min_relevance_score);
     }
@@ -193,7 +214,9 @@ chunk_type: chunker::detect_chunk_type(content.trim(), true),
         .collect();
 
     // Batch embed all chunks (with context prefixes)
+    let embed_start = Instant::now();
     let embeddings = embedder.embed_batch(&final_texts).await?;
+    let embedding_duration_ms = embed_start.elapsed().as_millis() as u64;
 
     // Store original chunk content (not the prefixed version)
     // Collect section_paths and pages for post-insert UPDATE (rag_engine ChunkData doesn't have these)
@@ -245,7 +268,22 @@ chunk_type: chunker::detect_chunk_type(content.trim(), true),
         tracing::warn!("Failed to save HNSW index: {}", e);
     }
 
-    Ok(source.source_id)
+    let total_duration_ms = total_start.elapsed().as_millis() as u64;
+
+    let report = IngestionReport {
+        total_chunks: chunks.len(),
+        filtered_chunks: filtered_count,
+        avg_relevance,
+        min_relevance,
+        max_relevance,
+        context_failures,
+        total_duration_ms,
+        embedding_duration_ms,
+        llm_duration_ms,
+        source_name: source_name.to_string(),
+    };
+
+    Ok((source.source_id, report))
 }
 
 /// Ingest a file (PDF, TXT, MD)
@@ -258,7 +296,7 @@ pub async fn ingest_file(
     max_concurrent: usize,
     relevance_scoring: bool,
     min_relevance_score: f32,
-) -> Result<i64> {
+) -> Result<(i64, IngestionReport)> {
     // Use our custom extractor instead of rag_engine's document_parser
     let text = extractor::extract_text(file_path)?;
 
