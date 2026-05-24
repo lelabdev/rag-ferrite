@@ -30,6 +30,13 @@ pub fn init(data_dir: &std::path::Path) -> Result<()> {
         tracing::info!("Migrating: adding section_path column to chunks");
         conn.execute_batch("ALTER TABLE chunks ADD COLUMN section_path TEXT DEFAULT NULL")?;
     }
+
+    // Migration: add page column to chunks (backward-compatible)
+    let has_page: bool = conn.prepare("SELECT page FROM chunks LIMIT 1").is_ok();
+    if !has_page {
+        tracing::info!("Migrating: adding page column to chunks");
+        conn.execute_batch("ALTER TABLE chunks ADD COLUMN page INTEGER DEFAULT NULL")?;
+    }
     drop(conn);
 
     let _ = DB_PATH.set(db_path_str);
@@ -79,6 +86,7 @@ pub async fn ingest_text(
             end_pos: content.len() as i32,
 chunk_type: chunker::detect_chunk_type(content.trim(), true),
             section_path: single_section,
+            page: None,
         }]
     } else {
         chunker::chunk_text(content, chunk_size)
@@ -155,10 +163,14 @@ chunk_type: chunker::detect_chunk_type(content.trim(), true),
     let embeddings = embedder.embed_batch(&final_texts).await?;
 
     // Store original chunk content (not the prefixed version)
-    // Collect section_paths for post-insert UPDATE (rag_engine ChunkData doesn't have section_path)
+    // Collect section_paths and pages for post-insert UPDATE (rag_engine ChunkData doesn't have these)
     let section_paths: Vec<Option<String>> = kept
         .iter()
         .map(|(_, chunk, _)| chunk.section_path.clone())
+        .collect();
+    let pages: Vec<Option<u32>> = kept
+        .iter()
+        .map(|(_, chunk, _)| chunk.page)
         .collect();
 
     let chunk_data: Vec<ChunkData> = kept
@@ -179,6 +191,7 @@ chunk_type: chunker::detect_chunk_type(content.trim(), true),
 
     // Store section_path for each chunk (separate UPDATE since rag_engine doesn't know about it)
     update_chunk_section_paths(source.source_id, &section_paths)?;
+    update_chunk_pages(source.source_id, &pages)?;
 
     // Mark source as completed
     if let Err(e) = source_rag::update_source_status(source.source_id, "completed".to_string()) {
@@ -248,6 +261,21 @@ fn update_chunk_section_paths(source_id: i64, section_paths: &[Option<String>]) 
         }
     }
 
+    Ok(())
+}
+
+/// Update page for all chunks of a source, matched by chunk_index.
+fn update_chunk_pages(source_id: i64, pages: &[Option<u32>]) -> Result<()> {
+    let db_path = DB_PATH.get().ok_or_else(|| anyhow::anyhow!("DB not initialized"))?;
+    let conn = rusqlite::Connection::open(db_path)?;
+    for (idx, page) in pages.iter().enumerate() {
+        if let Some(p) = page {
+            conn.execute(
+                "UPDATE chunks SET page = ?1 WHERE source_id = ?2 AND chunk_index = ?3",
+                rusqlite::params![*p as i64, source_id, idx as i32],
+            )?;
+        }
+    }
     Ok(())
 }
 
@@ -364,21 +392,39 @@ pub async fn search_hybrid_with_expansion(
     Ok(all_results)
 }
 
-/// Get chunks adjacent to a given chunk, enriched with section_path.
-pub fn get_neighbors(source_id: i64, chunk_index: i64, before: i64, after: i64) -> Result<Vec<(ChunkSearchResult, Option<String>)>> {
+/// Fetch page for a batch of chunk IDs.
+pub fn get_pages_for_chunk_ids(chunk_ids: &[i64]) -> Result<std::collections::HashMap<i64, Option<u32>>> {
+    let db_path = DB_PATH.get().ok_or_else(|| anyhow::anyhow!("DB not initialized"))?;
+    let conn = rusqlite::Connection::open(db_path)?;
+    let mut map = std::collections::HashMap::new();
+    for &id in chunk_ids {
+        let page: Option<u32> = conn.query_row(
+            "SELECT page FROM chunks WHERE id = ?1",
+            rusqlite::params![id],
+            |row| row.get(0),
+        ).unwrap_or(None);
+        map.insert(id, page);
+    }
+    Ok(map)
+}
+
+/// Get chunks adjacent to a given chunk, enriched with section_path and page.
+pub fn get_neighbors(source_id: i64, chunk_index: i64, before: i64, after: i64) -> Result<Vec<(ChunkSearchResult, Option<String>, Option<u32>)>> {
     let min_index = (chunk_index - before).max(0);
     let max_index = chunk_index + after;
     let chunks = source_rag::get_adjacent_chunks(source_id, min_index as i32, max_index as i32)?;
 
-    // Fetch section_paths for all chunks
+    // Fetch section_paths and pages for all chunks
     let chunk_ids: Vec<i64> = chunks.iter().map(|c| c.chunk_id).collect();
     let section_map = get_section_paths_for_chunk_ids(&chunk_ids)?;
+    let page_map = get_pages_for_chunk_ids(&chunk_ids)?;
 
     let enriched = chunks
         .into_iter()
         .map(|c| {
             let sp = section_map.get(&c.chunk_id).cloned().flatten();
-            (c, sp)
+            let pg = page_map.get(&c.chunk_id).cloned().flatten();
+            (c, sp, pg)
         })
         .collect();
 

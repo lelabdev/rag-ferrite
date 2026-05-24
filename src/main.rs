@@ -122,6 +122,7 @@ impl RagLabServer {
                         vector_rank: r.vector_rank,
                         bm25_rank: r.bm25_rank,
                         section_path: sp,
+                        page: None,
                     }
                 }).collect();
                 serde_json::json!({
@@ -206,7 +207,7 @@ impl RagLabServer {
 
         match engine::get_neighbors(p.source_id, p.chunk_index, before, after) {
             Ok(chunks) => {
-                let out: Vec<types::ChunkResult> = chunks.into_iter().map(|(chunk, section_path)| {
+                let out: Vec<types::ChunkResult> = chunks.into_iter().map(|(chunk, section_path, page)| {
                     types::ChunkResult {
                         chunk_id: chunk.chunk_id,
                         source_id: chunk.source_id,
@@ -216,6 +217,7 @@ impl RagLabServer {
                         metadata: chunk.metadata,
                         chunk_type: chunk.chunk_type,
                         section_path,
+                        page,
                     }
                 }).collect();
                 serde_json::json!({

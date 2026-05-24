@@ -2,23 +2,27 @@
 ///
 /// chunk_size: ~1000 chars (~250 tokens, optimal per RAG Cookbook)
 /// overlap: 10% for context preservation
-///
-/// Also tracks markdown headers (# H1, ## H2, etc.) and builds a section path
-/// for each chunk based on which header section it falls into.
+/// Also tracks: markdown headers (section_path), page breaks (page), content type (chunk_type)
 pub fn chunk_text(text: &str, chunk_size: usize) -> Vec<Chunk> {
     let separators = ["\n\n", "\n", ". ", " "];
     let overlap = (chunk_size as f64 * 0.1) as usize;
 
     // Pre-scan: build section map from markdown headers
     let sections = extract_sections(text);
+    // Pre-scan: build page break positions
+    let page_breaks = find_page_breaks(text);
 
     let mut chunks = Vec::new();
     let chars: Vec<char> = text.chars().collect();
     let char_count = chars.len();
 
     let mut char_pos: usize = 0; // position in chars, not bytes
+    let mut current_page: u32 = page_for_position(&page_breaks, 0);
 
     while char_pos < char_count {
+        // Update page before chunking this segment
+        current_page = page_for_position(&page_breaks, char_pos);
+
         let target_end = (char_pos + chunk_size).min(char_count);
 
         // Find best split in char range
@@ -38,19 +42,26 @@ pub fn chunk_text(text: &str, chunk_size: usize) -> Vec<Chunk> {
             let byte_start: usize = chars[..char_pos].iter().collect::<String>().len();
             let byte_end: usize = chars[..char_end].iter().collect::<String>().len();
 
-// Detect content type from the chunk text
+            // Detect content type from the chunk text
             let is_first = chunks.is_empty();
             let chunk_type = detect_chunk_type(&trimmed, is_first);
             // Look up section path based on byte position of chunk start
             let section_path = find_section_for_position(&sections, byte_start);
+            // Determine page
+            let chunk_page = if page_breaks.is_empty() {
+                None
+            } else {
+                Some(current_page)
+            };
 
             chunks.push(Chunk {
                 content: trimmed,
                 index: chunks.len() as i32,
                 start_pos: byte_start as i32,
                 end_pos: byte_end as i32,
-chunk_type,
+                chunk_type,
                 section_path,
+                page: chunk_page,
             });
         }
 
@@ -66,6 +77,7 @@ chunk_type,
         if chunks[last_idx].content.len() < 200 {
             let last_end = chunks[last_idx].end_pos;
             let last_section = chunks[last_idx].section_path.clone();
+            let last_page = chunks[last_idx].page;
             let last_content = chunks.pop().unwrap();
             let prev = chunks.last_mut().unwrap();
             prev.content = format!("{}\n\n{}", prev.content, last_content.content);
@@ -73,6 +85,10 @@ chunk_type,
             // Preserve section path from the last chunk if it has one
             if prev.section_path.is_none() && last_section.is_some() {
                 prev.section_path = last_section;
+            }
+            // Keep the earlier page number
+            if prev.page.is_none() && last_page.is_some() {
+                prev.page = last_page;
             }
         }
     }
@@ -90,6 +106,8 @@ fn find_best_split_char(text: &str, separators: &[&str]) -> usize {
     }
     text.chars().count().saturating_sub(1)
 }
+
+// === Content Type Detection ===
 
 /// Detect the content type of a chunk based on its text.
 ///
@@ -144,18 +162,14 @@ pub fn detect_chunk_type(text: &str, is_first_chunk: bool) -> ChunkType {
 }
 
 fn detect_code(lines: &[&str]) -> bool {
-    // Check for fenced code blocks
     let fence_count = lines.iter().filter(|l| l.trim().starts_with("```")).count();
     if fence_count >= 2 {
         return true;
     }
-    // If there's an opening fence and it's the last line or not closed,
-    // still count it (chunk may split a code block)
     if fence_count >= 1 {
         return true;
     }
 
-    // Check for majority of lines indented 4+ spaces (code-like)
     let non_empty: Vec<&&str> = lines.iter().filter(|l| !l.is_empty()).collect();
     if non_empty.len() >= 3 {
         let indented = non_empty.iter().filter(|l| l.starts_with("    ") || l.starts_with("\t")).count();
@@ -168,7 +182,6 @@ fn detect_code(lines: &[&str]) -> bool {
 }
 
 fn detect_table(lines: &[&str]) -> bool {
-    // Need at least one line with | and a separator line like |---|---|
     let non_empty: Vec<&&str> = lines.iter().filter(|l| !l.is_empty()).collect();
     if non_empty.len() < 2 {
         return false;
@@ -191,19 +204,18 @@ fn detect_list(lines: &[&str]) -> bool {
 
     let list_lines = non_empty.iter().filter(|l| {
         let trimmed = l.trim();
-        // Unordered: - or * followed by space
         (trimmed.starts_with("- ") || trimmed.starts_with("* "))
-        // Ordered: 1. 2. etc.
         || trimmed.starts_with(|c: char| c.is_ascii_digit()) && trimmed.contains('.') && trimmed.find('.').map_or(false, |pos| pos <= 3)
     }).count();
 
-    // Majority of lines are list items
     list_lines * 2 > non_empty.len()
 }
 
+// === Section Path Tracking ===
+
 pub fn extract_sections(text: &str) -> Vec<(usize, String)> {
     let mut sections: Vec<(usize, String)> = Vec::new();
-    let mut stack: Vec<(usize, String)> = Vec::new(); // (level, title)
+    let mut stack: Vec<(usize, String)> = Vec::new();
     let mut offset: usize = 0;
 
     for line in text.split('\n') {
@@ -211,12 +223,10 @@ pub fn extract_sections(text: &str) -> Vec<(usize, String)> {
         let header_level = count_hash_prefix(trimmed);
 
         if header_level > 0 {
-            // Skip the #'s and leading whitespace to get the title
             let after_hashes = &trimmed[header_level..];
             let title = after_hashes.trim_start();
 
             if !title.is_empty() {
-                // Pop headers at same or deeper level (higher number = deeper)
                 stack.retain(|(lvl, _)| *lvl < header_level);
                 stack.push((header_level, title.to_string()));
 
@@ -230,7 +240,6 @@ pub fn extract_sections(text: &str) -> Vec<(usize, String)> {
         }
 
         offset += line.len();
-        // Account for the '\n' separator
         if offset < text.len() {
             offset += 1;
         }
@@ -248,7 +257,7 @@ pub fn count_hash_prefix(s: &str) -> usize {
         } else if b == b' ' || b == b'\t' {
             break;
         } else {
-            return 0; // e.g. "##no-space" is not a header
+            return 0;
         }
     }
     if count >= 1 && count <= 6 {
@@ -264,10 +273,68 @@ pub fn find_section_for_position(sections: &[(usize, String)], byte_pos: usize) 
         if *offset <= byte_pos {
             result = Some(path.clone());
         } else {
-            break; // sections are sorted by offset
+            break;
         }
     }
     result
+}
+
+// === Page Tracking ===
+
+/// Find all page break positions in the text.
+/// Returns a sorted Vec of (char_position, new_page_number).
+fn find_page_breaks(text: &str) -> Vec<(usize, u32)> {
+    let mut breaks = Vec::new();
+
+    // 1. Form feed characters (\f = 0x0C)
+    for (i, ch) in text.char_indices() {
+        if ch == '\x0C' {
+            breaks.push((i, 0));
+        }
+    }
+
+    // 2. Literal "--- PAGE BREAK ---"
+    let marker = "--- PAGE BREAK ---";
+    let mut search_start = 0;
+    while let Some(pos) = text[search_start..].find(marker) {
+        let abs_pos = search_start + pos;
+        breaks.push((abs_pos, 0));
+        search_start = abs_pos + marker.len();
+    }
+
+    // 3. Pattern "\n\n---\n\n"
+    let hr = "\n\n---\n\n";
+    search_start = 0;
+    while let Some(pos) = text[search_start..].find(hr) {
+        let abs_pos = search_start + pos;
+        breaks.push((abs_pos, 0));
+        search_start = abs_pos + hr.len();
+    }
+
+    // Sort and deduplicate
+    breaks.sort_by_key(|(pos, _)| *pos);
+    breaks.dedup_by(|a, b| (a.0 as i64 - b.0 as i64).unsigned_abs() < 10);
+
+    // Assign page numbers
+    for (i, (_, page)) in breaks.iter_mut().enumerate() {
+        *page = (i as u32) + 2;
+    }
+
+    breaks
+}
+
+/// Return the page number for a given char position.
+fn page_for_position(breaks: &[(usize, u32)], char_pos: usize) -> u32 {
+    match breaks.binary_search_by_key(&char_pos, |(pos, _)| *pos) {
+        Ok(idx) => breaks[idx].1,
+        Err(idx) => {
+            if idx == 0 {
+                1
+            } else {
+                breaks[idx - 1].1
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -278,13 +345,16 @@ pub struct Chunk {
     pub end_pos: i32,
     pub chunk_type: ChunkType,
     pub section_path: Option<String>,
+    pub page: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ChunkType {
     Text,
-    Code,
+    #[allow(dead_code)]
     Title,
+    #[allow(dead_code)]
+    Code,
     Heading,
     List,
     Table,
@@ -292,8 +362,6 @@ pub enum ChunkType {
 }
 
 impl ChunkType {
-    /// Convert to the string stored in the DB chunk_type column.
-    /// Values are lowercase to match rag_engine convention.
     pub fn as_str(&self) -> &'static str {
         match self {
             ChunkType::Text => "text",
