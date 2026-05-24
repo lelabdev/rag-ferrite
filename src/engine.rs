@@ -22,6 +22,16 @@ pub fn init(data_dir: &std::path::Path) -> Result<()> {
     let db_path_str = db_path.to_string_lossy().to_string();
     db_pool::init_db_pool(db_path_str.clone(), 4)?;
     source_rag::init_source_db()?;
+
+    // Migration: add section_path column to chunks (backward-compatible)
+    let conn = rusqlite::Connection::open(&db_path_str)?;
+    let has_section_path: bool = conn.prepare("SELECT section_path FROM chunks LIMIT 1").is_ok();
+    if !has_section_path {
+        tracing::info!("Migrating: adding section_path column to chunks");
+        conn.execute_batch("ALTER TABLE chunks ADD COLUMN section_path TEXT DEFAULT NULL")?;
+    }
+    drop(conn);
+
     let _ = DB_PATH.set(db_path_str);
     tracing::info!("rag_engine DB initialized at {}", db_path.display());
     Ok(())
@@ -51,6 +61,14 @@ pub async fn ingest_text(
     // Custom recursive character chunker (faster, no freeze on large docs)
     let chunk_size = 800;
 
+    let single_section = if content.len() < chunk_size {
+        // Even for single-chunk docs, extract section path from the beginning
+        let sections = chunker::extract_sections(content);
+        chunker::find_section_for_position(&sections, 0)
+    } else {
+        None
+    };
+
     // Skip chunking for small sources — single chunk is better than 2 tiny ones
     let chunks = if content.len() < chunk_size {
         tracing::info!("Source below chunk size ({} chars), ingesting as single chunk", content.len());
@@ -59,7 +77,8 @@ pub async fn ingest_text(
             index: 0,
             start_pos: 0,
             end_pos: content.len() as i32,
-            chunk_type: chunker::detect_chunk_type(content.trim(), true),
+chunk_type: chunker::detect_chunk_type(content.trim(), true),
+            section_path: single_section,
         }]
     } else {
         chunker::chunk_text(content, chunk_size)
@@ -136,6 +155,12 @@ pub async fn ingest_text(
     let embeddings = embedder.embed_batch(&final_texts).await?;
 
     // Store original chunk content (not the prefixed version)
+    // Collect section_paths for post-insert UPDATE (rag_engine ChunkData doesn't have section_path)
+    let section_paths: Vec<Option<String>> = kept
+        .iter()
+        .map(|(_, chunk, _)| chunk.section_path.clone())
+        .collect();
+
     let chunk_data: Vec<ChunkData> = kept
         .into_iter()
         .zip(embeddings.into_iter())
@@ -151,6 +176,9 @@ pub async fn ingest_text(
 
     let count = source_rag::add_chunks(source.source_id, chunk_data)?;
     tracing::info!("Ingested {} chunks for source {} ({})", count, source.source_id, source_name);
+
+    // Store section_path for each chunk (separate UPDATE since rag_engine doesn't know about it)
+    update_chunk_section_paths(source.source_id, &section_paths)?;
 
     // Mark source as completed
     if let Err(e) = source_rag::update_source_status(source.source_id, "completed".to_string()) {
@@ -204,6 +232,46 @@ pub async fn ingest_file(
         min_relevance_score,
     )
     .await
+}
+
+/// Update section_path for all chunks of a source, matched by chunk_index.
+fn update_chunk_section_paths(source_id: i64, section_paths: &[Option<String>]) -> Result<()> {
+    let db_path = DB_PATH.get().ok_or_else(|| anyhow::anyhow!("DB not initialized"))?;
+    let conn = rusqlite::Connection::open(db_path)?;
+
+    for (idx, path) in section_paths.iter().enumerate() {
+        if let Some(sp) = path {
+            conn.execute(
+                "UPDATE chunks SET section_path = ?1 WHERE source_id = ?2 AND chunk_index = ?3",
+                rusqlite::params![sp, source_id, idx as i32],
+            )?;
+        }
+    }
+
+    Ok(())
+}
+
+/// Fetch section_path for a batch of chunk IDs.
+pub fn get_section_paths_for_chunk_ids(chunk_ids: &[i64]) -> Result<std::collections::HashMap<i64, Option<String>>> {
+    if chunk_ids.is_empty() {
+        return Ok(std::collections::HashMap::new());
+    }
+    let db_path = DB_PATH.get().ok_or_else(|| anyhow::anyhow!("DB not initialized"))?;
+    let conn = rusqlite::Connection::open(db_path)?;
+
+    let mut map = std::collections::HashMap::new();
+    for &id in chunk_ids {
+        let sp: Option<String> = conn
+            .query_row(
+                "SELECT section_path FROM chunks WHERE id = ?1",
+                rusqlite::params![id],
+                |row| row.get(0),
+            )
+            .ok()
+            .flatten();
+        map.insert(id, sp);
+    }
+    Ok(map)
 }
 
 /// Delete a source by ID
@@ -296,12 +364,25 @@ pub async fn search_hybrid_with_expansion(
     Ok(all_results)
 }
 
-/// Get chunks adjacent to a given chunk
-pub fn get_neighbors(source_id: i64, chunk_index: i64, before: i64, after: i64) -> Result<Vec<ChunkSearchResult>> {
+/// Get chunks adjacent to a given chunk, enriched with section_path.
+pub fn get_neighbors(source_id: i64, chunk_index: i64, before: i64, after: i64) -> Result<Vec<(ChunkSearchResult, Option<String>)>> {
     let min_index = (chunk_index - before).max(0);
     let max_index = chunk_index + after;
     let chunks = source_rag::get_adjacent_chunks(source_id, min_index as i32, max_index as i32)?;
-    Ok(chunks)
+
+    // Fetch section_paths for all chunks
+    let chunk_ids: Vec<i64> = chunks.iter().map(|c| c.chunk_id).collect();
+    let section_map = get_section_paths_for_chunk_ids(&chunk_ids)?;
+
+    let enriched = chunks
+        .into_iter()
+        .map(|c| {
+            let sp = section_map.get(&c.chunk_id).cloned().flatten();
+            (c, sp)
+        })
+        .collect();
+
+    Ok(enriched)
 }
 
 /// List all sources across all collections.

@@ -2,9 +2,15 @@
 ///
 /// chunk_size: ~1000 chars (~250 tokens, optimal per RAG Cookbook)
 /// overlap: 10% for context preservation
+///
+/// Also tracks markdown headers (# H1, ## H2, etc.) and builds a section path
+/// for each chunk based on which header section it falls into.
 pub fn chunk_text(text: &str, chunk_size: usize) -> Vec<Chunk> {
     let separators = ["\n\n", "\n", ". ", " "];
     let overlap = (chunk_size as f64 * 0.1) as usize;
+
+    // Pre-scan: build section map from markdown headers
+    let sections = extract_sections(text);
 
     let mut chunks = Vec::new();
     let chars: Vec<char> = text.chars().collect();
@@ -32,16 +38,19 @@ pub fn chunk_text(text: &str, chunk_size: usize) -> Vec<Chunk> {
             let byte_start: usize = chars[..char_pos].iter().collect::<String>().len();
             let byte_end: usize = chars[..char_end].iter().collect::<String>().len();
 
-            // Detect content type from the chunk text
+// Detect content type from the chunk text
             let is_first = chunks.is_empty();
             let chunk_type = detect_chunk_type(&trimmed, is_first);
+            // Look up section path based on byte position of chunk start
+            let section_path = find_section_for_position(&sections, byte_start);
 
             chunks.push(Chunk {
                 content: trimmed,
                 index: chunks.len() as i32,
                 start_pos: byte_start as i32,
                 end_pos: byte_end as i32,
-                chunk_type,
+chunk_type,
+                section_path,
             });
         }
 
@@ -56,10 +65,15 @@ pub fn chunk_text(text: &str, chunk_size: usize) -> Vec<Chunk> {
         let last_idx = chunks.len() - 1;
         if chunks[last_idx].content.len() < 200 {
             let last_end = chunks[last_idx].end_pos;
+            let last_section = chunks[last_idx].section_path.clone();
             let last_content = chunks.pop().unwrap();
             let prev = chunks.last_mut().unwrap();
             prev.content = format!("{}\n\n{}", prev.content, last_content.content);
             prev.end_pos = last_end;
+            // Preserve section path from the last chunk if it has one
+            if prev.section_path.is_none() && last_section.is_some() {
+                prev.section_path = last_section;
+            }
         }
     }
 
@@ -187,6 +201,75 @@ fn detect_list(lines: &[&str]) -> bool {
     list_lines * 2 > non_empty.len()
 }
 
+pub fn extract_sections(text: &str) -> Vec<(usize, String)> {
+    let mut sections: Vec<(usize, String)> = Vec::new();
+    let mut stack: Vec<(usize, String)> = Vec::new(); // (level, title)
+    let mut offset: usize = 0;
+
+    for line in text.split('\n') {
+        let trimmed = line.trim_start();
+        let header_level = count_hash_prefix(trimmed);
+
+        if header_level > 0 {
+            // Skip the #'s and leading whitespace to get the title
+            let after_hashes = &trimmed[header_level..];
+            let title = after_hashes.trim_start();
+
+            if !title.is_empty() {
+                // Pop headers at same or deeper level (higher number = deeper)
+                stack.retain(|(lvl, _)| *lvl < header_level);
+                stack.push((header_level, title.to_string()));
+
+                let path = stack
+                    .iter()
+                    .map(|(_, t)| t.as_str())
+                    .collect::<Vec<_>>()
+                    .join(" > ");
+                sections.push((offset, path));
+            }
+        }
+
+        offset += line.len();
+        // Account for the '\n' separator
+        if offset < text.len() {
+            offset += 1;
+        }
+    }
+
+    sections
+}
+
+pub fn count_hash_prefix(s: &str) -> usize {
+    let bytes = s.as_bytes();
+    let mut count = 0;
+    for &b in bytes {
+        if b == b'#' {
+            count += 1;
+        } else if b == b' ' || b == b'\t' {
+            break;
+        } else {
+            return 0; // e.g. "##no-space" is not a header
+        }
+    }
+    if count >= 1 && count <= 6 {
+        count
+    } else {
+        0
+    }
+}
+
+pub fn find_section_for_position(sections: &[(usize, String)], byte_pos: usize) -> Option<String> {
+    let mut result: Option<String> = None;
+    for (offset, path) in sections {
+        if *offset <= byte_pos {
+            result = Some(path.clone());
+        } else {
+            break; // sections are sorted by offset
+        }
+    }
+    result
+}
+
 #[derive(Debug, Clone)]
 pub struct Chunk {
     pub content: String,
@@ -194,6 +277,7 @@ pub struct Chunk {
     pub start_pos: i32,
     pub end_pos: i32,
     pub chunk_type: ChunkType,
+    pub section_path: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

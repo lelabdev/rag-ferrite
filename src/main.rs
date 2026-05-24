@@ -106,15 +106,23 @@ impl RagLabServer {
 
         match self.pipeline.query(&p.query, limit, filter).await {
             Ok(output) => {
-                let out: Vec<types::HybridResult> = output.results.into_iter().map(|r| types::HybridResult {
-                    doc_id: r.doc_id,
-                    content: r.content,
-                    score: r.score,
-                    source_id: r.source_id,
-                    chunk_index: r.chunk_index,
-                    metadata: r.metadata,
-                    vector_rank: r.vector_rank,
-                    bm25_rank: r.bm25_rank,
+                // Fetch section_paths for all result doc_ids
+                let doc_ids: Vec<i64> = output.results.iter().map(|r| r.doc_id).collect();
+                let section_map = engine::get_section_paths_for_chunk_ids(&doc_ids).unwrap_or_default();
+
+                let out: Vec<types::HybridResult> = output.results.into_iter().map(|r| {
+                    let sp = section_map.get(&r.doc_id).cloned().flatten();
+                    types::HybridResult {
+                        doc_id: r.doc_id,
+                        content: r.content,
+                        score: r.score,
+                        source_id: r.source_id,
+                        chunk_index: r.chunk_index,
+                        metadata: r.metadata,
+                        vector_rank: r.vector_rank,
+                        bm25_rank: r.bm25_rank,
+                        section_path: sp,
+                    }
                 }).collect();
                 serde_json::json!({
                     "results": out,
@@ -198,7 +206,18 @@ impl RagLabServer {
 
         match engine::get_neighbors(p.source_id, p.chunk_index, before, after) {
             Ok(chunks) => {
-                let out: Vec<types::ChunkResult> = chunks.into_iter().map(types::ChunkResult::from).collect();
+                let out: Vec<types::ChunkResult> = chunks.into_iter().map(|(chunk, section_path)| {
+                    types::ChunkResult {
+                        chunk_id: chunk.chunk_id,
+                        source_id: chunk.source_id,
+                        chunk_index: chunk.chunk_index,
+                        content: chunk.content,
+                        score: chunk.similarity,
+                        metadata: chunk.metadata,
+                        chunk_type: chunk.chunk_type,
+                        section_path,
+                    }
+                }).collect();
                 serde_json::json!({
                     "source_id": p.source_id,
                     "chunk_index": p.chunk_index,
