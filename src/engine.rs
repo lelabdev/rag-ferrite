@@ -13,7 +13,7 @@ use crate::embedding::EmbeddingProvider;
 use crate::extractor;
 use crate::llm::{ContextResult, LlmProvider};
 use crate::reranker::{Reranker, RerankerType};
-use crate::types::IngestionReport;
+use crate::types::{ChunkVerification, IngestionReport};
 
 /// Stored DB path so list_sources/stats can query across all collections.
 static DB_PATH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
@@ -128,6 +128,24 @@ chunk_type: chunker::detect_chunk_type(content.trim(), true),
         chunker::chunk_text(content, chunk_size)
     };
     tracing::info!("Chunked into {} chunks (size={})", chunks.len(), chunk_size);
+
+    // Post-chunking verification: ensure chunks cover the source text
+    let verification = verify_chunks(
+        &chunks.iter().map(|c| c.content.clone()).collect::<Vec<_>>(),
+        content,
+    );
+    if !verification.warnings.is_empty() {
+        for warning in &verification.warnings {
+            tracing::warn!("Chunk verification: {}", warning);
+        }
+    }
+    tracing::info!(
+        "Chunk verification: {} chunks, {}/{} chars covered ({:.1}%)",
+        verification.total_chunks,
+        verification.chunk_chars,
+        verification.source_chars,
+        verification.coverage_ratio * 100.0,
+    );
 
     // Contextual retrieval: generate context prefixes + relevance scores via LLM
     let mut context_failures = 0usize;
@@ -670,6 +688,53 @@ fn check_duplicate_source(filename: &str) -> bool {
         )
         .unwrap_or(0);
     count > 0
+}
+
+/// Post-chunking verification: check that chunks cover the source text.
+///
+/// Computes coverage ratio and flags issues like empty chunks or
+/// significant content loss during chunking.
+pub fn verify_chunks(chunks: &[String], source: &str) -> ChunkVerification {
+    let source_chars = source.len();
+    let total_chunks = chunks.len();
+    let mut warnings = Vec::new();
+
+    // Detect empty chunks
+    for (i, chunk) in chunks.iter().enumerate() {
+        if chunk.is_empty() {
+            warnings.push(format!("Chunk {} is empty", i));
+        }
+    }
+
+    let chunk_chars: usize = chunks.iter().map(|c| c.len()).sum();
+
+    let coverage_ratio = if source_chars == 0 {
+        if chunk_chars == 0 {
+            1.0 // both empty, trivially covered
+        } else {
+            warnings.push("Source is empty but chunks contain data".to_string());
+            1.0
+        }
+    } else {
+        chunk_chars as f64 / source_chars as f64
+    };
+
+    if coverage_ratio < 0.9 {
+        warnings.push(format!(
+            "Low chunk coverage: {:.1}% of source text ({} source chars, {} chunk chars)",
+            coverage_ratio * 100.0,
+            source_chars,
+            chunk_chars,
+        ));
+    }
+
+    ChunkVerification {
+        total_chunks,
+        source_chars,
+        chunk_chars,
+        coverage_ratio,
+        warnings,
+    }
 }
 
 /// Graph data for document similarity visualization.
