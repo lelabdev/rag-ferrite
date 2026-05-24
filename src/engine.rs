@@ -59,7 +59,7 @@ pub async fn ingest_text(
             index: 0,
             start_pos: 0,
             end_pos: content.len() as i32,
-            chunk_type: chunker::ChunkType::Text,
+            chunk_type: chunker::detect_chunk_type(content.trim(), true),
         }]
     } else {
         chunker::chunk_text(content, chunk_size)
@@ -144,7 +144,7 @@ pub async fn ingest_text(
             chunk_index: chunk.index,
             start_pos: chunk.start_pos,
             end_pos: chunk.end_pos,
-            chunk_type: format!("{:?}", chunk.chunk_type),
+            chunk_type: chunk.chunk_type.as_str().to_string(),
             embedding: emb,
         })
         .collect();

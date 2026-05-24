@@ -76,6 +76,7 @@ pub struct ChunkResult {
     pub content: String,
     pub score: f64,
     pub metadata: Option<String>,
+    pub chunk_type: String,
 }
 
 impl From<rag_engine::api::source_rag::ChunkSearchResult> for ChunkResult {
@@ -87,6 +88,7 @@ impl From<rag_engine::api::source_rag::ChunkSearchResult> for ChunkResult {
             content: r.content,
             score: r.similarity,
             metadata: r.metadata,
+            chunk_type: r.chunk_type,
         }
     }
 }

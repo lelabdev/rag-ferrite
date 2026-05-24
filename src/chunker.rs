@@ -32,12 +32,16 @@ pub fn chunk_text(text: &str, chunk_size: usize) -> Vec<Chunk> {
             let byte_start: usize = chars[..char_pos].iter().collect::<String>().len();
             let byte_end: usize = chars[..char_end].iter().collect::<String>().len();
 
+            // Detect content type from the chunk text
+            let is_first = chunks.is_empty();
+            let chunk_type = detect_chunk_type(&trimmed, is_first);
+
             chunks.push(Chunk {
                 content: trimmed,
                 index: chunks.len() as i32,
                 start_pos: byte_start as i32,
                 end_pos: byte_end as i32,
-                chunk_type: ChunkType::Text,
+                chunk_type,
             });
         }
 
@@ -73,6 +77,116 @@ fn find_best_split_char(text: &str, separators: &[&str]) -> usize {
     text.chars().count().saturating_sub(1)
 }
 
+/// Detect the content type of a chunk based on its text.
+///
+/// Detection priority (first match wins):
+///   1. Code  — fenced code blocks or heavily indented lines
+///   2. Table — pipe-delimited rows with separators
+///   3. Heading — starts with #
+///   4. List  — starts with list markers
+///   5. ImageRef — contains markdown image syntax
+///   6. Title — first chunk of the document
+///   7. Text  — default fallback
+pub fn detect_chunk_type(text: &str, is_first_chunk: bool) -> ChunkType {
+    let lines: Vec<&str> = text.lines().collect();
+    if lines.is_empty() {
+        return ChunkType::Text;
+    }
+
+    // 1. Code: fenced code blocks (```...```) or majority of lines indented 4+ spaces
+    if detect_code(&lines) {
+        return ChunkType::Code;
+    }
+
+    // 2. Table: contains | with | separator lines (|---|---|)
+    if detect_table(&lines) {
+        return ChunkType::Table;
+    }
+
+    // 3. Heading: first non-empty line starts with #
+    if let Some(first) = lines.iter().find(|l| !l.is_empty()) {
+        if first.starts_with('#') {
+            return ChunkType::Heading;
+        }
+    }
+
+    // 4. List: majority of non-empty lines start with list markers
+    if detect_list(&lines) {
+        return ChunkType::List;
+    }
+
+    // 5. ImageRef: contains markdown image syntax ![...](...)
+    if text.contains("![") && text.contains("](") {
+        return ChunkType::ImageRef;
+    }
+
+    // 6. Title: first chunk of the document
+    if is_first_chunk {
+        return ChunkType::Title;
+    }
+
+    // 7. Text: default
+    ChunkType::Text
+}
+
+fn detect_code(lines: &[&str]) -> bool {
+    // Check for fenced code blocks
+    let fence_count = lines.iter().filter(|l| l.trim().starts_with("```")).count();
+    if fence_count >= 2 {
+        return true;
+    }
+    // If there's an opening fence and it's the last line or not closed,
+    // still count it (chunk may split a code block)
+    if fence_count >= 1 {
+        return true;
+    }
+
+    // Check for majority of lines indented 4+ spaces (code-like)
+    let non_empty: Vec<&&str> = lines.iter().filter(|l| !l.is_empty()).collect();
+    if non_empty.len() >= 3 {
+        let indented = non_empty.iter().filter(|l| l.starts_with("    ") || l.starts_with("\t")).count();
+        if indented * 2 >= non_empty.len() {
+            return true;
+        }
+    }
+
+    false
+}
+
+fn detect_table(lines: &[&str]) -> bool {
+    // Need at least one line with | and a separator line like |---|---|
+    let non_empty: Vec<&&str> = lines.iter().filter(|l| !l.is_empty()).collect();
+    if non_empty.len() < 2 {
+        return false;
+    }
+
+    let pipe_lines = non_empty.iter().filter(|l| l.contains('|')).count();
+    let has_separator = non_empty.iter().any(|l| {
+        let trimmed = l.trim();
+        trimmed.contains('|') && trimmed.contains('-') && trimmed.chars().all(|c| c == '|' || c == '-' || c == ' ' || c == ':')
+    });
+
+    pipe_lines >= 2 && has_separator
+}
+
+fn detect_list(lines: &[&str]) -> bool {
+    let non_empty: Vec<&&str> = lines.iter().filter(|l| !l.is_empty()).collect();
+    if non_empty.is_empty() {
+        return false;
+    }
+
+    let list_lines = non_empty.iter().filter(|l| {
+        let trimmed = l.trim();
+        // Unordered: - or * followed by space
+        (trimmed.starts_with("- ") || trimmed.starts_with("* "))
+        // Ordered: 1. 2. etc.
+        || trimmed.starts_with(|c: char| c.is_ascii_digit()) && trimmed.contains('.') && trimmed.find('.').map_or(false, |pos| pos <= 3)
+    }).count();
+
+    // Majority of lines are list items
+    list_lines * 2 > non_empty.len()
+}
+
 #[derive(Debug, Clone)]
 pub struct Chunk {
     pub content: String,
@@ -85,8 +199,26 @@ pub struct Chunk {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ChunkType {
     Text,
-    #[allow(dead_code)]
-    Title,
-    #[allow(dead_code)]
     Code,
+    Title,
+    Heading,
+    List,
+    Table,
+    ImageRef,
+}
+
+impl ChunkType {
+    /// Convert to the string stored in the DB chunk_type column.
+    /// Values are lowercase to match rag_engine convention.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ChunkType::Text => "text",
+            ChunkType::Code => "code",
+            ChunkType::Title => "title",
+            ChunkType::Heading => "heading",
+            ChunkType::List => "list",
+            ChunkType::Table => "table",
+            ChunkType::ImageRef => "image_ref",
+        }
+    }
 }
