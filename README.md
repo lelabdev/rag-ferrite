@@ -1,5 +1,7 @@
 # rag-ferrite
 
+[![Release](https://img.shields.io/github/v/release/lelabdev/rag-ferrite?label=release&color=cyan)](https://github.com/lelabdev/rag-ferrite/releases/latest)
+
 A personal RAG engine that does one thing well: **turn your documents into queryable knowledge, fast.**
 
 Single binary, single database, multi-collection. MCP-native. Built in Rust because your personal knowledge base shouldn't need a Kubernetes cluster.
@@ -99,17 +101,21 @@ Collections are created on-the-fly during ingestion. No setup, no schema, just s
 ## Pipeline
 
 ```
-Document → pdftotext extractor (PDFs) or raw text
+Document → Pre-ingestion check (quality preview, duplicates, language)
+         → pdftotext extractor (PDFs) or raw text
          → Recursive character chunker (800 chars, 10% overlap)
-         → Contextual retrieval (LLM context prefix per chunk)
+         → Post-chunking verification (coverage ratio, empty chunk detection)
+         → Contextual retrieval (LLM context prefix + domain metadata extraction)
          → Relevance filtering (discard low-quality chunks, optional)
          → Batch embedding (any OpenAI-compatible provider)
          → SQLite + HNSW + BM25 indexes
+         → Ingestion report (timing, relevance stats, filtered chunks)
          → Persist HNSW to disk
 
 Query → MCP tool call
-      → Activate collection (load index from disk)
+      → Query expansion (multi-query for complex questions)
       → Hybrid retrieval (BM25 + HNSW + RRF fusion)
+      → LLM reranking (score results by relevance)
       → Top-k chunks with optional neighbor expansion
 ```
 
@@ -153,6 +159,8 @@ Available tools:
 | `list_files()` | List indexed documents |
 | `status()` | Engine status and document count |
 | `read_chunk_neighbors(source_id, chunk_index)` | Expand context around a chunk |
+| `check_ingestion(file_path?, content?, source_name?)` | Preview document quality before ingestion |
+| `benchmark(file_path, collection?, limit?)` | Evaluate retrieval quality against a golden dataset |
 
 ## What we built on top of rag_engine
 
@@ -160,7 +168,7 @@ rag_engine provides the core (HNSW, BM25, SQLite). We added:
 
 - **`src/extractor.rs`** — PDF extraction via `pdftotext` (poppler-utils). rag_engine's built-in `pdf-extract` crate returns 75% empty pages on complex PDFs. pdftotext is the gold standard.
 - **`src/chunker.rs`** — Recursive character text splitter with UTF-8 boundary safety, content-type detection, section path tracking, and page-aware chunking.
-- **`src/engine.rs`** — Collection-aware ingestion with chunk metadata persistence, HNSW index management, and reranker initialization.
+- **`src/engine.rs`** — Collection-aware ingestion with chunk metadata persistence, HNSW index management, pre-ingestion checks, post-chunking verification, and ingestion reporting.
 - **`src/pipeline.rs`** — Adaptive query routing (simple/standard/complex) with LLM reranking and corrective RAG.
 - **`src/reranker.rs`** — Post-retrieval reranking via LLM scoring or Cohere API. Keeps hybrid score + rerank score separate.
 - **`src/embedding.rs`** — Batch embedding with proper API format (`input` not `prompt`, `embeddings` not `embedding`).
@@ -214,6 +222,38 @@ top_k = 10               # Number of top results to rerank
 ```
 
 When reranking fails (API error, rate limit), results fall back to hybrid scores with a warning log. No data loss, no silent degradation.
+
+
+### Domain metadata extraction
+
+Extract structured metadata fields from each chunk during ingestion. The LLM identifies domain-specific attributes alongside the contextual prefix — stored as JSON in chunk metadata for filtering and enrichment.
+
+```toml
+[metadata]
+fields = [
+  { name = "topic", field_type = "string" },
+  { name = "difficulty", field_type = "string", description = "beginner, intermediate, or advanced" },
+  { name = "author", field_type = "string", required = false },
+]
+```
+
+Fields are extracted during contextual retrieval (no extra LLM calls). Use `metadata_like` in search filters to query by extracted values.
+
+### Golden Dataset benchmarking
+
+Measure retrieval quality objectively with a golden dataset — a JSON file of question → expected source mappings.
+
+```json
+[
+  {
+    "question": "What are the rules for grappling?",
+    "relevant_source_ids": [1, 5],
+    "expected_keywords": ["grapple", "strength", "obstacle"]
+  }
+]
+```
+
+Run `benchmark(file_path: "golden.json")` to get hit rate, average score, and per-query details. Use it to catch regressions after config changes, embedding model switches, or pipeline tweaks.
 
 ### Contextual retrieval
 
