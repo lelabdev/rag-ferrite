@@ -184,6 +184,10 @@ For advanced options (reranking, metadata extraction, golden dataset benchmarkin
 - An LLM provider for contextual retrieval — OpenRouter recommended (cheap, multilingual)
 - `poppler-utils` for PDF extraction (`apt install poppler-utils`)
 
+## Acknowledgements
+
+The ingestion pipeline was heavily inspired by [Jonas Roman's video on production RAG workflows](https://www.youtube.com/watch?v=phZ_iqu1gN0) — specifically contextual retrieval, pre-ingestion quality checks, post-chunking verification, query expansion, LLM reranking, and golden dataset benchmarking.
+
 ## License
 
 MIT
