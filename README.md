@@ -1,3 +1,7 @@
+<div align="center">
+  <img src="assets/logo.svg" alt="rag-ferrite" width="128" height="128">
+</div>
+
 # rag-ferrite
 
 [![Release](https://img.shields.io/github/v/release/lelabdev/rag-ferrite?label=release&color=cyan)](https://github.com/lelabdev/rag-ferrite/releases/latest)
