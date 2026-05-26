@@ -20,7 +20,7 @@ mod reranker;
 mod types;
 
 #[derive(Debug, Clone)]
-struct RagLabServer {
+struct RagFerriteServer {
     pub pipeline: pipeline::QueryPipeline,
     pub max_concurrent: usize,
     pub relevance_scoring: bool,
@@ -110,7 +110,7 @@ struct BenchmarkParams {
 // --- MCP Tools ---
 
 #[tool_router(server_handler)]
-impl RagLabServer {
+impl RagFerriteServer {
     #[tool(name = "query_documents", description = "Search documents using hybrid search (BM25 + vector with RRF fusion). Returns relevant chunks with scores.")]
     async fn query_documents(&self, params: Parameters<QueryParams>) -> String {
         let p = params.0;
@@ -387,7 +387,7 @@ async fn main() -> Result<()> {
         }
     };
 
-    let server = RagLabServer {
+    let server = RagFerriteServer {
         pipeline: pipeline::QueryPipeline::new(
             embedder.clone(),
             llm.clone(),

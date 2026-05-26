@@ -10,7 +10,7 @@ use std::sync::Arc;
 use tower_http::cors::CorsLayer;
 
 use crate::engine;
-use crate::RagLabServer;
+use crate::RagFerriteServer;
 
 // --- Request types ---
 
@@ -82,7 +82,7 @@ fn default_max_edges() -> usize {
 }
 
 async fn get_graph(
-    State(_server): State<Arc<RagLabServer>>,
+    State(_server): State<Arc<RagFerriteServer>>,
     Query(params): Query<GraphQuery>,
 ) -> impl IntoResponse {
     match engine::get_graph_data(params.collection.as_deref(), params.threshold, params.max_edges) {
@@ -94,7 +94,7 @@ async fn get_graph(
     }
 }
 
-async fn status(State(_server): State<Arc<RagLabServer>>) -> impl IntoResponse {
+async fn status(State(_server): State<Arc<RagFerriteServer>>) -> impl IntoResponse {
     match engine::stats() {
         Ok(s) => (
             StatusCode::OK,
@@ -112,7 +112,7 @@ async fn status(State(_server): State<Arc<RagLabServer>>) -> impl IntoResponse {
 }
 
 async fn list_documents(
-    State(_server): State<Arc<RagLabServer>>,
+    State(_server): State<Arc<RagFerriteServer>>,
     Query(params): Query<ListDocumentsQuery>,
 ) -> impl IntoResponse {
     match engine::list_sources() {
@@ -135,7 +135,7 @@ async fn list_documents(
 }
 
 async fn get_document(
-    State(_server): State<Arc<RagLabServer>>,
+    State(_server): State<Arc<RagFerriteServer>>,
     Path(source_id): Path<i64>,
 ) -> impl IntoResponse {
     match engine::list_sources() {
@@ -163,7 +163,7 @@ async fn get_document(
 }
 
 async fn get_chunk_neighbors(
-    State(_server): State<Arc<RagLabServer>>,
+    State(_server): State<Arc<RagFerriteServer>>,
     Path(params): Path<NeighborsPath>,
 ) -> impl IntoResponse {
     match engine::get_neighbors(params.source_id, params.chunk_index, 2, 2) {
@@ -187,7 +187,7 @@ async fn get_chunk_neighbors(
 }
 
 async fn query_documents(
-    State(server): State<Arc<RagLabServer>>,
+    State(server): State<Arc<RagFerriteServer>>,
     Json(req): Json<QueryRequest>,
 ) -> impl IntoResponse {
     let filter = if req.source_ids.is_some()
@@ -227,7 +227,7 @@ async fn query_documents(
 }
 
 async fn ingest_data(
-    State(server): State<Arc<RagLabServer>>,
+    State(server): State<Arc<RagFerriteServer>>,
     Json(req): Json<IngestDataRequest>,
 ) -> impl IntoResponse {
     let coll = req.collection.as_deref();
@@ -262,7 +262,7 @@ async fn ingest_data(
 }
 
 async fn ingest_file(
-    State(server): State<Arc<RagLabServer>>,
+    State(server): State<Arc<RagFerriteServer>>,
     Json(req): Json<IngestFileRequest>,
 ) -> impl IntoResponse {
     let coll = req.collection.as_deref();
@@ -295,7 +295,7 @@ async fn ingest_file(
 }
 
 async fn delete_document(
-    State(_server): State<Arc<RagLabServer>>,
+    State(_server): State<Arc<RagFerriteServer>>,
     Path(source_id): Path<String>,
 ) -> impl IntoResponse {
     match source_id.parse::<i64>() {
@@ -318,7 +318,7 @@ async fn delete_document(
 
 // --- Server startup ---
 
-pub async fn serve(server: Arc<RagLabServer>, port: u16) -> anyhow::Result<()> {
+pub async fn serve(server: Arc<RagFerriteServer>, port: u16) -> anyhow::Result<()> {
     let app = Router::new()
         .route("/api/status", get(status))
         .route("/api/documents", get(list_documents))
