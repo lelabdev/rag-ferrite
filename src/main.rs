@@ -361,11 +361,34 @@ async fn main() -> Result<()> {
         None
     };
 
+    // Build reranker from LLM provider
+    let reranker = match config.reranker.reranker_type.as_str() {
+        "llm" => {
+            if let Some(ref llm_provider) = llm {
+                tracing::info!("Reranker: LLM (reusing main LLM provider)");
+                reranker::Reranker::new_llm(Arc::new(llm_provider.clone()))
+            } else {
+                tracing::warn!("Reranker: LLM requested but no LLM provider available, disabling");
+                reranker::Reranker::disabled()
+            }
+        }
+        "cohere" => {
+            let key = config.reranker.api_key.clone()
+                .expect("Cohere reranker requires reranker.api_key");
+            tracing::info!("Reranker: Cohere");
+            reranker::Reranker::new_cohere(key)
+        }
+        _ => {
+            tracing::info!("Reranker: disabled");
+            reranker::Reranker::disabled()
+        }
+    };
+
     let server = RagLabServer {
         pipeline: pipeline::QueryPipeline {
             embedder: embedder.clone(),
             llm: llm.clone(),
-            reranker: reranker::Reranker::disabled(), // unused, engine has its own
+            reranker,
             quality_threshold: 0.3,
             max_retries: 1,
         },

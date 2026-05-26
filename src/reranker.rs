@@ -1,20 +1,21 @@
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
+use crate::llm::LlmProvider;
 
 /// Reranker for post-retrieval quality improvement.
 #[derive(Debug, Clone)]
 pub struct Reranker {
     reranker_type: RerankerType,
+    llm: Option<Arc<LlmProvider>>,
     client: reqwest::Client,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum RerankerType {
-    /// LLM-based reranking using scoring prompt
-    #[allow(dead_code)]
-    Llm { provider: String, model: String, api_key: Option<String>, base_url: String },
+    /// LLM-based reranking via LlmProvider
+    Llm,
     /// Cohere Rerank API
-    #[allow(dead_code)]
     Cohere { api_key: String },
     /// No reranking
     Disabled,
@@ -48,15 +49,28 @@ pub struct RerankedResult {
 }
 
 impl Reranker {
-    pub fn new(reranker_type: RerankerType) -> Self {
+    pub fn new_llm(llm: Arc<LlmProvider>) -> Self {
         Self {
-            reranker_type,
+            reranker_type: RerankerType::Llm,
+            llm: Some(llm),
+            client: reqwest::Client::new(),
+        }
+    }
+
+    pub fn new_cohere(api_key: String) -> Self {
+        Self {
+            reranker_type: RerankerType::Cohere { api_key },
+            llm: None,
             client: reqwest::Client::new(),
         }
     }
 
     pub fn disabled() -> Self {
-        Self::new(RerankerType::Disabled)
+        Self {
+            reranker_type: RerankerType::Disabled,
+            llm: None,
+            client: reqwest::Client::new(),
+        }
     }
 
     pub fn is_enabled(&self) -> bool {
@@ -87,8 +101,8 @@ impl Reranker {
         }
 
         match &self.reranker_type {
-            RerankerType::Llm { provider, model, api_key, base_url } => {
-                self.rerank_llm(query, candidates, provider, model, api_key, base_url).await
+            RerankerType::Llm => {
+                self.rerank_llm(query, candidates).await
             }
             RerankerType::Cohere { api_key } => {
                 self.rerank_cohere(query, candidates, api_key).await
@@ -97,18 +111,14 @@ impl Reranker {
         }
     }
 
-    /// LLM-based reranking: score each candidate's relevance to the query.
+    /// LLM-based reranking via LlmProvider (handles ollama/openai/zai transparently).
     async fn rerank_llm(
         &self,
         query: &str,
         candidates: Vec<RerankCandidate>,
-        _provider: &str,
-        model: &str,
-        api_key: &Option<String>,
-        base_url: &str,
     ) -> Result<Vec<RerankedResult>> {
-        let key = api_key.as_ref()
-            .ok_or_else(|| anyhow!("API key required for LLM reranker"))?;
+        let provider = self.llm.as_ref()
+            .ok_or_else(|| anyhow!("No LLM provider for reranker"))?;
 
         // Build a prompt that scores each candidate
         let candidates_text: Vec<String> = candidates
@@ -127,56 +137,8 @@ impl Reranker {
             candidates_text.join("\n")
         );
 
-        #[derive(Debug, Serialize)]
-        struct ChatRequest {
-            model: String,
-            messages: Vec<ChatMessage>,
-            temperature: f32,
-            max_tokens: u32,
-        }
-
-        #[derive(Debug, Serialize, Deserialize, Clone)]
-        struct ChatMessage {
-            role: String,
-            content: String,
-        }
-
-        let body = ChatRequest {
-            model: model.to_string(),
-            messages: vec![ChatMessage { role: "user".into(), content: prompt }],
-            temperature: 0.1,
-            max_tokens: 1000,
-        };
-
-        let url = format!("{}/chat/completions", base_url);
-        let resp = self.client
-            .post(&url)
-            .header("Authorization", format!("Bearer {}", key))
-            .json(&body)
-            .send()
-            .await?;
-
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let text = resp.text().await?;
-            return Err(anyhow!("LLM rerank API error {}: {}", status, text));
-        }
-
-        #[derive(Debug, Deserialize)]
-        struct ChatResponse {
-            choices: Vec<ChatChoice>,
-        }
-        #[derive(Debug, Deserialize)]
-        struct ChatChoice {
-            message: ChatMessage,
-        }
-
-        let data: ChatResponse = resp.json().await?;
-        let content = data.choices
-            .into_iter()
-            .next()
-            .map(|c| c.message.content)
-            .ok_or_else(|| anyhow!("No LLM response for reranking"))?;
+        let messages = vec![crate::llm::ChatMessage { role: "user".into(), content: prompt }];
+        let content = provider.chat(messages).await?;
 
         // Parse scores from LLM response
         let scores: Vec<(usize, f64)> = if let Some(json_start) = content.find('[') {
@@ -234,8 +196,6 @@ impl Reranker {
         candidates: Vec<RerankCandidate>,
         api_key: &str,
     ) -> Result<Vec<RerankedResult>> {
-        // Extract text for Cohere, keep candidates for later mapping
-        let _n = candidates.len();
         let doc_texts: Vec<String> = candidates.iter()
             .map(|c| c.content.chars().take(500).collect())
             .collect();
@@ -278,7 +238,6 @@ impl Reranker {
 
         let data: RerankResponse = resp.json().await?;
 
-        // Now consume candidates into a map by original index
         let cand_map: std::collections::HashMap<usize, RerankCandidate> = candidates
             .into_iter()
             .enumerate()

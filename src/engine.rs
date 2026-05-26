@@ -47,36 +47,9 @@ pub fn init(data_dir: &std::path::Path, config: &crate::config::Config) -> Resul
     let _ = DB_PATH.set(db_path_str);
     tracing::info!("rag_engine DB initialized at {}", db_path.display());
 
-    // Initialize reranker from config
-    let reranker = build_reranker(&config.reranker, &config.llm);
-    let _ = RERANKER.set(reranker);
+    // Initialize reranker (disabled here — built in main.rs from LlmProvider)
+    let _ = RERANKER.set(Reranker::disabled());
     Ok(())
-}
-
-/// Build a Reranker from config, falling back to LLM config for missing fields.
-fn build_reranker(cfg: &RerankerConfig, llm: &crate::config::LlmConfig) -> Reranker {
-    match cfg.reranker_type.as_str() {
-        "llm" => {
-            let model = cfg.model.clone().unwrap_or_else(|| llm.model.clone());
-            let api_key = cfg.api_key.clone().or_else(|| llm.api_key.clone());
-            let base_url = cfg.base_url.clone().unwrap_or_else(|| {
-                llm.base_url.clone().unwrap_or_else(|| "https://openrouter.ai/api/v1".into())
-            });
-            let provider = llm.provider.clone();
-            tracing::info!("Reranker: LLM ({}, {})", provider, model);
-            Reranker::new(RerankerType::Llm { provider, model, api_key, base_url })
-        }
-        "cohere" => {
-            let api_key = cfg.api_key.clone()
-                .expect("Cohere reranker requires reranker.api_key");
-            tracing::info!("Reranker: Cohere");
-            Reranker::new(RerankerType::Cohere { api_key })
-        }
-        _ => {
-            tracing::info!("Reranker: disabled");
-            Reranker::disabled()
-        }
-    }
 }
 
 /// Ingest a text document into the RAG

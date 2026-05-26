@@ -34,9 +34,9 @@ struct ChatRequest {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-struct ChatMessage {
-    role: String,
-    content: String,
+pub struct ChatMessage {
+    pub role: String,
+    pub content: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -211,7 +211,7 @@ impl LlmProvider {
     }
 
     /// Send a chat completion request.
-    async fn chat(&self, messages: Vec<ChatMessage>) -> Result<String> {
+    pub async fn chat(&self, messages: Vec<ChatMessage>) -> Result<String> {
         match self.provider.as_str() {
             "ollama" => self.chat_ollama(messages).await,
             _ => self.chat_openai_compatible(messages).await,
