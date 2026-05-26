@@ -36,30 +36,37 @@ cp config.example.toml config.toml
 
 ## Recommended setup
 
-The simplest setup uses **OpenRouter** for both embedding and contextual retrieval — no local GPU needed.
+The simplest setup uses **OpenRouter** for embeddings and **Ollama Cloud** for LLM — no local GPU needed.
 
 1. Create an [OpenRouter](https://openrouter.ai) account and get an API key
-2. Set up your config:
+2. Create an [Ollama Cloud](https://ollama.com) account (unlimited subscription available)
+3. Set up your config:
 
 ```toml
 # config.toml
 data_dir = "./data"
 
 [embedding]
-provider = "openrouter"
+provider = "openai"
 model = "qwen/qwen3-embedding-8b"
 dimensions = 4096
 base_url = "https://openrouter.ai/api/v1"
 
 [llm]
-provider = "openrouter"
-model = "qwen/qwen3-32b"
-base_url = "https://openrouter.ai/api/v1"
+provider = "ollama"
+model = "gemma4:31b"
+base_url = "https://api.ollama.com"
 context_enabled = true
+relevance_scoring = true
+min_relevance_score = 5.0
+
+[reranker]
+reranker_type = "llm"
+top_k = 10
 ```
 
-3. Set your API key: `export LLM_API_KEY=sk-...`
-4. Run: `./rag-ferrite`
+4. Set your API keys: `export LLM_API_KEY=... EMBEDDING_API_KEY=sk-...`
+5. Run: `./rag-ferrite`
 
 That's it. Ingest your first document and search:
 
@@ -67,6 +74,20 @@ That's it. Ingest your first document and search:
 - `query_documents("what did I write about?", collection: "my-docs")`
 
 **Local alternative:** bge-m3 via Ollama works for embeddings (free, GPU recommended). Just change the `[embedding]` block to point to your local Ollama instance.
+
+## Features
+
+- **Hybrid search** — BM25 + vector (HNSW) + RRF fusion for best of both worlds
+- **Relevance scoring** — LLM filters junk chunks (TOC, index, legal) at ingestion
+- **Contextual retrieval** — LLM adds context prefix to each chunk for better semantic matching
+- **Auto-tagging** — LLM generates tags per chunk for cross-collection filtering
+- **LLM reranking** — Post-retrieval scoring for higher precision
+- **Query expansion** — Short queries automatically expanded by LLM
+- **Query reformulation** — Failed queries auto-retried with reformulated wording
+- **Query caching** — Repeated queries return instantly from in-memory cache (300s TTL)
+- **Adaptive pipeline** — Queries classified as simple/standard/complex with different strategies
+- **Multi-collection** — Organize documents by topic, filter queries by collection
+- **Golden dataset benchmarking** — Measure retrieval quality objectively
 
 ## MCP Tools
 

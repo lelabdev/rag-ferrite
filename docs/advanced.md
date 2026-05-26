@@ -6,15 +6,20 @@
 Document → Pre-ingestion check (quality, duplicates, language)
          → pdftotext (PDFs) or raw text
          → Recursive chunker (800 chars, 10% overlap)
-         → Contextual retrieval (LLM prefix + metadata)
-         → Relevance filtering (optional)
+         → Relevance scoring (LLM 1-10, filters junk)
+         → Contextual retrieval (LLM context prefix)
+         → Auto-tagging (LLM generates tags per chunk)
          → Batch embedding → SQLite + HNSW + BM25
          → Persist HNSW to disk
 
 Query → MCP tool call
+      → Classify (simple / standard / complex)
+      → Query cache check (300s TTL)
       → Hybrid retrieval (BM25 + HNSW + RRF fusion)
-      → LLM reranking (optional)
-      → Top-k chunks with neighbor expansion
+      → LLM reranking (optional, scores top-k results)
+      → Quality gate (confidence: High / Medium / Low)
+      → [If Low] Corrective RAG (reformulate + retry)
+      → Top-k chunks with tags
 ```
 
 ```
@@ -133,6 +138,36 @@ min_relevance_score = 5.0   # Discard chunks rated below this (1–10, default 5
 ```
 
 Both `relevance_scoring` and `context_enabled` must be true.
+
+## Auto-Tagging
+
+When contextual retrieval is enabled, the LLM generates 2-3 descriptive tags per chunk alongside the score and context. Tags are stored in a `chunk_tags` table and returned in query results.
+
+**What it enables:** cross-collection search by topic, fine-grained filtering, metadata-aware retrieval.
+
+**Format:** the LLM returns `TAGS: tag1, tag2, tag3` alongside `SCORE:` and `CONTEXT:`.
+
+**Cost:** zero extra LLM calls. Tags are generated in the same prompt as contextual retrieval.
+
+Tags are automatically generated for all new ingestions. No configuration needed.
+
+## Query Caching
+
+Repeated queries return instantly from an in-memory cache with 300s TTL. The cache stores the full query result (chunks + scores + tags).
+
+**Cache key:** `query|limit|collection`
+
+**When it helps:** interactive exploration where users re-query similar terms, agents making repeated lookups.
+
+**When it invalidates:** after 300 seconds (TTL). Cache is not persisted across restarts.
+
+## Query Pipeline
+
+The query pipeline automatically classifies each query and adapts the strategy:
+
+- **Simple** (1-2 words): direct hybrid search, no expansion, no reranking. Fast.
+- **Standard** (3-8 words): query expansion if ≤5 words, LLM reranking. Balanced.
+- **Complex** (>8 words or question markers): full pipeline — expansion + reranking + corrective RAG (auto-retry with reformulation if confidence is low).
 
 ## Why not just use LangChain?
 
