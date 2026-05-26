@@ -79,6 +79,22 @@ impl From<rag_engine::api::hybrid_search::HybridSearchResult> for HybridResult {
     }
 }
 
+impl From<rag_engine::api::hybrid_search::HybridSearchResult> for crate::reranker::RerankedResult {
+    fn from(r: rag_engine::api::hybrid_search::HybridSearchResult) -> Self {
+        crate::reranker::RerankedResult {
+            doc_id: r.doc_id,
+            content: r.content,
+            score: r.score,
+            rerank_score: None,
+            source_id: r.source_id,
+            chunk_index: r.chunk_index,
+            metadata: r.metadata,
+            vector_rank: r.vector_rank,
+            bm25_rank: r.bm25_rank,
+        }
+    }
+}
+
 impl From<crate::reranker::RerankedResult> for HybridResult {
     fn from(r: crate::reranker::RerankedResult) -> Self {
         HybridResult {
