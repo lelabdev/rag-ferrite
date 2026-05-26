@@ -128,12 +128,14 @@ impl RagLabServer {
 
         match self.pipeline.query(&p.query, limit, filter).await {
             Ok(output) => {
-                // Fetch section_paths for all result doc_ids
+                // Fetch section_paths and tags for all result doc_ids
                 let doc_ids: Vec<i64> = output.results.iter().map(|r| r.doc_id).collect();
                 let section_map = engine::get_section_paths_for_chunk_ids(&doc_ids).unwrap_or_default();
+                let tags_map = engine::get_tags_for_chunk_ids(&doc_ids).unwrap_or_default();
 
                 let out: Vec<types::HybridResult> = output.results.into_iter().map(|r| {
                     let sp = section_map.get(&r.doc_id).cloned().flatten();
+                    let tags = tags_map.get(&r.doc_id).cloned().unwrap_or_default();
                     types::HybridResult {
                         doc_id: r.doc_id,
                         content: r.content,
@@ -146,6 +148,7 @@ impl RagLabServer {
                         section_path: sp,
                         page: None,
                         rerank_score: r.rerank_score,
+                        tags,
                     }
                 }).collect();
                 serde_json::json!({
@@ -385,13 +388,13 @@ async fn main() -> Result<()> {
     };
 
     let server = RagLabServer {
-        pipeline: pipeline::QueryPipeline {
-            embedder: embedder.clone(),
-            llm: llm.clone(),
+        pipeline: pipeline::QueryPipeline::new(
+            embedder.clone(),
+            llm.clone(),
             reranker,
-            quality_threshold: 0.3,
-            max_retries: 1,
-        },
+            0.3,
+            1,
+        ),
         max_concurrent: config.llm.max_concurrent,
         relevance_scoring: config.llm.relevance_scoring,
         min_relevance_score: config.llm.min_relevance_score,

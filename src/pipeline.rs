@@ -1,7 +1,57 @@
+use std::collections::HashMap;
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
+
 use anyhow::Result;
 use crate::embedding::EmbeddingProvider;
 use crate::llm::LlmProvider;
 use crate::reranker::{Reranker, RerankedResult};
+
+/// Default cache TTL in seconds.
+pub const CACHE_TTL_SECS: u64 = 300;
+
+/// Simple in-memory query result cache with TTL expiry.
+#[derive(Debug)]
+pub struct Cache {
+    /// Map from cache key → (insertion time, cached output).
+    entries: Mutex<HashMap<String, (Instant, QueryOutput)>>,
+    /// Time-to-live for each cache entry.
+    ttl: Duration,
+}
+
+impl Cache {
+    pub fn new(ttl: Duration) -> Self {
+        Self {
+            entries: Mutex::new(HashMap::new()),
+            ttl,
+        }
+    }
+
+    /// Build a cache key from query, limit, and optional collection.
+    fn make_key(query: &str, limit: usize, collection: Option<&str>) -> String {
+        match collection {
+            Some(c) => format!("{}|{}|{}", query, limit, c),
+            None => format!("{}|{}|", query, limit),
+        }
+    }
+
+    /// Look up a cached result. Returns `None` on miss or if the entry has expired.
+    fn get(&self, key: &str) -> Option<QueryOutput> {
+        let map = self.entries.lock().unwrap();
+        if let Some((inserted_at, output)) = map.get(key) {
+            if inserted_at.elapsed() < self.ttl {
+                return Some(output.clone());
+            }
+        }
+        None
+    }
+
+    /// Store a result in the cache.
+    fn put(&self, key: String, output: QueryOutput) {
+        let mut map = self.entries.lock().unwrap();
+        map.insert(key, (Instant::now(), output));
+    }
+}
 
 /// Query complexity classification for adaptive pipeline routing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
@@ -61,17 +111,52 @@ pub fn classify_query(query: &str) -> QueryComplexity {
 }
 
 /// Full query pipeline: router → expansion → search → rerank → corrective RAG.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct QueryPipeline {
     pub embedder: EmbeddingProvider,
     pub llm: Option<LlmProvider>,
     pub reranker: Reranker,
     pub quality_threshold: f64,
     pub max_retries: u32,
+    cache: std::sync::Arc<Cache>,
+}
+
+impl QueryPipeline {
+    pub fn new(
+        embedder: EmbeddingProvider,
+        llm: Option<LlmProvider>,
+        reranker: Reranker,
+        quality_threshold: f64,
+        max_retries: u32,
+    ) -> Self {
+        Self {
+            embedder,
+            llm,
+            reranker,
+            quality_threshold,
+            max_retries,
+            cache: std::sync::Arc::new(Cache::new(
+                std::time::Duration::from_secs(CACHE_TTL_SECS),
+            )),
+        }
+    }
+}
+
+impl Clone for QueryPipeline {
+    fn clone(&self) -> Self {
+        Self {
+            embedder: self.embedder.clone(),
+            llm: self.llm.clone(),
+            reranker: self.reranker.clone(),
+            quality_threshold: self.quality_threshold,
+            max_retries: self.max_retries,
+            cache: self.cache.clone(),
+        }
+    }
 }
 
 /// Final output of the query pipeline.
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct QueryOutput {
     pub results: Vec<RerankedResult>,
     pub confidence: Confidence,
@@ -94,14 +179,29 @@ impl QueryPipeline {
         limit: usize,
         filter: Option<rag_engine::api::hybrid_search::SearchFilter>,
     ) -> Result<QueryOutput> {
+        let collection = filter.as_ref().and_then(|f| f.collection_id.as_deref());
+        let cache_key = Cache::make_key(query, limit, collection);
+
+        // Check cache before executing the query
+        if let Some(cached) = self.cache.get(&cache_key) {
+            tracing::info!(query = query, "Cache hit for query");
+            return Ok(cached);
+        }
+
         let complexity = classify_query(query);
         tracing::info!(query = query, complexity = ?complexity, "Classified query");
 
-        match complexity {
-            QueryComplexity::Simple => self.query_simple(query, limit, filter, complexity).await,
-            QueryComplexity::Standard => self.query_standard(query, limit, filter, complexity).await,
-            QueryComplexity::Complex => self.query_complex(query, limit, filter, complexity).await,
-        }
+        let result = match complexity {
+            QueryComplexity::Simple => self.query_simple(query, limit, filter, complexity).await?,
+            QueryComplexity::Standard => self.query_standard(query, limit, filter, complexity).await?,
+            QueryComplexity::Complex => self.query_complex(query, limit, filter, complexity).await?,
+        };
+
+        // Store result in cache
+        self.cache.put(cache_key, result.clone());
+        tracing::debug!(query = query, "Cached query result");
+
+        Ok(result)
     }
 
     /// Simple path: no expansion, no reranking, no corrective retry.

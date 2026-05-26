@@ -44,6 +44,9 @@ pub fn init(data_dir: &std::path::Path, config: &crate::config::Config) -> Resul
     }
     drop(conn);
 
+    // Create chunk_tags table for auto-tagging
+    create_chunk_tags_table(&db_path_str)?;
+
     let _ = DB_PATH.set(db_path_str);
     tracing::info!("rag_engine DB initialized at {}", db_path.display());
 
@@ -133,7 +136,7 @@ chunk_type: chunker::detect_chunk_type(content.trim(), true),
                     Err(e) => {
                         tracing::warn!("Context generation failed for chunk: {}, using raw content", e);
                         context_failures += 1;
-                        all_results.push(ContextResult { context: None, relevance_score: None, extracted_metadata: None });
+                        all_results.push(ContextResult { context: None, relevance_score: None, extracted_metadata: None, tags: Vec::new() });
                     }
                 }
             }
@@ -142,7 +145,7 @@ chunk_type: chunker::detect_chunk_type(content.trim(), true),
         tracing::info!("Generated {}/{} context prefixes", with_ctx, chunks.len());
         all_results
     } else {
-        vec![ContextResult { context: None, relevance_score: None, extracted_metadata: None }; chunks.len()]
+        vec![ContextResult { context: None, relevance_score: None, extracted_metadata: None, tags: Vec::new() }; chunks.len()]
     };
     let llm_duration_ms = llm_start.elapsed().as_millis() as u64;
 
@@ -211,6 +214,12 @@ chunk_type: chunker::detect_chunk_type(content.trim(), true),
         .map(|(_, chunk, _)| chunk.page)
         .collect();
 
+    // Collect auto-generated tags before kept is consumed (for chunk_tags table)
+    let tags_per_chunk: Vec<Vec<String>> = kept
+        .iter()
+        .map(|(_, _, ctx_result)| ctx_result.tags.clone())
+        .collect();
+
     let chunk_data: Vec<ChunkData> = kept
         .into_iter()
         .zip(embeddings.into_iter())
@@ -230,6 +239,11 @@ chunk_type: chunker::detect_chunk_type(content.trim(), true),
     // Store section_path for each chunk (separate UPDATE since rag_engine doesn't know about it)
     update_chunk_section_paths(source.source_id, &section_paths)?;
     update_chunk_pages(source.source_id, &pages)?;
+
+    // Store auto-generated tags for each chunk in chunk_tags table
+    if tags_per_chunk.iter().any(|t| !t.is_empty()) {
+        insert_chunk_tags(source.source_id, &tags_per_chunk)?;
+    }
 
     // Mark source as completed
     if let Err(e) = source_rag::update_source_status(source.source_id, "completed".to_string()) {
@@ -372,9 +386,14 @@ pub fn delete_source(source_id: i64) -> Result<()> {
 
     source_rag::delete_source(source_id)?;
 
-    // Also delete orphaned chunks (rag_engine::delete_source may not clean them)
+    // Also delete orphaned chunks and their tags (rag_engine::delete_source may not clean them)
     {
         let conn = rusqlite::Connection::open(db_path)?;
+        // Delete tags for chunks belonging to this source (before deleting the chunks)
+        conn.execute(
+            "DELETE FROM chunk_tags WHERE chunk_id IN (SELECT id FROM chunks WHERE source_id = ?1)",
+            rusqlite::params![source_id],
+        )?;
         conn.execute("DELETE FROM chunks WHERE source_id = ?1", rusqlite::params![source_id])?;
     }
 
@@ -944,4 +963,91 @@ fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
         return 0.0;
     }
     dot / (norm_a * norm_b)
+}
+
+/// Create the chunk_tags table if it doesn't exist.
+fn create_chunk_tags_table(db_path: &str) -> Result<()> {
+    let conn = rusqlite::Connection::open(db_path)?;
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS chunk_tags (
+            chunk_id INTEGER NOT NULL,
+            tag TEXT NOT NULL,
+            PRIMARY KEY (chunk_id, tag)
+         );
+         CREATE INDEX IF NOT EXISTS idx_chunk_tags_tag ON chunk_tags(tag);
+         CREATE INDEX IF NOT EXISTS idx_chunk_tags_chunk_id ON chunk_tags(chunk_id);"
+    )?;
+    tracing::info!("chunk_tags table ready");
+    Ok(())
+}
+
+/// Insert tags for all chunks of a source, matched by chunk_index position.
+/// tags_per_chunk[i] contains the tags for the i-th kept chunk.
+fn insert_chunk_tags(source_id: i64, tags_per_chunk: &[Vec<String>]) -> Result<()> {
+    let db_path = DB_PATH.get().ok_or_else(|| anyhow::anyhow!("DB not initialized"))?;
+    let conn = rusqlite::Connection::open(db_path)?;
+
+    for (idx, tags) in tags_per_chunk.iter().enumerate() {
+        if tags.is_empty() {
+            continue;
+        }
+        // Look up chunk_id by source_id + chunk_index
+        let chunk_id: Option<i64> = conn
+            .query_row(
+                "SELECT id FROM chunks WHERE source_id = ?1 AND chunk_index = ?2",
+                rusqlite::params![source_id, idx as i32],
+                |row| row.get(0),
+            )
+            .ok();
+
+        if let Some(cid) = chunk_id {
+            for tag in tags {
+                conn.execute(
+                    "INSERT OR IGNORE INTO chunk_tags (chunk_id, tag) VALUES (?1, ?2)",
+                    rusqlite::params![cid, tag],
+                )?;
+            }
+        }
+    }
+    tracing::debug!("Inserted tags for {} chunks of source {}", tags_per_chunk.len(), source_id);
+    Ok(())
+}
+
+/// Fetch tags for a batch of chunk IDs.
+pub fn get_tags_for_chunk_ids(chunk_ids: &[i64]) -> Result<std::collections::HashMap<i64, Vec<String>>> {
+    if chunk_ids.is_empty() {
+        return Ok(std::collections::HashMap::new());
+    }
+    let db_path = DB_PATH.get().ok_or_else(|| anyhow::anyhow!("DB not initialized"))?;
+    let conn = rusqlite::Connection::open(db_path)?;
+
+    let mut map = std::collections::HashMap::new();
+    for &id in chunk_ids {
+        let mut stmt = conn.prepare(
+            "SELECT tag FROM chunk_tags WHERE chunk_id = ?1 ORDER BY tag"
+        )?;
+        let tags: Vec<String> = stmt
+            .query_map(rusqlite::params![id], |row| row.get(0))?
+            .filter_map(|r| r.ok())
+            .collect();
+        if !tags.is_empty() {
+            map.insert(id, tags);
+        }
+    }
+    Ok(map)
+}
+
+/// Find chunk IDs that have a specific tag.
+pub fn find_chunk_ids_by_tag(tag: &str) -> Result<Vec<i64>> {
+    let db_path = DB_PATH.get().ok_or_else(|| anyhow::anyhow!("DB not initialized"))?;
+    let conn = rusqlite::Connection::open(db_path)?;
+
+    let mut stmt = conn.prepare(
+        "SELECT chunk_id FROM chunk_tags WHERE tag = ?1"
+    )?;
+    let ids: Vec<i64> = stmt
+        .query_map(rusqlite::params![tag], |row| row.get(0))?
+        .filter_map(|r| r.ok())
+        .collect();
+    Ok(ids)
 }

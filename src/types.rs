@@ -55,6 +55,9 @@ pub struct HybridResult {
     /// LLM reranker score (0.0-1.0). None = not reranked, use `score`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rerank_score: Option<f64>,
+    /// Auto-generated tags for this chunk.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<String>,
 }
 
 impl From<rag_engine::api::hybrid_search::HybridSearchResult> for HybridResult {
@@ -71,6 +74,7 @@ impl From<rag_engine::api::hybrid_search::HybridSearchResult> for HybridResult {
             section_path: None,
             page: None,
             rerank_score: None,
+            tags: Vec::new(),
         }
     }
 }
@@ -89,6 +93,7 @@ impl From<crate::reranker::RerankedResult> for HybridResult {
             section_path: None,
             page: None,
             rerank_score: r.rerank_score,
+            tags: Vec::new(),
         }
     }
 }
