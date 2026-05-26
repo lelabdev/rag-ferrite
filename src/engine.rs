@@ -8,17 +8,13 @@ use rag_engine::api::{
 };
 use rag_engine::api::source_rag::DEFAULT_COLLECTION_ID;
 use crate::chunker;
-use crate::config::RerankerConfig;
 use crate::embedding::EmbeddingProvider;
 use crate::extractor;
 use crate::llm::{ContextResult, LlmProvider};
-use crate::reranker::{Reranker, RerankerType};
 use crate::types::{BenchmarkDetail, BenchmarkResult, ChunkVerification, GoldenEntry, IngestionReport};
 
 /// Stored DB path so list_sources/stats can query across all collections.
 static DB_PATH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
-static RERANKER: std::sync::OnceLock<Reranker> = std::sync::OnceLock::new();
-
 /// Initialize rag_engine: logger + DB pool + schema + reranker
 pub fn init(data_dir: &std::path::Path, config: &crate::config::Config) -> Result<()> {
     simple::init_core();
@@ -50,8 +46,6 @@ pub fn init(data_dir: &std::path::Path, config: &crate::config::Config) -> Resul
     let _ = DB_PATH.set(db_path_str);
     tracing::info!("rag_engine DB initialized at {}", db_path.display());
 
-    // Initialize reranker (disabled here — built in main.rs from LlmProvider)
-    let _ = RERANKER.set(Reranker::disabled());
     Ok(())
 }
 
@@ -899,9 +893,6 @@ pub fn get_graph_data(
     });
     edges.truncate(max_edges);
 
-    // Only keep nodes that have edges or have centroids (still visible as isolated nodes)
-    let _active_ids: std::collections::HashSet<i64> = ids_with_centroids.into_iter().collect();
-
     Ok(crate::types::GraphData { nodes, edges })
 }
 
@@ -1037,17 +1028,3 @@ pub fn get_tags_for_chunk_ids(chunk_ids: &[i64]) -> Result<std::collections::Has
     Ok(map)
 }
 
-/// Find chunk IDs that have a specific tag.
-pub fn find_chunk_ids_by_tag(tag: &str) -> Result<Vec<i64>> {
-    let db_path = DB_PATH.get().ok_or_else(|| anyhow::anyhow!("DB not initialized"))?;
-    let conn = rusqlite::Connection::open(db_path)?;
-
-    let mut stmt = conn.prepare(
-        "SELECT chunk_id FROM chunk_tags WHERE tag = ?1"
-    )?;
-    let ids: Vec<i64> = stmt
-        .query_map(rusqlite::params![tag], |row| row.get(0))?
-        .filter_map(|r| r.ok())
-        .collect();
-    Ok(ids)
-}
