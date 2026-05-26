@@ -261,3 +261,147 @@ impl Default for Config {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_default_config() {
+        let config = Config::default();
+        assert_eq!(config.llm.provider, "ollama");
+        assert_eq!(config.llm.model, "gemma4:e4b");
+        assert!(config.llm.context_enabled);
+        assert!(!config.llm.relevance_scoring);
+        assert_eq!(config.llm.min_relevance_score, 5.0);
+        assert_eq!(config.llm.max_concurrent, 3);
+        assert!(config.llm.api_key.is_none());
+        assert!(config.llm.base_url.is_none());
+        assert!(config.llm.fallback.is_none());
+    }
+
+    #[test]
+    fn test_default_embedding_config() {
+        let config = EmbeddingConfig::default();
+        assert_eq!(config.provider, "ollama");
+        assert_eq!(config.model, "qwen3-embedding:0.6b");
+        assert_eq!(config.dimensions, 1024);
+        assert!(config.api_key.is_none());
+    }
+
+    #[test]
+    fn test_default_reranker_config() {
+        let config = RerankerConfig::default();
+        assert_eq!(config.reranker_type, "disabled");
+        assert_eq!(config.top_k, 10);
+        assert!(config.model.is_none());
+        assert!(config.api_key.is_none());
+    }
+
+    #[test]
+    fn test_parse_full_config() {
+        let toml = r#"
+data_dir = "/tmp/rag-test"
+
+[embedding]
+provider = "openai"
+model = "text-embedding-3-small"
+dimensions = 1536
+base_url = "https://api.openai.com/v1"
+
+[llm]
+provider = "ollama"
+model = "gemma4:31b"
+base_url = "https://api.ollama.com"
+context_enabled = true
+relevance_scoring = true
+min_relevance_score = 5.0
+max_concurrent = 3
+
+[reranker]
+reranker_type = "disabled"
+top_k = 10
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        assert_eq!(config.data_dir, PathBuf::from("/tmp/rag-test"));
+        assert_eq!(config.embedding.provider, "openai");
+        assert_eq!(config.embedding.model, "text-embedding-3-small");
+        assert_eq!(config.embedding.dimensions, 1536);
+        assert_eq!(config.llm.provider, "ollama");
+        assert_eq!(config.llm.model, "gemma4:31b");
+        assert_eq!(config.llm.base_url.as_deref(), Some("https://api.ollama.com"));
+        assert!(config.llm.context_enabled);
+        assert!(config.llm.relevance_scoring);
+        assert_eq!(config.llm.min_relevance_score, 5.0);
+        assert_eq!(config.reranker.reranker_type, "disabled");
+    }
+
+    #[test]
+    fn test_parse_minimal_config() {
+        let toml = r#"
+data_dir = "/tmp/test"
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        assert_eq!(config.data_dir, PathBuf::from("/tmp/test"));
+        // Everything else should be defaults
+        assert_eq!(config.llm.provider, "ollama");
+        assert!(!config.llm.relevance_scoring);
+        assert_eq!(config.embedding.dimensions, 1024);
+    }
+
+    #[test]
+    fn test_parse_config_with_fallback() {
+        let toml = r#"
+data_dir = "/tmp/test"
+
+[llm]
+provider = "zai"
+model = "glm-4.5-flash"
+base_url = "https://api.z.ai/api/coding/paas/v4"
+context_enabled = false
+
+[llm.fallback]
+provider = "ollama"
+model = "gemma4:31b"
+base_url = "http://localhost:11434"
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        assert_eq!(config.llm.provider, "zai");
+        assert_eq!(config.llm.model, "glm-4.5-flash");
+        assert!(!config.llm.context_enabled);
+        let fb = config.llm.fallback.unwrap();
+        assert_eq!(fb.provider, "ollama");
+        assert_eq!(fb.model, "gemma4:31b");
+    }
+
+    #[test]
+    fn test_parse_config_with_metadata() {
+        let toml = r#"
+data_dir = "/tmp/test"
+
+[metadata]
+fields = [
+    { name = "topic", field_type = "string", description = "Document topic" },
+    { name = "difficulty", field_type = "string" },
+    { name = "required", field_type = "boolean", required = true },
+]
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        let meta = config.metadata.unwrap();
+        assert_eq!(meta.fields.len(), 3);
+        assert_eq!(meta.fields[0].name, "topic");
+        assert_eq!(meta.fields[0].field_type, "string");
+        assert_eq!(meta.fields[0].description.as_deref(), Some("Document topic"));
+        assert_eq!(meta.fields[1].name, "difficulty");
+        assert!(!meta.fields[1].required);
+        assert!(meta.fields[2].required);
+    }
+
+    #[test]
+    fn test_parse_config_invalid_toml() {
+        let toml = r#"
+this is not valid toml
+"#;
+        assert!(toml::from_str::<Config>(toml).is_err());
+    }
+}

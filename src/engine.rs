@@ -384,10 +384,41 @@ pub fn get_section_paths_for_chunk_ids(chunk_ids: &[i64]) -> Result<std::collect
 
 /// Delete a source by ID
 pub fn delete_source(source_id: i64) -> Result<()> {
+    // Look up the collection before deleting, so we can rebuild its indexes
+    let db_path = DB_PATH.get().ok_or_else(|| anyhow::anyhow!("DB not initialized"))?;
+    let conn = rusqlite::Connection::open(db_path)?;
+    let collection_id: Option<String> = conn
+        .query_row(
+            "SELECT collection_id FROM sources WHERE id = ?1",
+            rusqlite::params![source_id],
+            |row| row.get(0),
+        )
+        .ok()
+        .flatten();
+    drop(conn);
+
     source_rag::delete_source(source_id)?;
-    // Rebuild all indexes (don't know which collection the source was in)
-    let _ = source_rag::rebuild_chunk_hnsw_index();
-    let _ = source_rag::rebuild_chunk_bm25_index();
+
+    // Rebuild indexes for the specific collection if found
+    if let Some(ref coll) = collection_id {
+        if let Err(e) = source_rag::rebuild_chunk_hnsw_index_for_collection(coll.clone()) {
+            tracing::warn!("Failed to rebuild HNSW index for {}: {}", coll, e);
+        }
+        if let Err(e) = source_rag::rebuild_chunk_bm25_index_for_collection(coll.clone()) {
+            tracing::warn!("Failed to rebuild BM25 index for {}: {}", coll, e);
+        }
+        // Persist updated HNSW index
+        let index_path = format!("/home/loops/services/rag-ferrite/data/hnsw_{}.index", coll);
+        if let Err(e) = source_rag::save_collection_hnsw_index(coll.clone(), index_path) {
+            tracing::warn!("Failed to save HNSW index for {}: {}", coll, e);
+        }
+    } else {
+        // Fallback: rebuild all if we couldn't find the collection
+        tracing::warn!("Could not find collection for source {}, rebuilding all indexes", source_id);
+        let _ = source_rag::rebuild_chunk_hnsw_index();
+        let _ = source_rag::rebuild_chunk_bm25_index();
+    }
+
     Ok(())
 }
 

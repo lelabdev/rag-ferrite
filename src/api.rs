@@ -296,9 +296,9 @@ async fn ingest_file(
 
 async fn delete_document(
     State(_server): State<Arc<RagLabServer>>,
-    Path(source): Path<String>,
+    Path(source_id): Path<String>,
 ) -> impl IntoResponse {
-    match source.parse::<i64>() {
+    match source_id.parse::<i64>() {
         Ok(id) => match engine::delete_source(id) {
             Ok(()) => (
                 StatusCode::OK,
@@ -330,7 +330,7 @@ pub async fn serve(server: Arc<RagLabServer>, port: u16) -> anyhow::Result<()> {
         .route("/api/query", post(query_documents))
         .route("/api/ingest/data", post(ingest_data))
         .route("/api/ingest/file", post(ingest_file))
-        .route("/api/documents/{source}", delete(delete_document))
+        .route("/api/documents/{source_id}", delete(delete_document))
         .route("/api/graph", get(get_graph))
         .layer(CorsLayer::permissive())
         .with_state(server);

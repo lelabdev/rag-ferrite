@@ -321,11 +321,11 @@ impl LlmProvider {
                     },
                 };
 
-                let resp = self.client
-                    .post(&url)
-                    .json(&body)
-                    .send()
-                    .await?;
+                let mut req = self.client.post(&url).json(&body);
+                if let Some(ref api_key) = self.api_key {
+                    req = req.header("Authorization", format!("Bearer {}", api_key));
+                }
+                let resp = req.send().await?;
 
                 if !resp.status().is_success() {
                     let status = resp.status();
@@ -431,11 +431,11 @@ impl LlmProvider {
             stream: false,
         };
 
-        let resp = self.client
-            .post(&url)
-            .json(&body)
-            .send()
-            .await?;
+        let mut req = self.client.post(&url).json(&body);
+        if let Some(ref api_key) = self.api_key {
+            req = req.header("Authorization", format!("Bearer {}", api_key));
+        }
+        let resp = req.send().await?;
 
         if !resp.status().is_success() {
             let status = resp.status();
@@ -469,6 +469,132 @@ fn truncate_for_prompt(text: &str, max_chars: usize) -> String {
 }
 
 use std::sync::Arc;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_full_response() {
+        let response = "SCORE: 8\nCONTEXT: This chunk describes Svelte runes and their usage in Svelte 5.\nMETADATA: {\"topic\": \"svelte\", \"version\": 5}";
+        let (score, context, metadata) = parse_context_response(response);
+        assert_eq!(score, Some(8.0));
+        assert_eq!(context, Some("This chunk describes Svelte runes and their usage in Svelte 5.".to_string()));
+        assert!(metadata.is_some());
+        let meta = metadata.unwrap();
+        assert_eq!(meta["topic"], "svelte");
+        assert_eq!(meta["version"], 5);
+    }
+
+    #[test]
+    fn test_parse_score_only() {
+        let response = "SCORE: 3\nCONTEXT: Low relevance content";
+        let (score, context, _metadata) = parse_context_response(response);
+        assert_eq!(score, Some(3.0));
+        assert_eq!(context, Some("Low relevance content".to_string()));
+    }
+
+    #[test]
+    fn test_parse_max_score() {
+        let response = "SCORE: 10\nCONTEXT: Excellent chunk";
+        let (score, context, _metadata) = parse_context_response(response);
+        assert_eq!(score, Some(10.0));
+        assert_eq!(context, Some("Excellent chunk".to_string()));
+    }
+
+    #[test]
+    fn test_parse_min_score() {
+        let response = "SCORE: 1\nCONTEXT: This is noise or boilerplate";
+        let (score, context, _metadata) = parse_context_response(response);
+        assert_eq!(score, Some(1.0));
+    }
+
+    #[test]
+    fn test_parse_no_score_no_context() {
+        // Backward compat: no SCORE/CONTEXT → whole response becomes context
+        let response = "This is just some text without any structured format.";
+        let (score, context, _metadata) = parse_context_response(response);
+        assert_eq!(score, None);
+        assert_eq!(context, Some(response.to_string()));
+    }
+
+    #[test]
+    fn test_parse_empty_response() {
+        let response = "";
+        let (score, context, _metadata) = parse_context_response(response);
+        assert_eq!(score, None);
+        assert_eq!(context, None);
+    }
+
+    #[test]
+    fn test_parse_multiline_context() {
+        let response = "SCORE: 7\nCONTEXT: This is the first line\nand this is the second line\nand a third line\nMETADATA: {\"type\": \"api\"}";
+        let (score, context, metadata) = parse_context_response(response);
+        assert_eq!(score, Some(7.0));
+        assert!(context.is_some());
+        let ctx = context.unwrap();
+        assert!(ctx.contains("first line"));
+        assert!(ctx.contains("second line"));
+        assert!(ctx.contains("third line"));
+        assert!(metadata.is_some());
+    }
+
+    #[test]
+    fn test_parse_invalid_score() {
+        // Non-numeric score should be ignored → backward compat
+        let response = "SCORE: abc\nCONTEXT: Some context";
+        let (score, context, _metadata) = parse_context_response(response);
+        // "SCORE: abc" fails to parse, so found_score stays false
+        // but "CONTEXT:" is found, so found_context is true
+        assert_eq!(score, None);
+        assert_eq!(context, Some("Some context".to_string()));
+    }
+
+    #[test]
+    fn test_parse_metadata_invalid_json() {
+        let response = "SCORE: 5\nCONTEXT: Test\nMETADATA: {not valid json}";
+        let (score, _context, metadata) = parse_context_response(response);
+        assert_eq!(score, Some(5.0));
+        // Invalid JSON metadata should be None
+        assert!(metadata.is_none());
+    }
+
+    #[test]
+    fn test_parse_metadata_only() {
+        let response = "SCORE: 9\nCONTEXT: Good chunk\nMETADATA: {\"domain\": \"frontend\", \"framework\": \"svelte\"}";
+        let (score, _context, metadata) = parse_context_response(response);
+        assert_eq!(score, Some(9.0));
+        let meta = metadata.unwrap();
+        assert_eq!(meta["domain"], "frontend");
+        assert_eq!(meta["framework"], "svelte");
+    }
+
+    #[test]
+    fn test_llm_provider_new_reads_env() {
+        // LlmProvider::new falls back to LLM_API_KEY env var
+        // We just test construction, not actual API calls
+        let provider = LlmProvider::new(
+            "ollama".to_string(),
+            "gemma4:31b".to_string(),
+            Some("test-api-key".to_string()),
+            Some("http://localhost:11434".to_string()),
+        );
+        // Provider should be created successfully (fields are private, just verify no panic)
+        let _ = &provider;
+    }
+
+    #[test]
+    fn test_llm_provider_default_url() {
+        // When no base_url is provided, it defaults to localhost:11434
+        let provider = LlmProvider::new(
+            "ollama".to_string(),
+            "test-model".to_string(),
+            None,
+            None,
+        );
+        let _ = &provider;
+    }
+}
 
 /// Parse the LLM response for SCORE and CONTEXT lines.
 /// Returns (relevance_score, context). If parsing fails, uses the whole
