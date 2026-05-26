@@ -164,7 +164,7 @@ pub struct QueryOutput {
     pub query_complexity: QueryComplexity,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub enum Confidence {
     High,
     Medium,
@@ -222,29 +222,11 @@ impl QueryPipeline {
         .await?;
 
         let top_score = results.first().map(|r| r.score).unwrap_or(0.0);
-        let confidence = if top_score >= 0.7 {
-            Confidence::High
-        } else if top_score >= self.quality_threshold {
-            Confidence::Medium
-        } else {
-            Confidence::Low
-        };
+        let confidence = classify_confidence(top_score, self.quality_threshold);
 
         // Convert HybridSearchResult → RerankedResult (passthrough, no reranking)
         let reranked: Vec<RerankedResult> = results
-            .into_iter()
-            .map(|r| RerankedResult {
-                doc_id: r.doc_id,
-                content: r.content,
-                score: r.score,
-                rerank_score: None,
-                source_id: r.source_id,
-                chunk_index: r.chunk_index,
-                metadata: r.metadata,
-                vector_rank: r.vector_rank,
-                bm25_rank: r.bm25_rank,
-            })
-            .collect();
+            .into_iter().map(|r| r.into()).collect();
 
         Ok(QueryOutput {
             results: reranked,
@@ -287,19 +269,7 @@ impl QueryPipeline {
 
         // Rerank if enabled, otherwise pass through results directly
         let reranked = if self.reranker.is_enabled() && !results.is_empty() {
-            let candidates: Vec<crate::reranker::RerankCandidate> = results
-                .into_iter()
-                .map(|r| crate::reranker::RerankCandidate {
-                    doc_id: r.doc_id,
-                    content: r.content,
-                    initial_score: r.score,
-                    source_id: r.source_id,
-                    chunk_index: r.chunk_index,
-                    metadata: r.metadata,
-                    vector_rank: r.vector_rank,
-                    bm25_rank: r.bm25_rank,
-                })
-                .collect();
+            let candidates = build_rerank_candidates(results);
 
             match self.reranker.rerank(query, candidates).await {
                 Ok(reranked) => reranked,
@@ -309,28 +279,11 @@ impl QueryPipeline {
                 }
             }
         } else {
-            // No reranker — pass through results directly
-            results.into_iter().map(|r| RerankedResult {
-                doc_id: r.doc_id,
-                content: r.content,
-                score: r.score,
-                rerank_score: None,
-                source_id: r.source_id,
-                chunk_index: r.chunk_index,
-                metadata: r.metadata,
-                vector_rank: r.vector_rank,
-                bm25_rank: r.bm25_rank,
-            }).collect()
+            results.into_iter().map(|r| r.into()).collect()
         };
 
         let top_score = reranked.first().map(|r| r.score).unwrap_or(0.0);
-        let confidence = if top_score >= 0.7 {
-            Confidence::High
-        } else if top_score >= self.quality_threshold {
-            Confidence::Medium
-        } else {
-            Confidence::Low
-        };
+        let confidence = classify_confidence(top_score, self.quality_threshold);
 
         Ok(QueryOutput {
             results: reranked,
@@ -364,19 +317,7 @@ impl QueryPipeline {
 
             // Step 2: Rerank if enabled
             let reranked = if self.reranker.is_enabled() && !results.is_empty() {
-                let candidates: Vec<crate::reranker::RerankCandidate> = results
-                    .into_iter()
-                    .map(|r| crate::reranker::RerankCandidate {
-                        doc_id: r.doc_id,
-                        content: r.content,
-                        initial_score: r.score,
-                        source_id: r.source_id,
-                        chunk_index: r.chunk_index,
-                        metadata: r.metadata,
-                        vector_rank: r.vector_rank,
-                        bm25_rank: r.bm25_rank,
-                    })
-                    .collect();
+                let candidates = build_rerank_candidates(results);
 
                 match self.reranker.rerank(&current_query, candidates).await {
                     Ok(reranked) => reranked,
@@ -386,18 +327,7 @@ impl QueryPipeline {
                     }
                 }
             } else {
-                // No reranker — pass through results directly
-                results.into_iter().map(|r| RerankedResult {
-                    doc_id: r.doc_id,
-                    content: r.content,
-                    score: r.score,
-                    rerank_score: None,
-                    source_id: r.source_id,
-                    chunk_index: r.chunk_index,
-                    metadata: r.metadata,
-                    vector_rank: r.vector_rank,
-                    bm25_rank: r.bm25_rank,
-                }).collect()
+                results.into_iter().map(|r| r.into()).collect()
             };
 
             // Step 3: Quality gate — check top score
@@ -406,15 +336,8 @@ impl QueryPipeline {
                 .map(|r| r.score)
                 .unwrap_or(0.0);
 
-            let (confidence, should_retry) = if top_score >= 0.7 {
-                (Confidence::High, false)
-            } else if top_score >= self.quality_threshold {
-                (Confidence::Medium, false)
-            } else if retry_count < self.max_retries {
-                (Confidence::Low, true)
-            } else {
-                (Confidence::Low, false)
-            };
+            let confidence = classify_confidence(top_score, self.quality_threshold);
+            let should_retry = confidence == Confidence::Low && retry_count < self.max_retries;
 
             // Step 4: Corrective RAG — reformulate and retry
             if should_retry {
@@ -449,4 +372,34 @@ impl QueryPipeline {
             });
         }
     }
+}
+
+/// Classify confidence based on top score vs quality threshold.
+fn classify_confidence(top_score: f64, threshold: f64) -> Confidence {
+    if top_score >= 0.7 {
+        Confidence::High
+    } else if top_score >= threshold {
+        Confidence::Medium
+    } else {
+        Confidence::Low
+    }
+}
+
+/// Convert hybrid search results into reranker candidates.
+fn build_rerank_candidates(
+    results: Vec<rag_engine::api::hybrid_search::HybridSearchResult>,
+) -> Vec<crate::reranker::RerankCandidate> {
+    results
+        .into_iter()
+        .map(|r| crate::reranker::RerankCandidate {
+            doc_id: r.doc_id,
+            content: r.content,
+            initial_score: r.score,
+            source_id: r.source_id,
+            chunk_index: r.chunk_index,
+            metadata: r.metadata,
+            vector_rank: r.vector_rank,
+            bm25_rank: r.bm25_rank,
+        })
+        .collect()
 }
