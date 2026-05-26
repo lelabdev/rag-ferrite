@@ -399,6 +399,12 @@ pub fn delete_source(source_id: i64) -> Result<()> {
 
     source_rag::delete_source(source_id)?;
 
+    // Also delete orphaned chunks (rag_engine::delete_source may not clean them)
+    {
+        let conn = rusqlite::Connection::open(db_path)?;
+        conn.execute("DELETE FROM chunks WHERE source_id = ?1", rusqlite::params![source_id])?;
+    }
+
     // Rebuild indexes for the specific collection if found
     if let Some(ref coll) = collection_id {
         if let Err(e) = source_rag::rebuild_chunk_hnsw_index_for_collection(coll.clone()) {
