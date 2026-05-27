@@ -248,14 +248,22 @@ chunk_type: chunker::detect_chunk_type(content.trim(), true),
         .map(|((idx, chunk), ctx_result)| (idx, chunk, ctx_result))
         .collect();
 
-    // Compute relevance statistics from all context results
-    let relevance_scores: Vec<f64> = context_results
-        .iter()
-        .filter_map(|c| c.relevance_score.map(|s| s as f64))
-        .collect();
-    let avg_relevance = if relevance_scores.is_empty() { 0.0 } else { relevance_scores.iter().sum::<f64>() / relevance_scores.len() as f64 };
-    let min_relevance = if relevance_scores.is_empty() { 0.0 } else { relevance_scores.iter().cloned().fold(f64::INFINITY, f64::min) };
-    let max_relevance = relevance_scores.iter().cloned().fold(f64::NEG_INFINITY, f64::max).max(0.0);
+    // Compute relevance statistics from all context results (single-pass)
+    let mut rel_count = 0usize;
+    let mut rel_sum = 0.0f64;
+    let mut rel_min = f64::INFINITY;
+    let mut rel_max = 0.0f64;
+    for c in &context_results {
+        if let Some(s) = c.relevance_score {
+            let s = s as f64;
+            rel_count += 1;
+            rel_sum += s;
+            if s < rel_min { rel_min = s; }
+            if s > rel_max { rel_max = s; }
+        }
+    }
+    let avg_relevance = if rel_count == 0 { 0.0 } else { rel_sum / rel_count as f64 };
+    let min_relevance = if rel_count == 0 { 0.0 } else { rel_min };
 
     if filtered_count > 0 {
         tracing::info!("Relevance scoring: filtered {}/{} chunks (threshold={:.1})", filtered_count, chunks.len(), options.min_relevance_score);
@@ -339,7 +347,7 @@ chunk_type: chunker::detect_chunk_type(content.trim(), true),
         filtered_chunks: filtered_count,
         avg_relevance,
         min_relevance,
-        max_relevance,
+        max_relevance: rel_max,
         context_failures,
         total_duration_ms,
         embedding_duration_ms,

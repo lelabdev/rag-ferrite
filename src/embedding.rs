@@ -128,6 +128,7 @@ impl EmbeddingProvider {
         #[serde(rename_all = "snake_case")]
         enum CohereInputType {
             SearchDocument,
+            /// Reserved for future query-time embeddings.
             #[allow(dead_code)]
             SearchQuery,
         }

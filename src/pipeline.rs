@@ -90,14 +90,13 @@ pub fn classify_query(query: &str) -> QueryComplexity {
 
 
     let has_question_marker = words.iter().any(|w| {
-        let wl = w.to_lowercase()
-            .trim_end_matches(|c: char| c == '?' || c == ',' || c == '.' || c == '!' || c == ';')
-            .to_string();
-        question_markers.iter().any(|m| wl == *m)
+        // Strip trailing punctuation without allocating
+        let trimmed = w.trim_end_matches(|c: char| c == '?' || c == ',' || c == '.' || c == '!' || c == ';');
+        question_markers.iter().any(|m| trimmed.eq_ignore_ascii_case(m))
     });
 
     let has_boolean_op = words.iter().any(|w| {
-        boolean_operators.iter().any(|op| *w == *op)
+        boolean_operators.iter().any(|op| w.eq(op))
     });
 
     // Complex: >8 words OR question markers OR boolean operators
@@ -113,6 +112,9 @@ pub fn classify_query(query: &str) -> QueryComplexity {
     // Standard: 3–8 words, no signals
     QueryComplexity::Standard
 }
+
+/// Maximum word count for a query to trigger expansion.
+pub const EXPANSION_WORD_THRESHOLD: usize = 5;
 
 /// Full query pipeline: router → expansion → search → rerank → corrective RAG.
 #[derive(Debug)]
@@ -258,8 +260,8 @@ impl QueryPipeline {
     ) -> Result<QueryOutput> {
         let word_count = query.split_whitespace().count();
 
-        // Use expansion for short queries (≤5 words)
-        let results = if word_count <= 5 {
+        // Use expansion for short queries
+        let results = if word_count <= EXPANSION_WORD_THRESHOLD {
             crate::engine::search_hybrid_with_expansion(
                 &self.embedder,
                 self.llm.as_ref(),

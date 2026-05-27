@@ -39,7 +39,7 @@ pub async fn search_hybrid_with_expansion(
     // Expand short queries (< 5 words) if LLM is available
     let queries = if let Some(llm_provider) = llm {
         let word_count = query.split_whitespace().count();
-        if word_count <= 5 {
+        if word_count <= crate::pipeline::EXPANSION_WORD_THRESHOLD {
             match llm_provider.expand_query(query).await {
                 Ok(expansions) => {
                     tracing::info!("Query expansion: {:?}", expansions);

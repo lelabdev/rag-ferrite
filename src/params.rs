@@ -64,8 +64,6 @@ pub struct IngestDataParams {
     pub content: String,
     pub source: String,
     #[serde(default)]
-    pub format: Option<String>,
-    #[serde(default)]
     pub collection: Option<String>,
 }
 

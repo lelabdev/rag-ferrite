@@ -90,19 +90,19 @@ pub fn get_graph_data(
     let conn = super::get_conn()?;
 
     // 1. Get sources, optionally filtered by collection
+    let sql = if collection.is_some() {
+        "SELECT s.id, s.name, s.collection_id, (SELECT COUNT(*) FROM chunks c WHERE c.source_id = s.id) FROM sources s WHERE s.collection_id = ?1 ORDER BY s.id"
+    } else {
+        "SELECT s.id, s.name, s.collection_id, (SELECT COUNT(*) FROM chunks c WHERE c.source_id = s.id) FROM sources s ORDER BY s.id"
+    };
+
     let sources: Vec<(i64, Option<String>, String, i32)> = if let Some(coll) = collection {
-        let mut stmt = conn.prepare(
-            "SELECT s.id, s.name, s.collection_id, (SELECT COUNT(*) FROM chunks c WHERE c.source_id = s.id) \
-             FROM sources s WHERE s.collection_id = ?1 ORDER BY s.id",
-        )?;
+        let mut stmt = conn.prepare(sql)?;
         stmt.query_map(rusqlite::params![coll], |row| {
             Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
         })?.filter_map(|r| r.ok()).collect()
     } else {
-        let mut stmt = conn.prepare(
-            "SELECT s.id, s.name, s.collection_id, (SELECT COUNT(*) FROM chunks c WHERE c.source_id = s.id) \
-             FROM sources s ORDER BY s.id",
-        )?;
+        let mut stmt = conn.prepare(sql)?;
         stmt.query_map([], |row| {
             Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
         })?.filter_map(|r| r.ok()).collect()

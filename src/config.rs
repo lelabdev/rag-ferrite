@@ -172,6 +172,10 @@ fn default_context_enabled() -> bool {
     true
 }
 
+fn default_relevance_scoring() -> bool {
+    false
+}
+
 fn default_max_concurrent() -> usize {
     3
 }
@@ -211,9 +215,9 @@ impl Default for LlmConfig {
             model: default_llm_model(),
             api_key: None,
             base_url: None,
-            context_enabled: true,
+            context_enabled: default_context_enabled(),
             max_concurrent: 3,
-            relevance_scoring: false,
+            relevance_scoring: default_relevance_scoring(),
             min_relevance_score: default_min_relevance_score(),
             temperature: default_temperature(),
             max_tokens: default_max_tokens(),
