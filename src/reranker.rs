@@ -77,6 +77,39 @@ impl Reranker {
         self.reranker_type != RerankerType::Disabled
     }
 
+    /// Convenience method: convert `HybridSearchResult`s to candidates and rerank.
+    pub async fn rerank_hybrid(
+        &self,
+        query: &str,
+        results: Vec<rag_engine::api::hybrid_search::HybridSearchResult>,
+    ) -> Vec<RerankedResult> {
+        if !self.is_enabled() || results.is_empty() {
+            return results.into_iter().map(|r| r.into()).collect();
+        }
+
+        let candidates: Vec<RerankCandidate> = results
+            .into_iter()
+            .map(|r| RerankCandidate {
+                doc_id: r.doc_id,
+                content: r.content,
+                initial_score: r.score,
+                source_id: r.source_id,
+                chunk_index: r.chunk_index,
+                metadata: r.metadata,
+                vector_rank: r.vector_rank,
+                bm25_rank: r.bm25_rank,
+            })
+            .collect();
+
+        match self.rerank(query, candidates).await {
+            Ok(reranked) => reranked,
+            Err(e) => {
+                tracing::warn!("Reranking failed: {}, using initial scores", e);
+                Vec::new()
+            }
+        }
+    }
+
     /// Rerank candidates against a query. Returns sorted results.
     pub async fn rerank(
         &self,
