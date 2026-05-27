@@ -85,6 +85,19 @@ pub fn init(data_dir: &std::path::Path, config: &crate::config::Config) -> Resul
     Ok(())
 }
 
+/// Sanitize a collection ID: only allow alphanumeric, underscore, and hyphen.
+/// Returns an error if the result is empty after sanitization.
+pub fn sanitize_collection(collection: &str) -> Result<String> {
+    let sanitized: String = collection
+        .chars()
+        .filter(|c| c.is_alphanumeric() || *c == '_' || *c == '-')
+        .collect();
+    if sanitized.is_empty() {
+        anyhow::bail!("Invalid collection ID: '{}' contains no valid characters", collection);
+    }
+    Ok(sanitized)
+}
+
 /// Options for ingestion controlling concurrency and relevance filtering.
 pub struct IngestOptions {
     pub max_concurrent: usize,
@@ -103,7 +116,10 @@ pub async fn ingest_text(
     options: IngestOptions,
 ) -> Result<(i64, IngestionReport)> {
     let total_start = Instant::now();
-    let collection_id = collection.unwrap_or(DEFAULT_COLLECTION_ID).to_string();
+    if content.trim().is_empty() {
+        anyhow::bail!("Cannot ingest empty content");
+    }
+    let collection_id = sanitize_collection(collection.unwrap_or(DEFAULT_COLLECTION_ID))?;
     let meta = metadata.map(|m| m.to_string()).unwrap_or_default();
     let source = source_rag::add_source_in_collection(
         collection_id.clone(),
