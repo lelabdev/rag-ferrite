@@ -210,7 +210,7 @@ chunk_type: chunker::detect_chunk_type(content.trim(), true),
         .filter_map(|c| c.relevance_score.map(|s| s as f64))
         .collect();
     let avg_relevance = if relevance_scores.is_empty() { 0.0 } else { relevance_scores.iter().sum::<f64>() / relevance_scores.len() as f64 };
-    let min_relevance = relevance_scores.iter().cloned().fold(f64::INFINITY, f64::min).min(0.0);
+    let min_relevance = if relevance_scores.is_empty() { 0.0 } else { relevance_scores.iter().cloned().fold(f64::INFINITY, f64::min) };
     let max_relevance = relevance_scores.iter().cloned().fold(f64::NEG_INFINITY, f64::max).max(0.0);
 
     if filtered_count > 0 {
@@ -238,20 +238,21 @@ chunk_type: chunker::detect_chunk_type(content.trim(), true),
     let embedding_duration_ms = embed_start.elapsed().as_millis() as u64;
 
     // Store original chunk content (not the prefixed version)
-    // Collect section_paths and pages for post-insert UPDATE (rag_engine ChunkData doesn't have these)
-    let section_paths: Vec<Option<String>> = kept
+    // Collect section_paths, pages, and tags indexed by original chunk.index
+    // (not enumerate position, which may differ after relevance filtering)
+    let section_paths: Vec<(i32, Option<String>)> = kept
         .iter()
-        .map(|(_, chunk, _)| chunk.section_path.clone())
+        .map(|(_, chunk, _)| (chunk.index, chunk.section_path.clone()))
         .collect();
-    let pages: Vec<Option<u32>> = kept
+    let pages: Vec<(i32, Option<u32>)> = kept
         .iter()
-        .map(|(_, chunk, _)| chunk.page)
+        .map(|(_, chunk, _)| (chunk.index, chunk.page))
         .collect();
 
     // Collect auto-generated tags before kept is consumed (for chunk_tags table)
-    let tags_per_chunk: Vec<Vec<String>> = kept
+    let tags_per_chunk: Vec<(i32, Vec<String>)> = kept
         .iter()
-        .map(|(_, _, ctx_result)| ctx_result.tags.clone())
+        .map(|(_, chunk, ctx_result)| (chunk.index, ctx_result.tags.clone()))
         .collect();
 
     let chunk_data: Vec<ChunkData> = kept
@@ -275,7 +276,7 @@ chunk_type: chunker::detect_chunk_type(content.trim(), true),
     update_chunk_pages(source.source_id, &pages)?;
 
     // Store auto-generated tags for each chunk in chunk_tags table
-    if tags_per_chunk.iter().any(|t| !t.is_empty()) {
+    if tags_per_chunk.iter().any(|(_, t)| !t.is_empty()) {
         insert_chunk_tags(source.source_id, &tags_per_chunk)?;
     }
 
@@ -345,14 +346,14 @@ pub async fn ingest_file(
 }
 
 /// Update section_path for all chunks of a source, matched by chunk_index.
-fn update_chunk_section_paths(source_id: i64, section_paths: &[Option<String>]) -> Result<()> {
+fn update_chunk_section_paths(source_id: i64, section_paths: &[(i32, Option<String>)]) -> Result<()> {
     let conn = get_conn()?;
 
-    for (idx, path) in section_paths.iter().enumerate() {
+    for &(chunk_index, ref path) in section_paths {
         if let Some(sp) = path {
             conn.execute(
                 "UPDATE chunks SET section_path = ?1 WHERE source_id = ?2 AND chunk_index = ?3",
-                rusqlite::params![sp, source_id, idx as i32],
+                rusqlite::params![sp, source_id, chunk_index],
             )?;
         }
     }
@@ -361,13 +362,13 @@ fn update_chunk_section_paths(source_id: i64, section_paths: &[Option<String>]) 
 }
 
 /// Update page for all chunks of a source, matched by chunk_index.
-fn update_chunk_pages(source_id: i64, pages: &[Option<u32>]) -> Result<()> {
+fn update_chunk_pages(source_id: i64, pages: &[(i32, Option<u32>)]) -> Result<()> {
     let conn = get_conn()?;
-    for (idx, page) in pages.iter().enumerate() {
+    for &(chunk_index, page) in pages {
         if let Some(p) = page {
             conn.execute(
                 "UPDATE chunks SET page = ?1 WHERE source_id = ?2 AND chunk_index = ?3",
-                rusqlite::params![*p as i64, source_id, idx as i32],
+                rusqlite::params![p as i64, source_id, chunk_index],
             )?;
         }
     }
