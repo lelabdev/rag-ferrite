@@ -82,7 +82,7 @@ rag-ferrite understands what your documents **mean**. It filters the noise, tags
 | **Auto-tagging** | Each chunk gets smart tags for cross-collection filtering |
 | **Self-correcting** | Weak results trigger automatic reformulation and retry |
 | **Hybrid search** | BM25 + vector search combined with RRF fusion |
-| **15 MB binary** | No Docker, no GPU, no cloud dependency. Runs on a $5 VPS |
+| **15 MB binary** | No Docker, no GPU required. Cloud or local — your choice |
 | **MCP-native** | Works with Hermes, Claude Desktop, or any MCP client |
 
 ---
