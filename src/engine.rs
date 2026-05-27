@@ -57,6 +57,13 @@ pub fn init(data_dir: &std::path::Path, config: &crate::config::Config) -> Resul
     Ok(())
 }
 
+/// Options for ingestion controlling concurrency and relevance filtering.
+pub struct IngestOptions {
+    pub max_concurrent: usize,
+    pub relevance_scoring: bool,
+    pub min_relevance_score: f64,
+}
+
 /// Ingest a text document into the RAG
 pub async fn ingest_text(
     embedder: &EmbeddingProvider,
@@ -65,9 +72,7 @@ pub async fn ingest_text(
     source_name: &str,
     metadata: Option<&str>,
     collection: Option<&str>,
-    max_concurrent: usize,
-    relevance_scoring: bool,
-    min_relevance_score: f32,
+    options: IngestOptions,
 ) -> Result<(i64, IngestionReport)> {
     let total_start = Instant::now();
     let collection_id = collection.unwrap_or(DEFAULT_COLLECTION_ID).to_string();
@@ -125,7 +130,7 @@ chunk_type: chunker::detect_chunk_type(content.trim(), true),
         // Process in batches of 20 for rate limiting
         let mut all_results: Vec<ContextResult> = Vec::with_capacity(chunks.len());
         for batch in chunk_texts.chunks(20) {
-            let results = llm_provider.generate_context_batch(content, batch, max_concurrent).await;
+            let results = llm_provider.generate_context_batch(content, batch, options.max_concurrent).await;
             for result in results {
                 match result {
                     Ok(ctx_result) => {
@@ -157,11 +162,11 @@ chunk_type: chunker::detect_chunk_type(content.trim(), true),
         .enumerate()
         .zip(context_results.iter())
         .filter(|((_, _), ctx_result)| {
-            if relevance_scoring {
+            if options.relevance_scoring {
                 if let Some(score) = ctx_result.relevance_score {
-                    if score < min_relevance_score {
+                    if (score as f64) < options.min_relevance_score {
                         filtered_count += 1;
-                        tracing::info!("Filtered chunk (score={:.1} < threshold={:.1})", score, min_relevance_score);
+                        tracing::info!("Filtered chunk (score={:.1} < threshold={:.1})", score, options.min_relevance_score);
                         return false;
                     }
                 }
@@ -181,7 +186,7 @@ chunk_type: chunker::detect_chunk_type(content.trim(), true),
     let max_relevance = relevance_scores.iter().cloned().fold(f64::NEG_INFINITY, f64::max).max(0.0);
 
     if filtered_count > 0 {
-        tracing::info!("Relevance scoring: filtered {}/{} chunks (threshold={:.1})", filtered_count, chunks.len(), min_relevance_score);
+        tracing::info!("Relevance scoring: filtered {}/{} chunks (threshold={:.1})", filtered_count, chunks.len(), options.min_relevance_score);
     }
 
     if kept.is_empty() {
@@ -290,9 +295,7 @@ pub async fn ingest_file(
     llm: Option<&LlmProvider>,
     file_path: &str,
     collection: Option<&str>,
-    max_concurrent: usize,
-    relevance_scoring: bool,
-    min_relevance_score: f32,
+    options: IngestOptions,
 ) -> Result<(i64, IngestionReport)> {
     // Use our custom extractor instead of rag_engine's document_parser
     let text = extractor::extract_text(file_path)?;
@@ -308,9 +311,7 @@ pub async fn ingest_file(
         &name,
         Some(&format!("{{\"path\":\"{}\"}}", file_path)),
         collection,
-        max_concurrent,
-        relevance_scoring,
-        min_relevance_score,
+        options,
     )
     .await
 }

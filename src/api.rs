@@ -238,9 +238,11 @@ async fn ingest_data(
         &req.source,
         None,
         coll,
-        server.max_concurrent,
-        server.relevance_scoring,
-        server.min_relevance_score,
+        engine::IngestOptions {
+            max_concurrent: server.max_concurrent,
+            relevance_scoring: server.relevance_scoring,
+            min_relevance_score: server.min_relevance_score as f64,
+        },
     )
     .await
     {
@@ -271,9 +273,11 @@ async fn ingest_file(
         server.pipeline.llm.as_ref(),
         &req.file_path,
         coll,
-        server.max_concurrent,
-        server.relevance_scoring,
-        server.min_relevance_score,
+        engine::IngestOptions {
+            max_concurrent: server.max_concurrent,
+            relevance_scoring: server.relevance_scoring,
+            min_relevance_score: server.min_relevance_score as f64,
+        },
     )
     .await
     {

@@ -165,7 +165,11 @@ impl RagFerriteServer {
     async fn ingest_file(&self, params: Parameters<IngestFileParams>) -> String {
         let p = params.0;
         let coll = p.collection.as_deref();
-        match engine::ingest_file(&self.pipeline.embedder, self.pipeline.llm.as_ref(), &p.file_path, coll, self.max_concurrent, self.relevance_scoring, self.min_relevance_score).await {
+        match engine::ingest_file(&self.pipeline.embedder, self.pipeline.llm.as_ref(), &p.file_path, coll, engine::IngestOptions {
+            max_concurrent: self.max_concurrent,
+            relevance_scoring: self.relevance_scoring,
+            min_relevance_score: self.min_relevance_score as f64,
+        }).await {
             Ok((id, report)) => serde_json::json!({
                 "status": "ok",
                 "source_id": id,
@@ -181,7 +185,11 @@ impl RagFerriteServer {
     async fn ingest_data(&self, params: Parameters<IngestDataParams>) -> String {
         let p = params.0;
         let coll = p.collection.as_deref();
-        match engine::ingest_text(&self.pipeline.embedder, self.pipeline.llm.as_ref(), &p.content, &p.source, None, coll, self.max_concurrent, self.relevance_scoring, self.min_relevance_score).await {
+        match engine::ingest_text(&self.pipeline.embedder, self.pipeline.llm.as_ref(), &p.content, &p.source, None, coll, engine::IngestOptions {
+            max_concurrent: self.max_concurrent,
+            relevance_scoring: self.relevance_scoring,
+            min_relevance_score: self.min_relevance_score as f64,
+        }).await {
             Ok((id, report)) => serde_json::json!({
                 "status": "ok",
                 "source_id": id,
