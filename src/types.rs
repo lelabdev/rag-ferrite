@@ -147,7 +147,7 @@ pub struct ChunkResult {
     pub content: String,
     pub score: f64,
     pub metadata: Option<String>,
-pub chunk_type: String,
+    pub chunk_type: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub section_path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -163,7 +163,7 @@ impl From<(rag_engine::api::source_rag::ChunkSearchResult, Option<String>, Optio
             content: r.content,
             score: r.similarity,
             metadata: r.metadata,
-chunk_type: r.chunk_type,
+            chunk_type: r.chunk_type,
             section_path,
             page,
         }

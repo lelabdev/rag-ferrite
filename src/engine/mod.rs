@@ -175,7 +175,7 @@ pub async fn ingest_text(
             index: 0,
             start_pos: 0,
             end_pos: content.len() as i32,
-chunk_type: chunker::detect_chunk_type(content.trim(), true),
+            chunk_type: chunker::detect_chunk_type(content.trim(), true),
             section_path: single_section,
             page: None,
         }]
