@@ -3,6 +3,21 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use crate::llm::LlmProvider;
 
+/// Truncate a string to at most `max_chars` Unicode characters (byte-safe).
+fn truncate_chars(s: &str, max_chars: usize) -> String {
+    s.chars().take(max_chars).collect()
+}
+
+/// Sort results by rerank_score (falling back to original score) and truncate to top_k.
+fn sort_and_truncate(results: &mut Vec<RerankedResult>, top_k: usize) {
+    results.sort_by(|a, b| {
+        let sa = a.rerank_score.unwrap_or(a.score);
+        let sb = b.rerank_score.unwrap_or(b.score);
+        sb.partial_cmp(&sa).unwrap_or(std::cmp::Ordering::Equal)
+    });
+    results.truncate(top_k);
+}
+
 /// Reranker for post-retrieval quality improvement.
 #[derive(Debug, Clone)]
 pub struct Reranker {
@@ -10,6 +25,7 @@ pub struct Reranker {
     llm: Option<Arc<LlmProvider>>,
     client: reqwest::Client,
     top_k: usize,
+    preview_chars: usize,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -50,21 +66,23 @@ pub struct RerankedResult {
 }
 
 impl Reranker {
-    pub fn new_llm(llm: Arc<LlmProvider>, top_k: usize) -> Self {
+    pub fn new_llm(llm: Arc<LlmProvider>, top_k: usize, preview_chars: usize) -> Self {
         Self {
             reranker_type: RerankerType::Llm,
             llm: Some(llm),
             client: reqwest::Client::new(),
             top_k,
+            preview_chars,
         }
     }
 
-    pub fn new_cohere(api_key: String, top_k: usize) -> Self {
+    pub fn new_cohere(api_key: String, top_k: usize, preview_chars: usize) -> Self {
         Self {
             reranker_type: RerankerType::Cohere { api_key },
             llm: None,
             client: reqwest::Client::new(),
             top_k,
+            preview_chars,
         }
     }
 
@@ -74,6 +92,7 @@ impl Reranker {
             llm: None,
             client: reqwest::Client::new(),
             top_k: 10,
+            preview_chars: 300,
         }
     }
 
@@ -164,7 +183,7 @@ impl Reranker {
         let candidates_text: Vec<String> = candidates
             .iter()
             .enumerate()
-            .map(|(i, c)| format!("[{}] {}", i, &c.content[..c.content.len().min(300)]))
+            .map(|(i, c)| format!("[{}] {}", i, truncate_chars(&c.content, self.preview_chars)))
             .collect();
 
         let prompt = format!(
@@ -225,12 +244,8 @@ impl Reranker {
             .collect();
 
         // Sort by rerank_score (fall back to original score)
-        results.sort_by(|a, b| {
-            let sa = a.rerank_score.unwrap_or(a.score);
-            let sb = b.rerank_score.unwrap_or(b.score);
-            sb.partial_cmp(&sa).unwrap_or(std::cmp::Ordering::Equal)
-        });
-        results.truncate(self.top_k);
+        sort_and_truncate(&mut results, self.top_k);
+
         Ok(results)
     }
 
@@ -306,12 +321,8 @@ impl Reranker {
             .collect();
 
         // Sort by rerank_score (fall back to original score)
-        results.sort_by(|a, b| {
-            let sa = a.rerank_score.unwrap_or(a.score);
-            let sb = b.rerank_score.unwrap_or(b.score);
-            sb.partial_cmp(&sa).unwrap_or(std::cmp::Ordering::Equal)
-        });
-        results.truncate(self.top_k);
+        sort_and_truncate(&mut results, self.top_k);
+
         Ok(results)
     }
 }

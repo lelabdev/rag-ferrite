@@ -1,5 +1,6 @@
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 /// Result of contextual retrieval: optional context prefix, optional relevance score (1-10),
 /// optional extracted metadata, and auto-generated tags.
@@ -395,8 +396,6 @@ fn truncate_for_prompt(text: &str, max_chars: usize) -> String {
         }
     }
 }
-
-use std::sync::Arc;
 
 #[cfg(test)]
 mod tests {

@@ -10,6 +10,7 @@ pub struct EmbeddingProvider {
     api_key: Option<String>,
     base_url: Option<String>,
     client: reqwest::Client,
+    batch_size: usize,
 }
 
 #[derive(Debug, Serialize)]
@@ -36,6 +37,7 @@ impl EmbeddingProvider {
         dimensions: Option<usize>,
         api_key: Option<String>,
         base_url: Option<String>,
+        batch_size: usize,
     ) -> Self {
         let api_key = api_key
             .or_else(|| std::env::var("EMBEDDING_API_KEY").ok())
@@ -48,6 +50,7 @@ impl EmbeddingProvider {
             api_key,
             base_url,
             client: reqwest::Client::new(),
+            batch_size,
         }
     }
 
@@ -190,7 +193,7 @@ impl EmbeddingProvider {
         // to avoid timeout and memory issues
         let mut results = Vec::with_capacity(texts.len());
 
-        for batch in texts.chunks(20) {
+        for batch in texts.chunks(self.batch_size) {
             let url = format!("{}/api/embed", base);
 
             let body = OllamaRequest {

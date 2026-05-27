@@ -49,7 +49,8 @@ fn extract_pdf_text(pdf_path: &str) -> Result<String> {
         anyhow::bail!("pdftotext failed: {}", stderr);
     }
 
-    let text = String::from_utf8_lossy(&output.stdout).to_string();
+    let text = String::from_utf8(output.stdout)
+        .unwrap_or_else(|e| String::from_utf8_lossy(&e.into_bytes()).to_string());
     let char_count = text.len();
 
     tracing::info!("Extracted {} chars from PDF ({} KB)", char_count, char_count / 1024);

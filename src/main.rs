@@ -175,6 +175,7 @@ async fn main() -> Result<()> {
         config.embedding.dimensions,
         config.embedding.api_key.clone(),
         config.embedding.base_url.clone(),
+        config.advanced.embedding_batch_size,
     );
     tracing::info!("Embedding provider: {} / {}", config.embedding.provider, config.embedding.model);
 
@@ -223,7 +224,7 @@ async fn main() -> Result<()> {
         "llm" => {
             if let Some(ref llm_provider) = llm {
                 tracing::info!("Reranker: LLM (reusing main LLM provider, top_k={})", reranker_top_k);
-                reranker::Reranker::new_llm(Arc::new(llm_provider.clone()), reranker_top_k)
+                reranker::Reranker::new_llm(Arc::new(llm_provider.clone()), reranker_top_k, config.reranker.preview_chars)
             } else {
                 tracing::warn!("Reranker: LLM requested but no LLM provider available, disabling");
                 reranker::Reranker::disabled()
@@ -233,7 +234,7 @@ async fn main() -> Result<()> {
             let key = config.reranker.api_key.clone()
                 .expect("Cohere reranker requires reranker.api_key");
             tracing::info!("Reranker: Cohere (top_k={})", reranker_top_k);
-            reranker::Reranker::new_cohere(key, reranker_top_k)
+            reranker::Reranker::new_cohere(key, reranker_top_k, config.reranker.preview_chars)
         }
         _ => {
             tracing::info!("Reranker: disabled");

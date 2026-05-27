@@ -371,7 +371,7 @@ pub async fn ingest_file(
         llm,
         &text,
         &name,
-        Some(&format!("{{\"path\":\"{}\"}}", file_path)),
+        Some(&serde_json::json!({"path": file_path}).to_string()),
         collection,
         options,
     )
@@ -532,7 +532,10 @@ fn detect_language(text: &str) -> String {
 fn check_duplicate_source(filename: &str) -> bool {
     let conn = match get_conn() {
         Ok(c) => c,
-        Err(_) => return false,
+        Err(e) => {
+            tracing::warn!("Duplicate check failed for '{}': {}", filename, e);
+            return false;
+        }
     };
     let count: i64 = conn
         .query_row(

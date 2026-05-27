@@ -18,18 +18,20 @@ pub async fn run_benchmark(
     let mut total_score = 0.0;
     let mut hits = 0usize;
 
-    for entry in &entries {
-        let filter = if collection.is_some() {
-            Some(hybrid_search::SearchFilter {
-                source_ids: None,
-                metadata_like: None,
-                collection_id: collection.clone(),
-            })
-        } else {
-            None
-        };
+    let filter = collection.map(|c| hybrid_search::SearchFilter {
+        source_ids: None,
+        metadata_like: None,
+        collection_id: Some(c),
+    });
 
-        let results = search_hybrid(embedder, &entry.question, limit, filter).await.unwrap_or_default();
+    for entry in &entries {
+        let results = match search_hybrid(embedder, &entry.question, limit, filter.clone()).await {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::warn!("Benchmark query '{}' failed: {}", entry.question, e);
+                vec![]
+            }
+        };
 
         // Collect unique source_ids from results
         let found_ids: Vec<i64> = results
