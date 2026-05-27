@@ -80,6 +80,30 @@ pub fn init(data_dir: &std::path::Path, config: &crate::config::Config) -> Resul
     shared_conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;")?;
     let _ = DB_CONN.set(std::sync::Mutex::new(shared_conn));
 
+    // Check embedding dimension mismatch: compare DB vectors with configured dimensions
+    if let Some(config_dims) = config.embedding.dimensions {
+        let conn = get_conn()?;
+        let db_dims: Option<usize> = conn.query_row(
+            "SELECT vector FROM chunks WHERE vector IS NOT NULL LIMIT 1",
+            [],
+            |row| {
+                let blob: Vec<u8> = row.get(0)?;
+                Ok(blob.len() / 4) // f32 = 4 bytes
+            },
+        ).ok();
+        drop(conn);
+
+        if let Some(stored_dims) = db_dims {
+            if stored_dims != config_dims {
+                anyhow::bail!(
+                    "Embedding dimension mismatch: DB has {} but config says {}. Re-ingest all documents or update config.",
+                    stored_dims, config_dims
+                );
+            }
+            tracing::info!("Embedding dimensions verified: {} (DB matches config)", stored_dims);
+        }
+    }
+
     tracing::info!("rag_engine DB initialized at {}", db_path.display());
 
     Ok(())

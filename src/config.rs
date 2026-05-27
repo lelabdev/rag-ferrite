@@ -44,9 +44,9 @@ pub struct EmbeddingConfig {
     #[serde(default = "default_model")]
     pub model: String,
 
-    /// Embedding dimensions
-    #[serde(default = "default_dimensions")]
-    pub dimensions: usize,
+    /// Embedding dimensions (auto-detected from API if not set)
+    #[serde(default)]
+    pub dimensions: Option<usize>,
 
     /// API base URL (for Ollama or custom endpoints)
     #[serde(default)]
@@ -65,10 +65,6 @@ fn default_model() -> String {
     "qwen3-embedding:0.6b".into()
 }
 
-fn default_dimensions() -> usize {
-    1024
-}
-
 impl Default for EmbeddingConfig {
     fn default() -> Self {
         Self {
@@ -76,7 +72,7 @@ impl Default for EmbeddingConfig {
             model: default_model(),
             api_key: None,
             base_url: None,
-            dimensions: default_dimensions(),
+            dimensions: None,
         }
     }
 }
@@ -319,7 +315,7 @@ mod tests {
         let config = EmbeddingConfig::default();
         assert_eq!(config.provider, "ollama");
         assert_eq!(config.model, "qwen3-embedding:0.6b");
-        assert_eq!(config.dimensions, 1024);
+        assert_eq!(config.dimensions, None);
         assert!(config.api_key.is_none());
     }
 
@@ -360,7 +356,7 @@ top_k = 10
         assert_eq!(config.data_dir, PathBuf::from("/tmp/rag-test"));
         assert_eq!(config.embedding.provider, "openai");
         assert_eq!(config.embedding.model, "text-embedding-3-small");
-        assert_eq!(config.embedding.dimensions, 1536);
+        assert_eq!(config.embedding.dimensions, Some(1536));
         assert_eq!(config.llm.provider, "ollama");
         assert_eq!(config.llm.model, "gemma4:31b");
         assert_eq!(config.llm.base_url.as_deref(), Some("https://api.ollama.com"));
@@ -380,7 +376,7 @@ data_dir = "/tmp/test"
         // Everything else should be defaults
         assert_eq!(config.llm.provider, "ollama");
         assert!(!config.llm.relevance_scoring);
-        assert_eq!(config.embedding.dimensions, 1024);
+        assert_eq!(config.embedding.dimensions, None);
     }
 
     #[test]

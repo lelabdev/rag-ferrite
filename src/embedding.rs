@@ -5,7 +5,8 @@ use serde::{Deserialize, Serialize};
 pub struct EmbeddingProvider {
     provider: String,
     model: String,
-    dimensions: usize,
+    dimensions: Option<usize>,
+    detected_dimensions: std::sync::Arc<std::sync::OnceLock<usize>>,
     api_key: Option<String>,
     base_url: Option<String>,
     client: reqwest::Client,
@@ -32,7 +33,7 @@ impl EmbeddingProvider {
     pub fn new(
         provider: String,
         model: String,
-        dimensions: usize,
+        dimensions: Option<usize>,
         api_key: Option<String>,
         base_url: Option<String>,
     ) -> Self {
@@ -43,10 +44,16 @@ impl EmbeddingProvider {
             provider,
             model,
             dimensions,
+            detected_dimensions: std::sync::Arc::new(std::sync::OnceLock::new()),
             api_key,
             base_url,
             client: reqwest::Client::new(),
         }
+    }
+
+    /// Get the effective dimensions: configured or detected from API response.
+    pub fn dimensions(&self) -> Option<usize> {
+        self.dimensions.or(self.detected_dimensions.get().copied())
     }
 
     /// Get embedding for a single text
@@ -59,12 +66,22 @@ impl EmbeddingProvider {
 
     /// Get embeddings for multiple texts (batch)
     pub async fn embed_batch(&self, texts: &[String]) -> Result<Vec<Vec<f32>>> {
-        match self.provider.as_str() {
+        let vecs = match self.provider.as_str() {
             "openai" => self.embed_openai(texts).await,
             "cohere" => self.embed_cohere(texts).await,
             "ollama" => self.embed_ollama(texts).await,
             _ => Err(anyhow!("Unknown embedding provider: {}", self.provider)),
+        }?;
+
+        // Auto-detect dimensions from first response
+        if let Some(first) = vecs.first() {
+            let detected = first.len();
+            if self.detected_dimensions.set(detected).is_ok() {
+                tracing::info!("Auto-detected embedding dimensions: {}", detected);
+            }
         }
+
+        Ok(vecs)
     }
 
     async fn embed_openai(&self, texts: &[String]) -> Result<Vec<Vec<f32>>> {
@@ -77,7 +94,7 @@ impl EmbeddingProvider {
         let body = EmbeddingRequest {
             model: self.model.clone(),
             input: texts.to_vec(),
-            dimensions: Some(self.dimensions),
+            dimensions: self.dimensions,
         };
 
         let resp = self.client
