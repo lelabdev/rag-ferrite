@@ -1,9 +1,13 @@
 [package]
 name = "rag-ferrite"
-version = "3.1.0"
+version = "4.0.0"
 edition = "2024"
-description = "Custom RAG engine — rag_engine + rmcp"
+description = "Hybrid RAG engine — semantic + keyword search, MCP-native, single binary"
 license = "MIT"
+repository = "https://github.com/lelabdev/rag-ferrite"
+homepage = "https://github.com/lelabdev/rag-ferrite"
+keywords = ["rag", "mcp", "search", "embedding", "hybrid"]
+categories = ["command-line-utilities", "text-processing"]
 
 [dependencies]
 # RAG core

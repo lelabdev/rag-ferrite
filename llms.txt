@@ -1,0 +1,86 @@
+# rag-ferrite
+
+> Personal RAG engine — simple, fast, Rust. One binary (15 MB), one DB, native collections. MCP-native.
+
+## What it does
+
+Turns your documents into queryable knowledge with semantic understanding, not just keyword matching.
+Single Rust binary, SQLite storage, multi-collection, hybrid search.
+
+## Key features
+
+- Hybrid search (BM25 + HNSW vector + RRF fusion)
+- LLM-powered ingestion: relevance scoring, contextual retrieval, auto-tagging
+- Query pipeline: classification, expansion, reranking, corrective RAG
+- 9 MCP tools (query, ingest, delete, list, status, benchmark, etc.)
+- Single 15 MB binary, zero dependencies
+- One-line install: `curl -fsSL https://raw.githubusercontent.com/lelabdev/rag-ferrite/main/install.sh | bash`
+
+## Install
+
+```bash
+# One-line install
+curl -fsSL https://raw.githubusercontent.com/lelabdev/rag-ferrite/main/install.sh | bash
+
+# Or build from source
+git clone https://github.com/lelabdev/rag-ferrite.git
+cd rag-ferrite && cargo build --release
+```
+
+## Configuration
+
+Requires an LLM provider and an embedding provider (any OpenAI-compatible API).
+
+```toml
+# config.toml
+data_dir = "./data"
+
+[embedding]
+provider = "openai"
+model = "qwen/qwen3-embedding-8b"
+dimensions = 4096
+base_url = "https://openrouter.ai/api/v1"
+
+[llm]
+provider = "ollama"
+model = "gemma4:31b"
+base_url = "https://api.ollama.com"
+context_enabled = true
+relevance_scoring = true
+```
+
+## MCP Tools
+
+| Tool | Description |
+|---|---|
+| `query_documents(query, collection?, limit?)` | Hybrid search with optional collection filter |
+| `ingest_file(file_path, collection?)` | Ingest PDF/TXT/MD |
+| `ingest_data(content, source, collection?, format?)` | Ingest raw text or markdown |
+| `delete_file(source)` | Remove document by source identifier |
+| `list_files()` | List indexed documents |
+| `status()` | Engine status and document count |
+| `read_chunk_neighbors(source_id, chunk_index)` | Expand context around a chunk |
+| `check_ingestion(file_path?, content?, source_name?)` | Preview document quality before ingestion |
+| `benchmark(file_path, collection?, limit?)` | Evaluate retrieval quality against a golden dataset |
+
+## Architecture
+
+```
+Ingestion: Document → Extract → Chunk (800 chars) → Relevance scoring (LLM)
+         → Context prefix (LLM) → Auto-tag (LLM) → Embed → SQLite + HNSW + BM25
+
+Query: Query → Classify → [Expand] → Hybrid search (BM25 + vector + RRF)
+     → [Rerank] → Quality gate → [Reformulate + retry] → Results
+```
+
+## Stack
+
+- Rust + axum + rmcp (MCP)
+- SQLite + HNSW (rag_engine crate)
+- Any OpenAI-compatible LLM and embedding provider
+- License: MIT
+
+## Links
+
+- GitHub: https://github.com/lelabdev/rag-ferrite
+- Releases: https://github.com/lelabdev/rag-ferrite/releases/latest
