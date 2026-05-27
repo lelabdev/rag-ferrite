@@ -74,15 +74,7 @@ pub async fn ingest_file_service(
         pipeline.llm.as_ref(),
         file_path,
         collection,
-        engine::IngestOptions {
-            max_concurrent: cfg.max_concurrent,
-            relevance_scoring: cfg.relevance_scoring,
-            min_relevance_score: cfg.min_relevance_score as f64,
-            chunk_size: cfg.chunk_size,
-            context_batch_size: cfg.context_batch_size,
-            chunk_overlap_ratio: cfg.chunk_overlap_ratio,
-            merge_last_chunk_threshold: cfg.merge_last_chunk_threshold,
-        },
+        cfg.to_engine_options(),
     )
     .await
     {
@@ -113,15 +105,7 @@ pub async fn ingest_data_service(
         source,
         None,
         collection,
-        engine::IngestOptions {
-            max_concurrent: cfg.max_concurrent,
-            relevance_scoring: cfg.relevance_scoring,
-            min_relevance_score: cfg.min_relevance_score as f64,
-            chunk_size: cfg.chunk_size,
-            context_batch_size: cfg.context_batch_size,
-            chunk_overlap_ratio: cfg.chunk_overlap_ratio,
-            merge_last_chunk_threshold: cfg.merge_last_chunk_threshold,
-        },
+        cfg.to_engine_options(),
     )
     .await
     {

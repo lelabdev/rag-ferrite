@@ -16,6 +16,20 @@ pub struct IngestConfig {
     pub merge_last_chunk_threshold: usize,
 }
 
+impl IngestConfig {
+    pub fn to_engine_options(&self) -> crate::engine::IngestOptions {
+        crate::engine::IngestOptions {
+            max_concurrent: self.max_concurrent,
+            relevance_scoring: self.relevance_scoring,
+            min_relevance_score: self.min_relevance_score as f64,
+            chunk_size: self.chunk_size,
+            context_batch_size: self.context_batch_size,
+            chunk_overlap_ratio: self.chunk_overlap_ratio,
+            merge_last_chunk_threshold: self.merge_last_chunk_threshold,
+        }
+    }
+}
+
 // ── Shared parameter structs ─────────────────────────────────────────
 
 #[derive(Debug, Default, Serialize, Deserialize, JsonSchema)]

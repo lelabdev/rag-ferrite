@@ -116,7 +116,7 @@ Query → Classify (simple / standard / complex)
 | Tool | Description |
 |---|---|
 | `query_documents(query, collection?, limit?)` | Hybrid search with optional collection filter |
-| `ingest_file(file_path, collection?)` | Ingest PDF/TXT/MD/DOCX |
+| `ingest_file(file_path, collection?)` | Ingest PDF/TXT/MD |
 | `ingest_data(content, source, collection?, format?)` | Ingest raw text or markdown |
 | `delete_file(source)` | Remove document by source identifier |
 | `list_files()` | List indexed documents |

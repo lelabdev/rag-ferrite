@@ -48,7 +48,7 @@ impl RagFerriteServer {
         .to_string()
     }
 
-    #[tool(name = "ingest_file", description = "Parse and index a document file (PDF, DOCX, TXT, MD) into the RAG. Optionally specify a collection.")]
+    #[tool(name = "ingest_file", description = "Parse and index a document file (PDF, TXT, MD) into the RAG. Optionally specify a collection.")]
     async fn ingest_file(&self, params: Parameters<IngestFileParams>) -> String {
         let p = params.0;
         service::ingest_file_service(
