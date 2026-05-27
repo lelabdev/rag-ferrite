@@ -95,43 +95,26 @@ async fn get_graph(
 }
 
 async fn status(State(_server): State<Arc<RagFerriteServer>>) -> impl IntoResponse {
-    match engine::stats() {
-        Ok(s) => (
-            StatusCode::OK,
-            Json(serde_json::json!({
-                "document_count": s.document_count,
-                "version": env!("CARGO_PKG_VERSION"),
-                "db_size": serde_json::Value::Null
-            })),
-        ),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": e.to_string() })),
-        ),
-    }
+    let val = crate::service::status_service();
+    let code = if val.get("error").is_some() {
+        StatusCode::INTERNAL_SERVER_ERROR
+    } else {
+        StatusCode::OK
+    };
+    (code, Json(val))
 }
 
 async fn list_documents(
     State(_server): State<Arc<RagFerriteServer>>,
     Query(params): Query<ListDocumentsQuery>,
 ) -> impl IntoResponse {
-    match engine::list_sources() {
-        Ok(sources) => {
-            let mut out: Vec<crate::types::SourceInfo> =
-                sources.into_iter().map(crate::types::SourceInfo::from).collect();
-
-            // Filter by collection if specified
-            if let Some(ref coll) = params.collection {
-                out.retain(|s| &s.collection_id == coll);
-            }
-
-            (StatusCode::OK, Json(serde_json::json!({ "files": out })))
-        }
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": e.to_string() })),
-        ),
-    }
+    let val = crate::service::list_sources_service(params.collection.as_deref());
+    let code = if val.get("error").is_some() {
+        StatusCode::INTERNAL_SERVER_ERROR
+    } else {
+        StatusCode::OK
+    };
+    (code, Json(val))
 }
 
 async fn get_document(
@@ -166,158 +149,94 @@ async fn get_chunk_neighbors(
     State(_server): State<Arc<RagFerriteServer>>,
     Path(params): Path<NeighborsPath>,
 ) -> impl IntoResponse {
-    match engine::get_neighbors(params.source_id, params.chunk_index, 2, 2) {
-        Ok(chunks) => {
-            let out: Vec<crate::types::ChunkResult> =
-                chunks.into_iter().map(crate::types::ChunkResult::from).collect();
-            (
-                StatusCode::OK,
-                Json(serde_json::json!({
-                    "source_id": params.source_id,
-                    "chunk_index": params.chunk_index,
-                    "chunks": out
-                })),
-            )
-        }
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": e.to_string() })),
-        ),
-    }
+    let val = crate::service::neighbors_service(params.source_id, params.chunk_index, 2, 2);
+    let code = if val.get("error").is_some() {
+        StatusCode::INTERNAL_SERVER_ERROR
+    } else {
+        StatusCode::OK
+    };
+    (code, Json(val))
 }
 
 async fn query_documents(
     State(server): State<Arc<RagFerriteServer>>,
     Json(req): Json<QueryRequest>,
 ) -> impl IntoResponse {
-    let filter = if req.source_ids.is_some()
-        || req.collection.is_some()
-        || req.metadata_like.is_some()
-    {
-        Some(rag_engine::api::hybrid_search::SearchFilter {
-            source_ids: req.source_ids,
-            metadata_like: req.metadata_like,
-            collection_id: req.collection,
-        })
+    let val = crate::service::query_service(
+        &server.pipeline,
+        &req.query,
+        req.limit,
+        req.source_ids,
+        req.metadata_like,
+        req.collection,
+    )
+    .await;
+    let code = if val.get("error").is_some() {
+        StatusCode::INTERNAL_SERVER_ERROR
     } else {
-        None
+        StatusCode::OK
     };
-
-    match server.pipeline.query(&req.query, req.limit, filter).await {
-        Ok(output) => {
-            let out: Vec<crate::types::HybridResult> = output
-                .results
-                .into_iter()
-                .map(crate::types::HybridResult::from)
-                .collect();
-            (
-                StatusCode::OK,
-                Json(serde_json::json!({
-                    "results": out,
-                    "confidence": output.confidence,
-                    "retries": output.retry_count
-                })),
-            )
-        }
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": e.to_string() })),
-        ),
-    }
+    (code, Json(val))
 }
 
 async fn ingest_data(
     State(server): State<Arc<RagFerriteServer>>,
     Json(req): Json<IngestDataRequest>,
 ) -> impl IntoResponse {
-    let coll = req.collection.as_deref();
-    match engine::ingest_text(
-        &server.pipeline.embedder,
-        server.pipeline.llm.as_ref(),
+    let val = crate::service::ingest_data_service(
+        &server.pipeline,
+        server.max_concurrent,
+        server.relevance_scoring,
+        server.min_relevance_score,
         &req.content,
         &req.source,
-        None,
-        coll,
-        engine::IngestOptions {
-            max_concurrent: server.max_concurrent,
-            relevance_scoring: server.relevance_scoring,
-            min_relevance_score: server.min_relevance_score as f64,
-        },
+        req.collection.as_deref(),
     )
-    .await
-    {
-        Ok((id, report)) => (
-            StatusCode::OK,
-            Json(serde_json::json!({
-                "status": "ok",
-                "source_id": id,
-                "source": req.source,
-                "content_length": req.content.len(),
-                "report": report
-            })),
-        ),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": e.to_string() })),
-        ),
-    }
+    .await;
+    let code = if val.get("error").is_some() {
+        StatusCode::INTERNAL_SERVER_ERROR
+    } else {
+        StatusCode::OK
+    };
+    (code, Json(val))
 }
 
 async fn ingest_file(
     State(server): State<Arc<RagFerriteServer>>,
     Json(req): Json<IngestFileRequest>,
 ) -> impl IntoResponse {
-    let coll = req.collection.as_deref();
-    match engine::ingest_file(
-        &server.pipeline.embedder,
-        server.pipeline.llm.as_ref(),
+    let val = crate::service::ingest_file_service(
+        &server.pipeline,
+        server.max_concurrent,
+        server.relevance_scoring,
+        server.min_relevance_score,
         &req.file_path,
-        coll,
-        engine::IngestOptions {
-            max_concurrent: server.max_concurrent,
-            relevance_scoring: server.relevance_scoring,
-            min_relevance_score: server.min_relevance_score as f64,
-        },
+        req.collection.as_deref(),
     )
-    .await
-    {
-        Ok((id, report)) => (
-            StatusCode::OK,
-            Json(serde_json::json!({
-                "status": "ok",
-                "source_id": id,
-                "file_path": req.file_path,
-                "collection": req.collection,
-                "report": report
-            })),
-        ),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": e.to_string() })),
-        ),
-    }
+    .await;
+    let code = if val.get("error").is_some() {
+        StatusCode::INTERNAL_SERVER_ERROR
+    } else {
+        StatusCode::OK
+    };
+    (code, Json(val))
 }
 
 async fn delete_document(
     State(_server): State<Arc<RagFerriteServer>>,
     Path(source_id): Path<String>,
 ) -> impl IntoResponse {
-    match source_id.parse::<i64>() {
-        Ok(id) => match engine::delete_source(id) {
-            Ok(()) => (
-                StatusCode::OK,
-                Json(serde_json::json!({ "status": "ok", "source_id": id })),
-            ),
-            Err(e) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": e.to_string() })),
-            ),
-        },
-        Err(_) => (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({ "error": "source must be a numeric source_id" })),
-        ),
-    }
+    let val = crate::service::delete_service(&source_id);
+    let code = if val.get("error").is_some() {
+        if source_id.parse::<i64>().is_err() {
+            StatusCode::BAD_REQUEST
+        } else {
+            StatusCode::INTERNAL_SERVER_ERROR
+        }
+    } else {
+        StatusCode::OK
+    };
+    (code, Json(val))
 }
 
 // --- Server startup ---

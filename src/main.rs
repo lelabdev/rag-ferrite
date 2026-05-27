@@ -17,6 +17,7 @@ mod extractor;
 mod llm;
 mod pipeline;
 mod reranker;
+mod service;
 mod types;
 
 #[derive(Debug, Clone)]
@@ -114,125 +115,62 @@ impl RagFerriteServer {
     #[tool(name = "query_documents", description = "Search documents using hybrid search (BM25 + vector with RRF fusion). Returns relevant chunks with scores.")]
     async fn query_documents(&self, params: Parameters<QueryParams>) -> String {
         let p = params.0;
-        let limit = p.limit.unwrap_or(10);
-
-        let filter = if p.source_ids.is_some() || p.collection.is_some() || p.metadata_like.is_some() {
-            Some(rag_engine::api::hybrid_search::SearchFilter {
-                source_ids: p.source_ids,
-                metadata_like: p.metadata_like,
-                collection_id: p.collection,
-            })
-        } else {
-            None
-        };
-
-        match self.pipeline.query(&p.query, limit, filter).await {
-            Ok(output) => {
-                // Fetch section_paths and tags for all result doc_ids
-                let doc_ids: Vec<i64> = output.results.iter().map(|r| r.doc_id).collect();
-                let section_map = engine::get_section_paths_for_chunk_ids(&doc_ids).unwrap_or_default();
-                let tags_map = engine::get_tags_for_chunk_ids(&doc_ids).unwrap_or_default();
-
-                let out: Vec<types::HybridResult> = output.results.into_iter().map(|r| {
-                    let sp = section_map.get(&r.doc_id).cloned().flatten();
-                    let tags = tags_map.get(&r.doc_id).cloned().unwrap_or_default();
-                    types::HybridResult {
-                        doc_id: r.doc_id,
-                        content: r.content,
-                        score: r.score,
-                        source_id: r.source_id,
-                        chunk_index: r.chunk_index,
-                        metadata: r.metadata,
-                        vector_rank: r.vector_rank,
-                        bm25_rank: r.bm25_rank,
-                        section_path: sp,
-                        page: None,
-                        rerank_score: r.rerank_score,
-                        tags,
-                    }
-                }).collect();
-                serde_json::json!({
-                    "results": out,
-                    "confidence": output.confidence,
-                    "retries": output.retry_count
-                }).to_string()
-            }
-            Err(e) => serde_json::json!({ "error": e.to_string() }).to_string(),
-        }
+        service::query_service(
+            &self.pipeline,
+            &p.query,
+            p.limit.unwrap_or(10),
+            p.source_ids,
+            p.metadata_like,
+            p.collection,
+        )
+        .await
+        .to_string()
     }
 
     #[tool(name = "ingest_file", description = "Parse and index a document file (PDF, DOCX, TXT, MD) into the RAG. Optionally specify a collection.")]
     async fn ingest_file(&self, params: Parameters<IngestFileParams>) -> String {
         let p = params.0;
-        let coll = p.collection.as_deref();
-        match engine::ingest_file(&self.pipeline.embedder, self.pipeline.llm.as_ref(), &p.file_path, coll, engine::IngestOptions {
-            max_concurrent: self.max_concurrent,
-            relevance_scoring: self.relevance_scoring,
-            min_relevance_score: self.min_relevance_score as f64,
-        }).await {
-            Ok((id, report)) => serde_json::json!({
-                "status": "ok",
-                "source_id": id,
-                "file_path": p.file_path,
-                "collection": p.collection,
-                "report": report
-            }).to_string(),
-            Err(e) => serde_json::json!({ "error": e.to_string() }).to_string(),
-        }
+        service::ingest_file_service(
+            &self.pipeline,
+            self.max_concurrent,
+            self.relevance_scoring,
+            self.min_relevance_score,
+            &p.file_path,
+            p.collection.as_deref(),
+        )
+        .await
+        .to_string()
     }
 
     #[tool(name = "ingest_data", description = "Index content directly (text, HTML, or markdown) with a source identifier. Optionally specify a collection.")]
     async fn ingest_data(&self, params: Parameters<IngestDataParams>) -> String {
         let p = params.0;
-        let coll = p.collection.as_deref();
-        match engine::ingest_text(&self.pipeline.embedder, self.pipeline.llm.as_ref(), &p.content, &p.source, None, coll, engine::IngestOptions {
-            max_concurrent: self.max_concurrent,
-            relevance_scoring: self.relevance_scoring,
-            min_relevance_score: self.min_relevance_score as f64,
-        }).await {
-            Ok((id, report)) => serde_json::json!({
-                "status": "ok",
-                "source_id": id,
-                "source": p.source,
-                "content_length": p.content.len(),
-                "report": report
-            }).to_string(),
-            Err(e) => serde_json::json!({ "error": e.to_string() }).to_string(),
-        }
+        service::ingest_data_service(
+            &self.pipeline,
+            self.max_concurrent,
+            self.relevance_scoring,
+            self.min_relevance_score,
+            &p.content,
+            &p.source,
+            p.collection.as_deref(),
+        )
+        .await
+        .to_string()
     }
 
     #[tool(name = "delete_file", description = "Remove a document and all its chunks by source ID.")]
     async fn delete_file(&self, params: Parameters<DeleteParams>) -> String {
-        let p = params.0;
-        match p.source.parse::<i64>() {
-            Ok(id) => match engine::delete_source(id) {
-                Ok(()) => serde_json::json!({ "status": "ok", "source_id": id }).to_string(),
-                Err(e) => serde_json::json!({ "error": e.to_string() }).to_string(),
-            },
-            Err(_) => serde_json::json!({ "error": "source must be a numeric source_id" }).to_string(),
-        }
+        service::delete_service(&params.0.source).to_string()
     }
 
     #[tool(name = "list_files", description = "List all indexed documents with their metadata.")]
     async fn list_files(&self, _params: Parameters<NoParams>) -> String {
-        match engine::list_sources() {
-            Ok(sources) => {
-                let out: Vec<types::SourceInfo> = sources.into_iter().map(types::SourceInfo::from).collect();
-                serde_json::json!({ "files": out }).to_string()
-            }
-            Err(e) => serde_json::json!({ "error": e.to_string() }).to_string(),
-        }
+        service::list_sources_service(None).to_string()
     }
 
     #[tool(name = "status", description = "Get RAG engine status: document count.")]
     async fn status(&self, _params: Parameters<NoParams>) -> String {
-        match engine::stats() {
-            Ok(s) => serde_json::json!({
-                "document_count": s.document_count,
-                "version": env!("CARGO_PKG_VERSION")
-            }).to_string(),
-            Err(e) => serde_json::json!({ "error": e.to_string() }).to_string(),
-        }
+        service::status_service().to_string()
     }
 
     #[tool(name = "check_ingestion", description = "Pre-ingestion quality check: analyze a document before indexing. Returns char count, estimated chunks, language, duplicate detection, and warnings.")]
@@ -284,32 +222,13 @@ impl RagFerriteServer {
     #[tool(name = "read_chunk_neighbors", description = "Get chunks adjacent to a specific chunk for context expansion.")]
     async fn read_chunk_neighbors(&self, params: Parameters<ChunkNeighborsParams>) -> String {
         let p = params.0;
-        let before = p.before.unwrap_or(2);
-        let after = p.after.unwrap_or(2);
-
-        match engine::get_neighbors(p.source_id, p.chunk_index, before, after) {
-            Ok(chunks) => {
-                let out: Vec<types::ChunkResult> = chunks.into_iter().map(|(chunk, section_path, page)| {
-                    types::ChunkResult {
-                        chunk_id: chunk.chunk_id,
-                        source_id: chunk.source_id,
-                        chunk_index: chunk.chunk_index,
-                        content: chunk.content,
-                        score: chunk.similarity,
-                        metadata: chunk.metadata,
-                        chunk_type: chunk.chunk_type,
-                        section_path,
-                        page,
-                    }
-                }).collect();
-                serde_json::json!({
-                    "source_id": p.source_id,
-                    "chunk_index": p.chunk_index,
-                    "chunks": out
-                }).to_string()
-            }
-            Err(e) => serde_json::json!({ "error": e.to_string() }).to_string(),
-        }
+        service::neighbors_service(
+            p.source_id,
+            p.chunk_index,
+            p.before.unwrap_or(2),
+            p.after.unwrap_or(2),
+        )
+        .to_string()
     }
 }
 
