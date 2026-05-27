@@ -372,4 +372,105 @@ fn classify_confidence(top_score: f64, threshold: f64, high_confidence: f64) -> 
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_simple_queries() {
+        assert_eq!(classify_query("rust"), QueryComplexity::Simple);
+        assert_eq!(classify_query("hello world"), QueryComplexity::Simple);
+        assert_eq!(classify_query("API"), QueryComplexity::Simple);
+    }
+
+    #[test]
+    fn test_standard_queries() {
+        assert_eq!(classify_query("search my documents for rust"), QueryComplexity::Standard);
+        assert_eq!(classify_query("find relevant chunks about machine learning"), QueryComplexity::Standard);
+        assert_eq!(classify_query("three word query"), QueryComplexity::Standard);
+    }
+
+    #[test]
+    fn test_complex_by_word_count() {
+        // > 8 words
+        assert_eq!(classify_query("this is a very long query with many words in it"), QueryComplexity::Complex);
+        assert_eq!(classify_query("one two three four five six seven eight nine"), QueryComplexity::Complex);
+    }
+
+    #[test]
+    fn test_complex_by_question_markers() {
+        // English question markers
+        assert_eq!(classify_query("what is rust"), QueryComplexity::Complex);
+        assert_eq!(classify_query("how does this work"), QueryComplexity::Complex);
+        assert_eq!(classify_query("why is this happening"), QueryComplexity::Complex);
+        assert_eq!(classify_query("where are my documents"), QueryComplexity::Complex);
+
+        // French question markers
+        assert_eq!(classify_query("comment faire"), QueryComplexity::Complex);
+        assert_eq!(classify_query("pourquoi ça marche"), QueryComplexity::Complex);
+        assert_eq!(classify_query("quand partir"), QueryComplexity::Complex);
+        assert_eq!(classify_query("où suis-je"), QueryComplexity::Complex);
+        assert_eq!(classify_query("quel est le problème"), QueryComplexity::Complex);
+        assert_eq!(classify_query("quelle est la réponse"), QueryComplexity::Complex);
+        assert_eq!(classify_query("qui est là"), QueryComplexity::Complex);
+    }
+
+    #[test]
+    fn test_complex_by_boolean_operators() {
+        assert_eq!(classify_query("rust AND python"), QueryComplexity::Complex);
+        assert_eq!(classify_query("cat OR dog"), QueryComplexity::Complex);
+        assert_eq!(classify_query("chat et chien"), QueryComplexity::Complex);
+        assert_eq!(classify_query("chat ou chien"), QueryComplexity::Complex);
+    }
+
+    #[test]
+    fn test_question_mark_punctuation() {
+        // Question mark is stripped from markers
+        assert_eq!(classify_query("what?"), QueryComplexity::Complex);
+        assert_eq!(classify_query("how does this work?"), QueryComplexity::Complex);
+        assert_eq!(classify_query("comment?"), QueryComplexity::Complex);
+    }
+
+    #[test]
+    fn test_edge_cases() {
+        // Empty string → 0 words → Simple (≤2)
+        assert_eq!(classify_query(""), QueryComplexity::Simple);
+        // Single char
+        assert_eq!(classify_query("x"), QueryComplexity::Simple);
+        // Exactly 2 words → Simple
+        assert_eq!(classify_query("two words"), QueryComplexity::Simple);
+        // Exactly 3 words → Standard (no markers)
+        assert_eq!(classify_query("three word test"), QueryComplexity::Standard);
+        // Exactly 8 words → Standard (no markers)
+        assert_eq!(classify_query("one two three four five six seven eight"), QueryComplexity::Standard);
+        // 9 words → Complex
+        assert_eq!(classify_query("one two three four five six seven eight nine"), QueryComplexity::Complex);
+    }
+
+    #[test]
+    fn test_classify_confidence_high() {
+        assert_eq!(classify_confidence(0.8, 0.3, 0.7), Confidence::High);
+        assert_eq!(classify_confidence(0.7, 0.3, 0.7), Confidence::High); // exactly at threshold
+    }
+
+    #[test]
+    fn test_classify_confidence_medium() {
+        assert_eq!(classify_confidence(0.5, 0.3, 0.7), Confidence::Medium);
+        assert_eq!(classify_confidence(0.3, 0.3, 0.7), Confidence::Medium); // exactly at threshold
+    }
+
+    #[test]
+    fn test_classify_confidence_low() {
+        assert_eq!(classify_confidence(0.1, 0.3, 0.7), Confidence::Low);
+        assert_eq!(classify_confidence(0.0, 0.3, 0.7), Confidence::Low);
+    }
+
+    #[test]
+    fn test_classify_confidence_custom_thresholds() {
+        assert_eq!(classify_confidence(0.9, 0.5, 0.8), Confidence::High);
+        assert_eq!(classify_confidence(0.6, 0.5, 0.8), Confidence::Medium);
+        assert_eq!(classify_confidence(0.2, 0.5, 0.8), Confidence::Low);
+    }
+}
+
 
