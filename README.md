@@ -30,9 +30,13 @@ rag-ferrite understands what your documents **mean**. It filters the noise, tags
 
 ## Quick start
 
-**Option A — Download the binary** (recommended):
+**Option A — One-line install** (recommended):
 
-Grab the latest release from the [releases page](https://github.com/lelabdev/rag-ferrite/releases/latest).
+```bash
+curl -fsSL https://raw.githubusercontent.com/lelabdev/rag-ferrite/main/install.sh | bash
+```
+
+Downloads the binary, generates a default config, sets up PATH. Optionally installs a systemd user service.
 
 **Option B — Build from source:**
 
