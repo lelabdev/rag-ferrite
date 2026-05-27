@@ -1,6 +1,7 @@
 //! Shared service layer — business logic called by both MCP tools (main.rs) and HTTP handlers (api.rs).
 
 use crate::engine;
+use crate::params::IngestConfig;
 use crate::pipeline::QueryPipeline;
 use crate::types::{ChunkResult, HybridResult, SourceInfo};
 use serde_json::json;
@@ -64,11 +65,7 @@ pub async fn query_service(
 
 pub async fn ingest_file_service(
     pipeline: &QueryPipeline,
-    max_concurrent: usize,
-    relevance_scoring: bool,
-    min_relevance_score: f32,
-    chunk_size: usize,
-    context_batch_size: usize,
+    cfg: &IngestConfig,
     file_path: &str,
     collection: Option<&str>,
 ) -> serde_json::Value {
@@ -78,11 +75,11 @@ pub async fn ingest_file_service(
         file_path,
         collection,
         engine::IngestOptions {
-            max_concurrent,
-            relevance_scoring,
-            min_relevance_score: min_relevance_score as f64,
-            chunk_size,
-            context_batch_size,
+            max_concurrent: cfg.max_concurrent,
+            relevance_scoring: cfg.relevance_scoring,
+            min_relevance_score: cfg.min_relevance_score as f64,
+            chunk_size: cfg.chunk_size,
+            context_batch_size: cfg.context_batch_size,
         },
     )
     .await
@@ -102,11 +99,7 @@ pub async fn ingest_file_service(
 
 pub async fn ingest_data_service(
     pipeline: &QueryPipeline,
-    max_concurrent: usize,
-    relevance_scoring: bool,
-    min_relevance_score: f32,
-    chunk_size: usize,
-    context_batch_size: usize,
+    cfg: &IngestConfig,
     content: &str,
     source: &str,
     collection: Option<&str>,
@@ -119,11 +112,11 @@ pub async fn ingest_data_service(
         None,
         collection,
         engine::IngestOptions {
-            max_concurrent,
-            relevance_scoring,
-            min_relevance_score: min_relevance_score as f64,
-            chunk_size,
-            context_batch_size,
+            max_concurrent: cfg.max_concurrent,
+            relevance_scoring: cfg.relevance_scoring,
+            min_relevance_score: cfg.min_relevance_score as f64,
+            chunk_size: cfg.chunk_size,
+            context_batch_size: cfg.context_batch_size,
         },
     )
     .await

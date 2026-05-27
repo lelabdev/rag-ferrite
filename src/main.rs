@@ -5,8 +5,6 @@ use rmcp::{
     handler::server::wrapper::Parameters,
     tool, tool_router,
 };
-use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
 
 mod api;
 mod config;
@@ -15,101 +13,20 @@ mod embedding;
 mod engine;
 mod extractor;
 mod llm;
+mod params;
 mod pipeline;
 mod reranker;
 mod service;
 mod types;
 
+use params::*;
+
 #[derive(Debug, Clone)]
 struct RagFerriteServer {
     pub pipeline: pipeline::QueryPipeline,
-    pub max_concurrent: usize,
-    pub relevance_scoring: bool,
-    pub min_relevance_score: f32,
-    pub chunk_size: usize,
-    pub context_batch_size: usize,
+    pub ingest_config: params::IngestConfig,
     pub default_query_limit: usize,
     pub max_query_limit: usize,
-}
-
-// --- Tool parameter structs ---
-
-#[derive(Debug, Default, Serialize, Deserialize, JsonSchema)]
-struct NoParams {}
-
-#[derive(Debug, Default, Serialize, Deserialize, JsonSchema)]
-struct QueryParams {
-    pub query: String,
-    #[serde(default = "default_limit")]
-    pub limit: Option<usize>,
-    /// Filter by source IDs (document IDs)
-    #[serde(default)]
-    pub source_ids: Option<Vec<i64>>,
-    /// Filter by metadata using SQL LIKE pattern (e.g. "%.pdf")
-    #[serde(default)]
-    pub metadata_like: Option<String>,
-    /// Filter by collection name
-    #[serde(default)]
-    pub collection: Option<String>,
-}
-
-fn default_limit() -> Option<usize> { Some(10) }
-
-#[derive(Debug, Default, Serialize, Deserialize, JsonSchema)]
-struct IngestFileParams {
-    pub file_path: String,
-    #[serde(default)]
-    pub collection: Option<String>,
-}
-
-#[derive(Debug, Default, Serialize, Deserialize, JsonSchema)]
-struct IngestDataParams {
-    pub content: String,
-    pub source: String,
-    #[serde(default)]
-    pub format: Option<String>,
-    #[serde(default)]
-    pub collection: Option<String>,
-}
-
-#[derive(Debug, Default, Serialize, Deserialize, JsonSchema)]
-struct DeleteParams {
-    pub source: String,
-}
-
-#[derive(Debug, Default, Serialize, Deserialize, JsonSchema)]
-struct ChunkNeighborsParams {
-    pub source_id: i64,
-    pub chunk_index: i64,
-    #[serde(default = "default_before")]
-    pub before: Option<i64>,
-    #[serde(default = "default_after")]
-    pub after: Option<i64>,
-}
-
-fn default_before() -> Option<i64> { Some(2) }
-fn default_after() -> Option<i64> { Some(2) }
-
-#[derive(Debug, Default, Serialize, Deserialize, JsonSchema)]
-struct CheckIngestionParams {
-    /// Path to the file to check
-    pub file_path: Option<String>,
-    /// Raw content to check (alternative to file_path)
-    pub content: Option<String>,
-    /// Source name for duplicate detection (used with content)
-    pub source_name: Option<String>,
-}
-
-#[derive(Debug, Default, Serialize, Deserialize, JsonSchema)]
-struct BenchmarkParams {
-    /// Path to the golden dataset JSON file
-    pub file_path: String,
-    /// Optional collection to filter queries against
-    #[serde(default)]
-    pub collection: Option<String>,
-    /// Number of top results to consider per query (default: 10)
-    #[serde(default = "default_limit")]
-    pub limit: Option<usize>,
 }
 
 // --- MCP Tools ---
@@ -136,11 +53,7 @@ impl RagFerriteServer {
         let p = params.0;
         service::ingest_file_service(
             &self.pipeline,
-            self.max_concurrent,
-            self.relevance_scoring,
-            self.min_relevance_score,
-            self.chunk_size,
-            self.context_batch_size,
+            &self.ingest_config,
             &p.file_path,
             p.collection.as_deref(),
         )
@@ -153,11 +66,7 @@ impl RagFerriteServer {
         let p = params.0;
         service::ingest_data_service(
             &self.pipeline,
-            self.max_concurrent,
-            self.relevance_scoring,
-            self.min_relevance_score,
-            self.chunk_size,
-            self.context_batch_size,
+            &self.ingest_config,
             &p.content,
             &p.source,
             p.collection.as_deref(),
@@ -340,11 +249,13 @@ async fn main() -> Result<()> {
             config.advanced.quality_threshold,
             config.advanced.max_retries as u32,
         ),
-        max_concurrent: config.llm.max_concurrent,
-        relevance_scoring: config.llm.relevance_scoring,
-        min_relevance_score: config.llm.min_relevance_score,
-        chunk_size: config.advanced.chunk_size,
-        context_batch_size: config.llm.context_batch_size,
+        ingest_config: params::IngestConfig {
+            max_concurrent: config.llm.max_concurrent,
+            relevance_scoring: config.llm.relevance_scoring,
+            min_relevance_score: config.llm.min_relevance_score,
+            chunk_size: config.advanced.chunk_size,
+            context_batch_size: config.llm.context_batch_size,
+        },
         default_query_limit: config.advanced.default_query_limit,
         max_query_limit: config.advanced.max_query_limit,
     };
@@ -354,7 +265,8 @@ async fn main() -> Result<()> {
     if config.http_port > 0 {
         let http_server = server.clone();
         let http_port = config.http_port;
-        tracing::info!("Starting dual mode: MCP stdio + HTTP on port {}", http_port);
+        let http_bind = config.advanced.http_bind_address.clone();
+        tracing::info!("Starting dual mode: MCP stdio + HTTP on {}:{}", http_bind, http_port);
 
         tokio::select! {
             r = async {
@@ -362,7 +274,7 @@ async fn main() -> Result<()> {
                 service.waiting().await?;
                 Ok::<(), anyhow::Error>(())
             } => r?,
-            r = api::serve(http_server, http_port) => r?,
+            r = api::serve(http_server, http_port, http_bind) => r?,
         }
     } else {
         tracing::info!("Starting MCP server on stdio...");

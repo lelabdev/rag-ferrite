@@ -10,44 +10,10 @@ use std::sync::Arc;
 use tower_http::cors::CorsLayer;
 
 use crate::engine;
+use crate::params::*;
 use crate::RagFerriteServer;
 
-// --- Request types ---
-
-#[derive(Debug, Deserialize)]
-pub struct QueryRequest {
-    pub query: String,
-    #[serde(default = "default_limit")]
-    pub limit: usize,
-    #[serde(default)]
-    pub source_ids: Option<Vec<i64>>,
-    #[serde(default)]
-    pub metadata_like: Option<String>,
-    #[serde(default)]
-    pub collection: Option<String>,
-}
-
-fn default_limit() -> usize {
-    10
-}
-
-#[derive(Debug, Deserialize)]
-pub struct IngestFileRequest {
-    pub file_path: String,
-    #[serde(default)]
-    pub collection: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct IngestDataRequest {
-    pub content: String,
-    pub source: String,
-    #[allow(dead_code)]
-    #[serde(default)]
-    pub format: Option<String>,
-    #[serde(default)]
-    pub collection: Option<String>,
-}
+// --- HTTP-only request types (differ from MCP params) ---
 
 #[derive(Debug, Deserialize)]
 pub struct ListDocumentsQuery {
@@ -60,8 +26,6 @@ pub struct NeighborsPath {
     pub source_id: i64,
     pub chunk_index: i64,
 }
-
-// --- Handlers ---
 
 #[derive(Debug, Deserialize)]
 pub struct GraphQuery {
@@ -76,10 +40,22 @@ pub struct GraphQuery {
 fn default_threshold() -> f32 {
     0.5
 }
-
 fn default_max_edges() -> usize {
     50
 }
+
+// --- Helpers ---
+
+fn json_response(val: serde_json::Value) -> (StatusCode, Json<serde_json::Value>) {
+    let code = if val.get("error").is_some() {
+        StatusCode::INTERNAL_SERVER_ERROR
+    } else {
+        StatusCode::OK
+    };
+    (code, Json(val))
+}
+
+// --- Handlers ---
 
 async fn get_graph(
     State(_server): State<Arc<RagFerriteServer>>,
@@ -95,26 +71,14 @@ async fn get_graph(
 }
 
 async fn status(State(_server): State<Arc<RagFerriteServer>>) -> impl IntoResponse {
-    let val = crate::service::status_service();
-    let code = if val.get("error").is_some() {
-        StatusCode::INTERNAL_SERVER_ERROR
-    } else {
-        StatusCode::OK
-    };
-    (code, Json(val))
+    json_response(crate::service::status_service())
 }
 
 async fn list_documents(
     State(_server): State<Arc<RagFerriteServer>>,
     Query(params): Query<ListDocumentsQuery>,
 ) -> impl IntoResponse {
-    let val = crate::service::list_sources_service(params.collection.as_deref());
-    let code = if val.get("error").is_some() {
-        StatusCode::INTERNAL_SERVER_ERROR
-    } else {
-        StatusCode::OK
-    };
-    (code, Json(val))
+    json_response(crate::service::list_sources_service(params.collection.as_deref()))
 }
 
 async fn get_document(
@@ -149,81 +113,52 @@ async fn get_chunk_neighbors(
     State(_server): State<Arc<RagFerriteServer>>,
     Path(params): Path<NeighborsPath>,
 ) -> impl IntoResponse {
-    let val = crate::service::neighbors_service(params.source_id, params.chunk_index, 2, 2);
-    let code = if val.get("error").is_some() {
-        StatusCode::INTERNAL_SERVER_ERROR
-    } else {
-        StatusCode::OK
-    };
-    (code, Json(val))
+    json_response(crate::service::neighbors_service(params.source_id, params.chunk_index, 2, 2))
 }
 
 async fn query_documents(
     State(server): State<Arc<RagFerriteServer>>,
-    Json(req): Json<QueryRequest>,
+    Json(req): Json<QueryParams>,
 ) -> impl IntoResponse {
     let val = crate::service::query_service(
         &server.pipeline,
         &req.query,
-        req.limit.clamp(1, 100),
+        req.limit.unwrap_or(server.default_query_limit).clamp(1, server.max_query_limit),
         req.source_ids,
         req.metadata_like,
         req.collection,
     )
     .await;
-    let code = if val.get("error").is_some() {
-        StatusCode::INTERNAL_SERVER_ERROR
-    } else {
-        StatusCode::OK
-    };
-    (code, Json(val))
+    json_response(val)
 }
 
 async fn ingest_data(
     State(server): State<Arc<RagFerriteServer>>,
-    Json(req): Json<IngestDataRequest>,
+    Json(req): Json<IngestDataParams>,
 ) -> impl IntoResponse {
     let val = crate::service::ingest_data_service(
         &server.pipeline,
-        server.max_concurrent,
-        server.relevance_scoring,
-        server.min_relevance_score,
-        server.chunk_size,
-        server.context_batch_size,
+        &server.ingest_config,
         &req.content,
         &req.source,
         req.collection.as_deref(),
     )
     .await;
-    let code = if val.get("error").is_some() {
-        StatusCode::INTERNAL_SERVER_ERROR
-    } else {
-        StatusCode::OK
-    };
-    (code, Json(val))
+    json_response(val)
 }
 
 async fn ingest_file(
     State(server): State<Arc<RagFerriteServer>>,
-    Json(req): Json<IngestFileRequest>,
+    Json(req): Json<IngestFileParams>,
 ) -> impl IntoResponse {
     let val = crate::service::ingest_file_service(
         &server.pipeline,
-        server.max_concurrent,
-        server.relevance_scoring,
-        server.min_relevance_score,
-        server.chunk_size,
-        server.context_batch_size,
+        &server.ingest_config,
         &req.file_path,
         req.collection.as_deref(),
     )
     .await;
-    let code = if val.get("error").is_some() {
-        StatusCode::INTERNAL_SERVER_ERROR
-    } else {
-        StatusCode::OK
-    };
-    (code, Json(val))
+    json_response(val)
 }
 
 async fn delete_document(
@@ -245,7 +180,7 @@ async fn delete_document(
 
 // --- Server startup ---
 
-pub async fn serve(server: Arc<RagFerriteServer>, port: u16) -> anyhow::Result<()> {
+pub async fn serve(server: Arc<RagFerriteServer>, port: u16, bind_address: String) -> anyhow::Result<()> {
     let app = Router::new()
         .route("/api/status", get(status))
         .route("/api/documents", get(list_documents))
@@ -262,7 +197,7 @@ pub async fn serve(server: Arc<RagFerriteServer>, port: u16) -> anyhow::Result<(
         .layer(CorsLayer::permissive())
         .with_state(server);
 
-    let addr = format!("0.0.0.0:{}", port);
+    let addr = format!("{}:{}", bind_address, port);
     tracing::info!("HTTP server listening on {}", addr);
 
     let listener = tokio::net::TcpListener::bind(&addr)
