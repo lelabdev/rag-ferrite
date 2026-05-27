@@ -188,6 +188,7 @@ async fn ingest_data(
         server.max_concurrent,
         server.relevance_scoring,
         server.min_relevance_score,
+        server.chunk_size,
         &req.content,
         &req.source,
         req.collection.as_deref(),
@@ -210,6 +211,7 @@ async fn ingest_file(
         server.max_concurrent,
         server.relevance_scoring,
         server.min_relevance_score,
+        server.chunk_size,
         &req.file_path,
         req.collection.as_deref(),
     )

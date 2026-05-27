@@ -67,6 +67,7 @@ pub async fn ingest_file_service(
     max_concurrent: usize,
     relevance_scoring: bool,
     min_relevance_score: f32,
+    chunk_size: usize,
     file_path: &str,
     collection: Option<&str>,
 ) -> serde_json::Value {
@@ -79,6 +80,7 @@ pub async fn ingest_file_service(
             max_concurrent,
             relevance_scoring,
             min_relevance_score: min_relevance_score as f64,
+            chunk_size,
         },
     )
     .await
@@ -101,6 +103,7 @@ pub async fn ingest_data_service(
     max_concurrent: usize,
     relevance_scoring: bool,
     min_relevance_score: f32,
+    chunk_size: usize,
     content: &str,
     source: &str,
     collection: Option<&str>,
@@ -116,6 +119,7 @@ pub async fn ingest_data_service(
             max_concurrent,
             relevance_scoring,
             min_relevance_score: min_relevance_score as f64,
+            chunk_size,
         },
     )
     .await

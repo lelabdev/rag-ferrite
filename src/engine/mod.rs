@@ -103,6 +103,7 @@ pub struct IngestOptions {
     pub max_concurrent: usize,
     pub relevance_scoring: bool,
     pub min_relevance_score: f64,
+    pub chunk_size: usize,
 }
 
 /// Ingest a text document into the RAG
@@ -129,7 +130,7 @@ pub async fn ingest_text(
     )?;
 
     // Custom recursive character chunker (faster, no freeze on large docs)
-    let chunk_size = 800;
+    let chunk_size = options.chunk_size;
 
     let single_section = if content.len() < chunk_size {
         // Even for single-chunk docs, extract section path from the beginning
@@ -430,7 +431,7 @@ pub fn pre_check_document(content: &str, filename: &str) -> crate::types::PreChe
         warnings.push(format!("Large document ({} chars), ingestion may take a while", char_count));
     }
 
-    // Estimated chunks (matching the 800-char chunk size used in ingest_text)
+    // Estimated chunks (using default chunk size for estimation)
     let chunk_size = 800;
     let estimated_chunks = if char_count == 0 {
         0

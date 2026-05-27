@@ -26,6 +26,9 @@ struct RagFerriteServer {
     pub max_concurrent: usize,
     pub relevance_scoring: bool,
     pub min_relevance_score: f32,
+    pub chunk_size: usize,
+    pub default_query_limit: usize,
+    pub max_query_limit: usize,
 }
 
 // --- Tool parameter structs ---
@@ -118,7 +121,7 @@ impl RagFerriteServer {
         service::query_service(
             &self.pipeline,
             &p.query,
-            p.limit.unwrap_or(10).clamp(1, 100),
+            p.limit.unwrap_or(self.default_query_limit).clamp(1, self.max_query_limit),
             p.source_ids,
             p.metadata_like,
             p.collection,
@@ -135,6 +138,7 @@ impl RagFerriteServer {
             self.max_concurrent,
             self.relevance_scoring,
             self.min_relevance_score,
+            self.chunk_size,
             &p.file_path,
             p.collection.as_deref(),
         )
@@ -150,6 +154,7 @@ impl RagFerriteServer {
             self.max_concurrent,
             self.relevance_scoring,
             self.min_relevance_score,
+            self.chunk_size,
             &p.content,
             &p.source,
             p.collection.as_deref(),
@@ -212,7 +217,7 @@ impl RagFerriteServer {
         if entries.is_empty() {
             return serde_json::json!({ "error": "Golden dataset is empty" }).to_string();
         }
-        let limit = p.limit.unwrap_or(10).clamp(1, 100);
+        let limit = p.limit.unwrap_or(self.default_query_limit).clamp(1, self.max_query_limit);
         match engine::run_benchmark(&self.pipeline.embedder, entries, p.collection, limit).await {
             Ok(result) => serde_json::to_string(&result).unwrap_or_else(|e| serde_json::json!({ "error": e.to_string() }).to_string()),
             Err(e) => serde_json::json!({ "error": e.to_string() }).to_string(),
@@ -326,6 +331,9 @@ async fn main() -> Result<()> {
         max_concurrent: config.llm.max_concurrent,
         relevance_scoring: config.llm.relevance_scoring,
         min_relevance_score: config.llm.min_relevance_score,
+        chunk_size: config.advanced.chunk_size,
+        default_query_limit: config.advanced.default_query_limit,
+        max_query_limit: config.advanced.max_query_limit,
     };
 
     let server = Arc::new(server);

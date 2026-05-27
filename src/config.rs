@@ -20,6 +20,10 @@ pub struct Config {
     #[serde(default)]
     pub reranker: RerankerConfig,
 
+    /// Advanced configuration (tunable parameters)
+    #[serde(default)]
+    pub advanced: AdvancedConfig,
+
     /// HTTP server port (0 = disabled, stdio-only mode)
     #[serde(default)]
     pub http_port: u16,
@@ -202,6 +206,47 @@ impl Default for RerankerConfig {
     }
 }
 
+#[derive(Debug, Deserialize)]
+pub struct AdvancedConfig {
+    /// Chunk size in characters for document splitting
+    #[serde(default = "default_chunk_size")]
+    pub chunk_size: usize,
+
+    /// Cache TTL in seconds for query results
+    #[serde(default = "default_cache_ttl_secs")]
+    pub cache_ttl_secs: u64,
+
+    /// Maximum cache entries before eviction
+    #[serde(default = "default_cache_max_entries")]
+    pub cache_max_entries: usize,
+
+    /// Default query result limit
+    #[serde(default = "default_query_limit")]
+    pub default_query_limit: usize,
+
+    /// Maximum query result limit (upper bound)
+    #[serde(default = "default_max_query_limit")]
+    pub max_query_limit: usize,
+}
+
+fn default_chunk_size() -> usize { 800 }
+fn default_cache_ttl_secs() -> u64 { 300 }
+fn default_cache_max_entries() -> usize { 1000 }
+fn default_query_limit() -> usize { 10 }
+fn default_max_query_limit() -> usize { 100 }
+
+impl Default for AdvancedConfig {
+    fn default() -> Self {
+        Self {
+            chunk_size: default_chunk_size(),
+            cache_ttl_secs: default_cache_ttl_secs(),
+            cache_max_entries: default_cache_max_entries(),
+            default_query_limit: default_query_limit(),
+            max_query_limit: default_max_query_limit(),
+        }
+    }
+}
+
 fn dirs_data_dir() -> Option<PathBuf> {
     dirs::data_local_dir().map(|p| p.join("rag-ferrite"))
 }
@@ -245,6 +290,7 @@ impl Default for Config {
             embedding: EmbeddingConfig::default(),
             llm: LlmConfig::default(),
             reranker: RerankerConfig::default(),
+            advanced: AdvancedConfig::default(),
             http_port: 0,
         }
     }
