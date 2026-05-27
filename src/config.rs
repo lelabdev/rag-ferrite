@@ -133,7 +133,7 @@ fn default_llm_provider() -> String {
 }
 
 fn default_llm_model() -> String {
-    "gemma4:e4b".into()
+    "gemma4:31b".into()
 }
 
 fn default_context_enabled() -> bool {
@@ -248,7 +248,7 @@ mod tests {
     fn test_default_config() {
         let config = Config::default();
         assert_eq!(config.llm.provider, "ollama");
-        assert_eq!(config.llm.model, "gemma4:e4b");
+        assert_eq!(config.llm.model, "gemma4:31b");
         assert!(config.llm.context_enabled);
         assert!(!config.llm.relevance_scoring);
         assert_eq!(config.llm.min_relevance_score, 5.0);

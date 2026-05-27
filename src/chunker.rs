@@ -163,9 +163,6 @@ pub fn detect_chunk_type(text: &str, is_first_chunk: bool) -> ChunkType {
 
 fn detect_code(lines: &[&str]) -> bool {
     let fence_count = lines.iter().filter(|l| l.trim().starts_with("```")).count();
-    if fence_count >= 2 {
-        return true;
-    }
     if fence_count >= 1 {
         return true;
     }
