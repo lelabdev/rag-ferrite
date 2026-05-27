@@ -125,7 +125,126 @@ Query → Classify (simple / standard / complex)
 | `check_ingestion(file_path?, content?, source_name?)` | Preview document quality before ingestion |
 | `benchmark(file_path, collection?, limit?)` | Evaluate retrieval quality against a golden dataset |
 
-For advanced configuration details, see [docs/advanced.md](docs/advanced.md).
+---
+
+## Advanced configuration
+
+Everything below has sensible defaults — you only need to set these if you want to fine-tune behavior for your models or hardware.
+
+### LLM tuning
+
+These control how the LLM generates responses during ingestion (scoring, tagging, context) and querying (expansion, reformulation).
+
+```toml
+[llm]
+# How creative the LLM is for scoring/tagging (0.0 = deterministic, 1.0 = creative)
+# Lower = more consistent, higher = more varied
+temperature = 0.3
+
+# Max tokens the LLM can generate per call for scoring/tagging
+# 150 is enough for scores and tags. Increase if your model needs more room.
+max_tokens = 150
+
+# Temperature for query expansion and reformulation
+# Higher than scoring because you want diverse rephrasings
+expansion_temperature = 0.7
+
+# Max tokens for expansion/reformulation calls
+expansion_max_tokens = 200
+
+# Max alternative queries generated per original query
+# More = broader search, but costs more tokens
+max_expansion_queries = 4
+
+# How many characters of the full document to include in context prompts
+# Higher = better context, but uses more tokens per chunk
+max_document_prompt_chars = 8000
+
+# How many characters of each chunk to include in prompts
+max_chunk_prompt_chars = 2000
+
+# Number of chunks processed in parallel during ingestion
+# Lower = fewer API calls at once (good for rate-limited providers)
+context_batch_size = 20
+```
+
+### Reranker
+
+```toml
+[reranker]
+# How many characters of each chunk to show the reranker
+# More context = better reranking, but costs more tokens
+preview_chars = 300
+```
+
+### Chunking & ingestion
+
+These control how documents are split into searchable chunks.
+
+```toml
+[advanced]
+# Chunk size in characters
+# 800 is a good balance for most documents. Larger = more context per chunk,
+# smaller = more precise matching but less context.
+chunk_size = 800
+
+# How much consecutive chunks overlap (0.0–1.0)
+# 0.1 = 10% overlap. Prevents information split across chunk boundaries.
+chunk_overlap_ratio = 0.1
+
+# If the last chunk is smaller than this, merge it with the previous one
+# Avoids tiny orphan chunks at the end of documents
+merge_last_chunk_threshold = 200
+```
+
+### Query pipeline
+
+These control the search quality and retry behavior.
+
+```toml
+[advanced]
+# Minimum quality score to accept search results (0.0–1.0)
+# Below this threshold, the pipeline reformulates and retries.
+# Lower = accept weaker results, higher = stricter quality.
+quality_threshold = 0.3
+
+# How many times to retry with reformulated queries
+max_retries = 1
+
+# Score above which a chunk is considered high-confidence during reranking (0.0–1.0)
+high_confidence_threshold = 0.7
+```
+
+### Database & performance
+
+```toml
+[advanced]
+# SQLite connection pool size
+# Increase if you see "database locked" errors under heavy concurrent load
+db_pool_size = 4
+
+# How long to wait (ms) if the database is busy before giving up
+db_busy_timeout_ms = 5000
+
+# Number of embeddings sent per batch to the embedding API
+# Lower = gentler on rate limits, higher = faster ingestion
+embedding_batch_size = 20
+```
+
+### Logging & HTTP
+
+```toml
+[advanced]
+# Log file path (relative to working directory)
+log_file = "rag-ferrite.log"
+
+# Log filter (Rust tracing syntax)
+# Increase to "rag_ferrite=trace" for verbose debugging
+log_filter = "rag_ferrite=debug,rag_engine=debug"
+
+# HTTP API bind address (for the REST API, if http_port > 0)
+http_bind_address = "0.0.0.0"
+```
 
 ## Acknowledgements
 
