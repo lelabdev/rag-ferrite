@@ -12,6 +12,8 @@ pub struct IngestConfig {
     pub min_relevance_score: f32,
     pub chunk_size: usize,
     pub context_batch_size: usize,
+    pub chunk_overlap_ratio: f64,
+    pub merge_last_chunk_threshold: usize,
 }
 
 // ── Shared parameter structs ─────────────────────────────────────────

@@ -3,9 +3,9 @@
 /// chunk_size: ~1000 chars (~250 tokens, optimal per RAG Cookbook)
 /// overlap: 10% for context preservation
 /// Also tracks: markdown headers (section_path), page breaks (page), content type (chunk_type)
-pub fn chunk_text(text: &str, chunk_size: usize) -> Vec<Chunk> {
+pub fn chunk_text(text: &str, chunk_size: usize, overlap_ratio: f64, merge_threshold: usize) -> Vec<Chunk> {
     let separators = ["\n\n", "\n", ". ", " "];
-    let overlap = (chunk_size as f64 * 0.1) as usize;
+    let overlap = (chunk_size as f64 * overlap_ratio) as usize;
 
     // Pre-scan: build section map from markdown headers
     let sections = extract_sections(text);
@@ -71,10 +71,10 @@ pub fn chunk_text(text: &str, chunk_size: usize) -> Vec<Chunk> {
         char_pos = next;
     }
 
-    // Merge last chunk with previous if it's too short (< 200 chars)
+    // Merge last chunk with previous if it's too short
     if chunks.len() > 1 {
         let last_idx = chunks.len() - 1;
-        if chunks[last_idx].content.len() < 200 {
+        if chunks[last_idx].content.len() < merge_threshold {
             let last_end = chunks[last_idx].end_pos;
             let last_section = chunks[last_idx].section_path.clone();
             let last_page = chunks[last_idx].page;
@@ -379,7 +379,7 @@ mod tests {
     #[test]
     fn test_short_text() {
         let text = "Hello, this is a short text.";
-        let chunks = chunk_text(text, 1000);
+        let chunks = chunk_text(text, 1000, 0.1, 200);
         assert_eq!(chunks.len(), 1);
         assert_eq!(chunks[0].content, text);
         assert_eq!(chunks[0].index, 0);
@@ -392,7 +392,7 @@ mod tests {
         // Generate text long enough to produce multiple chunks
         let paragraph = "This is a paragraph with some meaningful content. ".repeat(40);
         let text = paragraph.repeat(3);
-        let chunks = chunk_text(&text, 1000);
+        let chunks = chunk_text(&text, 1000, 0.1, 200);
         assert!(chunks.len() > 1, "Expected multiple chunks, got {}", chunks.len());
         // All chunks should have non-empty content
         for chunk in &chunks {
@@ -406,7 +406,7 @@ mod tests {
 
     #[test]
     fn test_empty_input() {
-        let chunks = chunk_text("", 1000);
+        let chunks = chunk_text("", 1000, 0.1, 200);
         assert!(chunks.is_empty(), "Empty input should produce no chunks");
     }
 
@@ -415,7 +415,7 @@ mod tests {
         // Multi-byte characters: emojis (4 bytes each), accented chars (2 bytes)
         let chars = "éàüö ñ ç ß 🙂🎉🔥 💩";
         let text = (chars.to_string() + "\n\n").repeat(100);
-        let chunks = chunk_text(&text, 500);
+        let chunks = chunk_text(&text, 500, 0.1, 200);
 
         assert!(chunks.len() >= 1);
 
@@ -442,7 +442,7 @@ mod tests {
         // Create text with paragraph breaks so splits are predictable
         let paragraph = "Word ".repeat(250); // ~1250 chars
         let text = format!("{}\n\n{}\n\n{}", paragraph, paragraph, paragraph);
-        let chunks = chunk_text(&text, 1000);
+        let chunks = chunk_text(&text, 1000, 0.1, 200);
 
         assert!(chunks.len() > 1, "Expected multiple chunks, got {}", chunks.len());
 

@@ -7,9 +7,6 @@ use crate::embedding::EmbeddingProvider;
 use crate::llm::LlmProvider;
 use crate::reranker::{Reranker, RerankedResult};
 
-/// Default cache TTL in seconds.
-pub const CACHE_TTL_SECS: u64 = 300;
-
 /// Simple in-memory query result cache with TTL expiry.
 #[derive(Debug)]
 pub struct Cache {
@@ -17,13 +14,16 @@ pub struct Cache {
     entries: Mutex<HashMap<String, (Instant, QueryOutput)>>,
     /// Time-to-live for each cache entry.
     ttl: Duration,
+    /// Max entries before eviction.
+    max_entries: usize,
 }
 
 impl Cache {
-    pub fn new(ttl: Duration) -> Self {
+    pub fn new(ttl: Duration, max_entries: usize) -> Self {
         Self {
             entries: Mutex::new(HashMap::new()),
             ttl,
+            max_entries,
         }
     }
 
@@ -50,7 +50,7 @@ impl Cache {
     fn put(&self, key: String, output: QueryOutput) {
         let mut map = self.entries.lock().unwrap();
         map.insert(key, (Instant::now(), output));
-        if map.len() > 1000 {
+        if map.len() > self.max_entries {
             let ttl = self.ttl;
             map.retain(|_, (inserted_at, _)| inserted_at.elapsed() < ttl);
         }
@@ -122,6 +122,7 @@ pub struct QueryPipeline {
     pub reranker: Reranker,
     pub quality_threshold: f64,
     pub max_retries: u32,
+    pub high_confidence_threshold: f64,
     cache: std::sync::Arc<Cache>,
 }
 
@@ -132,6 +133,9 @@ impl QueryPipeline {
         reranker: Reranker,
         quality_threshold: f64,
         max_retries: u32,
+        cache_ttl_secs: u64,
+        cache_max_entries: usize,
+        high_confidence_threshold: f64,
     ) -> Self {
         Self {
             embedder,
@@ -139,8 +143,10 @@ impl QueryPipeline {
             reranker,
             quality_threshold,
             max_retries,
+            high_confidence_threshold,
             cache: std::sync::Arc::new(Cache::new(
-                std::time::Duration::from_secs(CACHE_TTL_SECS),
+                std::time::Duration::from_secs(cache_ttl_secs),
+                cache_max_entries,
             )),
         }
     }
@@ -154,6 +160,7 @@ impl Clone for QueryPipeline {
             reranker: self.reranker.clone(),
             quality_threshold: self.quality_threshold,
             max_retries: self.max_retries,
+            high_confidence_threshold: self.high_confidence_threshold,
             cache: self.cache.clone(),
         }
     }
@@ -226,7 +233,7 @@ impl QueryPipeline {
         .await?;
 
         let top_score = results.first().map(|r| r.score).unwrap_or(0.0);
-        let confidence = classify_confidence(top_score, self.quality_threshold);
+        let confidence = classify_confidence(top_score, self.quality_threshold, self.high_confidence_threshold);
 
         // Convert HybridSearchResult → RerankedResult (passthrough, no reranking)
         let reranked: Vec<RerankedResult> = results
@@ -275,7 +282,7 @@ impl QueryPipeline {
         let reranked = self.reranker.rerank_hybrid(query, results).await;
 
         let top_score = reranked.first().map(|r| r.score).unwrap_or(0.0);
-        let confidence = classify_confidence(top_score, self.quality_threshold);
+        let confidence = classify_confidence(top_score, self.quality_threshold, self.high_confidence_threshold);
 
         Ok(QueryOutput {
             results: reranked,
@@ -316,7 +323,7 @@ impl QueryPipeline {
                 .map(|r| r.score)
                 .unwrap_or(0.0);
 
-            let confidence = classify_confidence(top_score, self.quality_threshold);
+            let confidence = classify_confidence(top_score, self.quality_threshold, self.high_confidence_threshold);
             let should_retry = confidence == Confidence::Low && retry_count < self.max_retries;
 
             // Step 4: Corrective RAG — reformulate and retry
@@ -355,8 +362,8 @@ impl QueryPipeline {
 }
 
 /// Classify confidence based on top score vs quality threshold.
-fn classify_confidence(top_score: f64, threshold: f64) -> Confidence {
-    if top_score >= 0.7 {
+fn classify_confidence(top_score: f64, threshold: f64, high_confidence: f64) -> Confidence {
+    if top_score >= high_confidence {
         Confidence::High
     } else if top_score >= threshold {
         Confidence::Medium

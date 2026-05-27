@@ -80,6 +80,8 @@ pub async fn ingest_file_service(
             min_relevance_score: cfg.min_relevance_score as f64,
             chunk_size: cfg.chunk_size,
             context_batch_size: cfg.context_batch_size,
+            chunk_overlap_ratio: cfg.chunk_overlap_ratio,
+            merge_last_chunk_threshold: cfg.merge_last_chunk_threshold,
         },
     )
     .await
@@ -117,6 +119,8 @@ pub async fn ingest_data_service(
             min_relevance_score: cfg.min_relevance_score as f64,
             chunk_size: cfg.chunk_size,
             context_batch_size: cfg.context_batch_size,
+            chunk_overlap_ratio: cfg.chunk_overlap_ratio,
+            merge_last_chunk_threshold: cfg.merge_last_chunk_threshold,
         },
     )
     .await

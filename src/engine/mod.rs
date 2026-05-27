@@ -129,6 +129,8 @@ pub struct IngestOptions {
     pub min_relevance_score: f64,
     pub chunk_size: usize,
     pub context_batch_size: usize,
+    pub chunk_overlap_ratio: f64,
+    pub merge_last_chunk_threshold: usize,
 }
 
 /// Ingest a text document into the RAG
@@ -178,7 +180,7 @@ chunk_type: chunker::detect_chunk_type(content.trim(), true),
             page: None,
         }]
     } else {
-        chunker::chunk_text(content, chunk_size)
+        chunker::chunk_text(content, chunk_size, options.chunk_overlap_ratio, options.merge_last_chunk_threshold)
     };
     tracing::info!("Chunked into {} chunks (size={})", chunks.len(), chunk_size);
 

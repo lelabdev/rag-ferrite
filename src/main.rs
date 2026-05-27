@@ -248,6 +248,9 @@ async fn main() -> Result<()> {
             reranker,
             config.advanced.quality_threshold,
             config.advanced.max_retries as u32,
+            config.advanced.cache_ttl_secs,
+            config.advanced.cache_max_entries,
+            config.advanced.high_confidence_threshold,
         ),
         ingest_config: params::IngestConfig {
             max_concurrent: config.llm.max_concurrent,
@@ -255,6 +258,8 @@ async fn main() -> Result<()> {
             min_relevance_score: config.llm.min_relevance_score,
             chunk_size: config.advanced.chunk_size,
             context_batch_size: config.llm.context_batch_size,
+            chunk_overlap_ratio: config.advanced.chunk_overlap_ratio,
+            merge_last_chunk_threshold: config.advanced.merge_last_chunk_threshold,
         },
         default_query_limit: config.advanced.default_query_limit,
         max_query_limit: config.advanced.max_query_limit,
