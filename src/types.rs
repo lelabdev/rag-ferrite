@@ -176,6 +176,8 @@ chunk_type: r.chunk_type,
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct GoldenEntry {
     pub question: String,
+    /// Keywords expected in results. Currently unused for scoring — only relevant_source_ids is checked.
+    #[serde(default)]
     pub expected_keywords: Vec<String>,
     pub relevant_source_ids: Vec<i64>,
 }

@@ -111,7 +111,7 @@ impl RagFerriteServer {
             return serde_json::json!({ "error": "Provide either file_path or content" }).to_string();
         };
 
-        let report = engine::pre_check_document(&content, &filename);
+        let report = engine::pre_check_document(&content, &filename, self.ingest_config.chunk_size);
         serde_json::json!({ "pre_check": report }).to_string()
     }
 

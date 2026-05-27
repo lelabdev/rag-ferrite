@@ -34,16 +34,22 @@ pub fn get_section_paths_for_chunk_ids(chunk_ids: &[i64]) -> Result<std::collect
     Ok(map)
 }
 
-/// Fetch page for a batch of chunk IDs.
+/// Fetch page for a batch of chunk IDs using a single IN query.
 pub fn get_pages_for_chunk_ids(chunk_ids: &[i64]) -> Result<std::collections::HashMap<i64, Option<u32>>> {
+    if chunk_ids.is_empty() {
+        return Ok(std::collections::HashMap::new());
+    }
     let conn = get_conn()?;
     let mut map = std::collections::HashMap::new();
-    for &id in chunk_ids {
-        let page: Option<u32> = conn.query_row(
-            "SELECT page FROM chunks WHERE id = ?1",
-            rusqlite::params![id],
-            |row| row.get(0),
-        ).unwrap_or(None);
+    let placeholders: Vec<String> = chunk_ids.iter().enumerate().map(|(i, _)| format!("?{}", i + 1)).collect();
+    let sql = format!("SELECT id, page FROM chunks WHERE id IN ({})", placeholders.join(","));
+    let params: Vec<&dyn rusqlite::types::ToSql> = chunk_ids.iter().map(|id| id as &dyn rusqlite::types::ToSql).collect();
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(params.as_slice(), |row| {
+        Ok((row.get::<_, i64>(0)?, row.get::<_, Option<u32>>(1)?))
+    })?;
+    for row in rows {
+        let (id, page) = row?;
         map.insert(id, page);
     }
     Ok(map)
@@ -101,17 +107,7 @@ pub fn delete_source(source_id: i64) -> Result<()> {
 
     // Rebuild indexes for the specific collection if found
     if let Some(ref coll) = collection_id {
-        if let Err(e) = source_rag::rebuild_chunk_hnsw_index_for_collection(coll.clone()) {
-            tracing::warn!("Failed to rebuild HNSW index for {}: {}", coll, e);
-        }
-        if let Err(e) = source_rag::rebuild_chunk_bm25_index_for_collection(coll.clone()) {
-            tracing::warn!("Failed to rebuild BM25 index for {}: {}", coll, e);
-        }
-        // Persist updated HNSW index
-        let index_path = format!("{}/hnsw_{}.index", data_dir(), coll);
-        if let Err(e) = source_rag::save_collection_hnsw_index(coll.clone(), index_path) {
-            tracing::warn!("Failed to save HNSW index for {}: {}", coll, e);
-        }
+        super::rebuild_and_save_indexes(coll);
     } else {
         // Fallback: rebuild all if we couldn't find the collection
         tracing::warn!("Could not find collection for source {}, rebuilding all indexes", source_id);

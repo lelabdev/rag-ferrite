@@ -330,18 +330,7 @@ chunk_type: chunker::detect_chunk_type(content.trim(), true),
     }
 
     // Rebuild indexes for the target collection
-    if let Err(e) = source_rag::rebuild_chunk_hnsw_index_for_collection(collection_id.clone()) {
-        tracing::warn!("Failed to rebuild HNSW index for {}: {}", collection_id, e);
-    }
-    if let Err(e) = source_rag::rebuild_chunk_bm25_index_for_collection(collection_id.clone()) {
-        tracing::warn!("Failed to rebuild BM25 index for {}: {}", collection_id, e);
-    }
-
-    // Persist HNSW index to disk for fast startup
-    let index_path = format!("{}/hnsw_{}.index", data_dir(), collection_id);
-    if let Err(e) = source_rag::save_collection_hnsw_index(collection_id.clone(), index_path) {
-        tracing::warn!("Failed to save HNSW index: {}", e);
-    }
+    rebuild_and_save_indexes(&collection_id);
 
     let total_duration_ms = total_start.elapsed().as_millis() as u64;
 
@@ -440,7 +429,7 @@ pub struct Stats {
 
 /// Pre-ingestion document quality check.
 /// Analyzes content and returns a report before committing to chunking+embedding.
-pub fn pre_check_document(content: &str, filename: &str) -> crate::types::PreCheckReport {
+pub fn pre_check_document(content: &str, filename: &str, chunk_size: usize) -> crate::types::PreCheckReport {
     let mut warnings = Vec::new();
 
     let char_count = content.len();
@@ -458,8 +447,7 @@ pub fn pre_check_document(content: &str, filename: &str) -> crate::types::PreChe
         warnings.push(format!("Large document ({} chars), ingestion may take a while", char_count));
     }
 
-    // Estimated chunks (using default chunk size for estimation)
-    let chunk_size = 800;
+    // Estimated chunks
     let estimated_chunks = if char_count == 0 {
         0
     } else if char_count < chunk_size {
@@ -589,5 +577,19 @@ fn verify_chunks(chunks: &[String], source: &str) -> ChunkVerification {
         chunk_chars,
         coverage_ratio,
         warnings,
+    }
+}
+
+/// Rebuild and persist HNSW + BM25 indexes for a collection.
+pub fn rebuild_and_save_indexes(collection_id: &str) {
+    if let Err(e) = source_rag::rebuild_chunk_hnsw_index_for_collection(collection_id.to_string()) {
+        tracing::warn!("Failed to rebuild HNSW index for {}: {}", collection_id, e);
+    }
+    if let Err(e) = source_rag::rebuild_chunk_bm25_index_for_collection(collection_id.to_string()) {
+        tracing::warn!("Failed to rebuild BM25 index for {}: {}", collection_id, e);
+    }
+    let index_path = format!("{}/hnsw_{}.index", data_dir(), collection_id);
+    if let Err(e) = source_rag::save_collection_hnsw_index(collection_id.to_string(), index_path) {
+        tracing::warn!("Failed to save HNSW index for {}: {}", collection_id, e);
     }
 }

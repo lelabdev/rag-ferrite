@@ -49,25 +49,24 @@ pub fn insert_chunk_tags(source_id: i64, tags_per_chunk: &[(i32, Vec<String>)]) 
     Ok(())
 }
 
-/// Fetch tags for a batch of chunk IDs.
+/// Fetch tags for a batch of chunk IDs using a single IN query.
 pub fn get_tags_for_chunk_ids(chunk_ids: &[i64]) -> Result<std::collections::HashMap<i64, Vec<String>>> {
     if chunk_ids.is_empty() {
         return Ok(std::collections::HashMap::new());
     }
     let conn = get_conn()?;
-
     let mut map = std::collections::HashMap::new();
-    for &id in chunk_ids {
-        let mut stmt = conn.prepare(
-            "SELECT tag FROM chunk_tags WHERE chunk_id = ?1 ORDER BY tag"
-        )?;
-        let tags: Vec<String> = stmt
-            .query_map(rusqlite::params![id], |row| row.get(0))?
-            .filter_map(|r| r.ok())
-            .collect();
-        if !tags.is_empty() {
-            map.insert(id, tags);
-        }
+
+    let placeholders: Vec<String> = chunk_ids.iter().enumerate().map(|(i, _)| format!("?{}", i + 1)).collect();
+    let sql = format!("SELECT chunk_id, tag FROM chunk_tags WHERE chunk_id IN ({}) ORDER BY tag", placeholders.join(","));
+    let params: Vec<&dyn rusqlite::types::ToSql> = chunk_ids.iter().map(|id| id as &dyn rusqlite::types::ToSql).collect();
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(params.as_slice(), |row| {
+        Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+    })?;
+    for row in rows {
+        let (chunk_id, tag) = row?;
+        map.entry(chunk_id).or_insert_with(Vec::new).push(tag);
     }
     Ok(map)
 }
