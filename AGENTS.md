@@ -30,6 +30,27 @@ Binaire unique, mode MCP stdio uniquement. Pas de HTTP.
 Code source : ~/dev/rag-ferrite/rag-ferrite/
 Déploiement : copie du binaire compilé vers ~/services/rag-ferrite/
 
+### Structure du code
+
+src/
+  main.rs        — MCP server (rmcp), initialise pipeline + reranker
+  service.rs     — Couche service partagée MCP + HTTP
+  api.rs         — HTTP endpoints (axum, optionnel)
+  pipeline.rs    — Orchestration query (simple/standard/complex), cache
+  engine/
+    mod.rs       — init(), ingest_text(), ingest_file(), get_conn(), data_dir()
+    search.rs    — search_hybrid(), search_hybrid_with_expansion()
+    query.rs     — get_section_paths, get_neighbors, delete_source, list_sources
+    benchmark.rs — run_benchmark(), get_graph_data()
+    tags.rs      — create_chunk_tags_table, insert_chunk_tags, get_tags_for_chunk_ids
+  llm.rs         — LlmProvider (ollama + openai), contextual retrieval, scoring, tagging
+  reranker.rs    — Reranker (LLM + passthrough), rerank_hybrid()
+  embedding.rs   — EmbeddingProvider (openai-compatible)
+  config.rs      — Config TOML parsing
+  chunker.rs     — Recursive chunking, section extraction, language detection
+  extractor.rs   — PDF/DOCX/text extraction
+  types.rs       — Structs partagés + From impls
+
 ## Config actuelle
 
 config.toml :
@@ -139,7 +160,7 @@ Pas de docker, pas de systemd. Hermes lance le wrapper rag-ferrite-mcp en stdio.
 
 ## Tests
 
-  cargo test    # 35 tests unitaires (chunker, extractor, config, llm, tags)
+  cargo test    # 34 tests unitaires (chunker, extractor, config, llm, tags)
 
 ## Rôles
 
