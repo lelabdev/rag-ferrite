@@ -268,19 +268,7 @@ impl QueryPipeline {
         };
 
         // Rerank if enabled, otherwise pass through results directly
-        let reranked = if self.reranker.is_enabled() && !results.is_empty() {
-            let candidates = build_rerank_candidates(results);
-
-            match self.reranker.rerank(query, candidates).await {
-                Ok(reranked) => reranked,
-                Err(e) => {
-                    tracing::warn!("Reranking failed: {}, using initial scores", e);
-                    Vec::new()
-                }
-            }
-        } else {
-            results.into_iter().map(|r| r.into()).collect()
-        };
+        let reranked = self.reranker.rerank_hybrid(query, results).await;
 
         let top_score = reranked.first().map(|r| r.score).unwrap_or(0.0);
         let confidence = classify_confidence(top_score, self.quality_threshold);
@@ -316,19 +304,7 @@ impl QueryPipeline {
             .await?;
 
             // Step 2: Rerank if enabled
-            let reranked = if self.reranker.is_enabled() && !results.is_empty() {
-                let candidates = build_rerank_candidates(results);
-
-                match self.reranker.rerank(&current_query, candidates).await {
-                    Ok(reranked) => reranked,
-                    Err(e) => {
-                        tracing::warn!("Reranking failed: {}, using initial scores", e);
-                        Vec::new()
-                    }
-                }
-            } else {
-                results.into_iter().map(|r| r.into()).collect()
-            };
+            let reranked = self.reranker.rerank_hybrid(&current_query, results).await;
 
             // Step 3: Quality gate — check top score
             let top_score = reranked
@@ -385,21 +361,4 @@ fn classify_confidence(top_score: f64, threshold: f64) -> Confidence {
     }
 }
 
-/// Convert hybrid search results into reranker candidates.
-fn build_rerank_candidates(
-    results: Vec<rag_engine::api::hybrid_search::HybridSearchResult>,
-) -> Vec<crate::reranker::RerankCandidate> {
-    results
-        .into_iter()
-        .map(|r| crate::reranker::RerankCandidate {
-            doc_id: r.doc_id,
-            content: r.content,
-            initial_score: r.score,
-            source_id: r.source_id,
-            chunk_index: r.chunk_index,
-            metadata: r.metadata,
-            vector_rank: r.vector_rank,
-            bm25_rank: r.bm25_rank,
-        })
-        .collect()
-}
+
