@@ -111,28 +111,7 @@ impl LlmProvider {
         &self,
         whole_document: &str,
         chunk_content: &str,
-        metadata_fields: Option<&[crate::config::MetadataField]>,
     ) -> Result<ContextResult> {
-        let metadata_instructions = match metadata_fields {
-            Some(fields) if !fields.is_empty() => {
-                let field_descriptions: Vec<String> = fields.iter().map(|f| {
-                    match &f.description {
-                        Some(desc) => format!("  - {} ({}): {}", f.name, f.field_type, desc),
-                        None => format!("  - {} ({})", f.name, f.field_type),
-                    }
-                }).collect();
-                format!(
-                    "\n\n\
-             Additionally, extract the following metadata fields from the chunk:\n\
-             {}\n\
-             Also include a line with the extracted metadata as JSON:\n\
-             METADATA: <json object with field names as keys>",
-                    field_descriptions.join("\n")
-                )
-            }
-            _ => String::new(),
-        };
-
         let prompt = format!(
             "<document>\n{}\n</document>\n\n\
              Here is the chunk we want to situate within the whole document:\n\
@@ -140,16 +119,13 @@ impl LlmProvider {
              Assess the relevance of this chunk for informative retrieval on a scale of 1 to 10, \
              where 1 is noise (TOC, index, legal mentions, boilerplate) and 10 is highly informative content.\n\
              Also give a short succinct context to situate this chunk within the overall document \
-             for the purposes of improving search retrieval of the chunk.{}\n\n\
+             for the purposes of improving search retrieval of the chunk.\n\n\
              Answer ONLY in this exact format:\n\
              SCORE: <number 1-10>\n\
              CONTEXT: <short succinct context, same language as document>\n\
-             TAGS: <2-3 short tags describing the topic, comma-separated>\n\
-             METADATA: <json object>{}",
+             TAGS: <2-3 short tags describing the topic, comma-separated>",
             truncate_for_prompt(whole_document, 8000),
             truncate_for_prompt(chunk_content, 2000),
-            &metadata_instructions,
-            if metadata_fields.is_some() { "" } else { " (omit if not requested)" },
         );
 
         let messages = vec![ChatMessage {
@@ -199,7 +175,7 @@ impl LlmProvider {
 
             handles.push(tokio::spawn(async move {
                 let _permit = sem.acquire().await.unwrap();
-                provider.generate_context(&doc, &chunk_content, None).await
+                provider.generate_context(&doc, &chunk_content).await
             }));
         }
 
