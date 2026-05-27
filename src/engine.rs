@@ -356,16 +356,25 @@ pub fn get_section_paths_for_chunk_ids(chunk_ids: &[i64]) -> Result<std::collect
     let db_path = DB_PATH.get().ok_or_else(|| anyhow::anyhow!("DB not initialized"))?;
     let conn = rusqlite::Connection::open(db_path)?;
 
+    // Build IN clause: SELECT id, section_path FROM chunks WHERE id IN (?,?,...)
+    let placeholders: Vec<&str> = chunk_ids.iter().map(|_| "?").collect();
+    let sql = format!(
+        "SELECT id, section_path FROM chunks WHERE id IN ({})",
+        placeholders.join(",")
+    );
+    let params: Vec<&i64> = chunk_ids.iter().collect();
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(rusqlite::params_from_iter(params), |row| {
+        Ok((row.get::<_, i64>(0)?, row.get::<_, Option<String>>(1)?))
+    })?;
+
     let mut map = std::collections::HashMap::new();
+    // Pre-fill with None for any IDs not found in the DB
     for &id in chunk_ids {
-        let sp: Option<String> = conn
-            .query_row(
-                "SELECT section_path FROM chunks WHERE id = ?1",
-                rusqlite::params![id],
-                |row| row.get(0),
-            )
-            .ok()
-            .flatten();
+        map.insert(id, None);
+    }
+    for row in rows {
+        let (id, sp) = row?;
         map.insert(id, sp);
     }
     Ok(map)
