@@ -118,7 +118,7 @@ impl RagFerriteServer {
         service::query_service(
             &self.pipeline,
             &p.query,
-            p.limit.unwrap_or(10),
+            p.limit.unwrap_or(10).clamp(1, 100),
             p.source_ids,
             p.metadata_like,
             p.collection,
@@ -212,7 +212,7 @@ impl RagFerriteServer {
         if entries.is_empty() {
             return serde_json::json!({ "error": "Golden dataset is empty" }).to_string();
         }
-        let limit = p.limit.unwrap_or(10);
+        let limit = p.limit.unwrap_or(10).clamp(1, 100);
         match engine::run_benchmark(&self.pipeline.embedder, entries, p.collection, limit).await {
             Ok(result) => serde_json::to_string(&result).unwrap_or_else(|e| serde_json::json!({ "error": e.to_string() }).to_string()),
             Err(e) => serde_json::json!({ "error": e.to_string() }).to_string(),

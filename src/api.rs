@@ -165,7 +165,7 @@ async fn query_documents(
     let val = crate::service::query_service(
         &server.pipeline,
         &req.query,
-        req.limit,
+        req.limit.clamp(1, 100),
         req.source_ids,
         req.metadata_like,
         req.collection,

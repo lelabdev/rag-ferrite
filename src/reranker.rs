@@ -191,7 +191,7 @@ impl Reranker {
                     score: f64,
                 }
                 if let Ok(entries) = serde_json::from_str::<Vec<ScoreEntry>>(json_str) {
-                    entries.into_iter().map(|e| (e.index, e.score)).collect()
+                    entries.into_iter().map(|e| (e.index, e.score.clamp(0.0, 1.0))).collect()
                 } else {
                     vec![]
                 }
