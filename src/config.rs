@@ -218,6 +218,16 @@ impl Config {
             if path.exists() {
                 let content = std::fs::read_to_string(path)?;
                 let config: Config = toml::from_str(&content)?;
+                // Validate min_relevance_score
+                if config.llm.min_relevance_score.is_nan()
+                    || config.llm.min_relevance_score < 0.0
+                    || config.llm.min_relevance_score > 10.0
+                {
+                    anyhow::bail!(
+                        "min_relevance_score must be between 0.0 and 10.0, got {}",
+                        config.llm.min_relevance_score
+                    );
+                }
                 tracing::info!("Loaded config from {}", path.display());
                 return Ok(config);
             }

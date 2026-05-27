@@ -46,10 +46,14 @@ impl Cache {
         None
     }
 
-    /// Store a result in the cache.
+    /// Store a result in the cache. Evicts expired entries when the cache exceeds 1000 items.
     fn put(&self, key: String, output: QueryOutput) {
         let mut map = self.entries.lock().unwrap();
         map.insert(key, (Instant::now(), output));
+        if map.len() > 1000 {
+            let ttl = self.ttl;
+            map.retain(|_, (inserted_at, _)| inserted_at.elapsed() < ttl);
+        }
     }
 }
 
