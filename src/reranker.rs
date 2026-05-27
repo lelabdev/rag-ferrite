@@ -9,6 +9,7 @@ pub struct Reranker {
     reranker_type: RerankerType,
     llm: Option<Arc<LlmProvider>>,
     client: reqwest::Client,
+    top_k: usize,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -49,19 +50,21 @@ pub struct RerankedResult {
 }
 
 impl Reranker {
-    pub fn new_llm(llm: Arc<LlmProvider>) -> Self {
+    pub fn new_llm(llm: Arc<LlmProvider>, top_k: usize) -> Self {
         Self {
             reranker_type: RerankerType::Llm,
             llm: Some(llm),
             client: reqwest::Client::new(),
+            top_k,
         }
     }
 
-    pub fn new_cohere(api_key: String) -> Self {
+    pub fn new_cohere(api_key: String, top_k: usize) -> Self {
         Self {
             reranker_type: RerankerType::Cohere { api_key },
             llm: None,
             client: reqwest::Client::new(),
+            top_k,
         }
     }
 
@@ -70,6 +73,7 @@ impl Reranker {
             reranker_type: RerankerType::Disabled,
             llm: None,
             client: reqwest::Client::new(),
+            top_k: 10,
         }
     }
 
@@ -86,6 +90,9 @@ impl Reranker {
         if !self.is_enabled() || results.is_empty() {
             return results.into_iter().map(|r| r.into()).collect();
         }
+
+        // Convert to RerankedResult first as fallback on error
+        let fallback: Vec<RerankedResult> = results.iter().map(|r| r.clone().into()).collect();
 
         let candidates: Vec<RerankCandidate> = results
             .into_iter()
@@ -105,7 +112,7 @@ impl Reranker {
             Ok(reranked) => reranked,
             Err(e) => {
                 tracing::warn!("Reranking failed: {}, using initial scores", e);
-                Vec::new()
+                fallback
             }
         }
     }
@@ -217,8 +224,13 @@ impl Reranker {
             })
             .collect();
 
-        // Sort by reranked score
-        results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        // Sort by rerank_score (fall back to original score)
+        results.sort_by(|a, b| {
+            let sa = a.rerank_score.unwrap_or(a.score);
+            let sb = b.rerank_score.unwrap_or(b.score);
+            sb.partial_cmp(&sa).unwrap_or(std::cmp::Ordering::Equal)
+        });
+        results.truncate(self.top_k);
         Ok(results)
     }
 
@@ -293,7 +305,13 @@ impl Reranker {
             })
             .collect();
 
-        results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        // Sort by rerank_score (fall back to original score)
+        results.sort_by(|a, b| {
+            let sa = a.rerank_score.unwrap_or(a.score);
+            let sb = b.rerank_score.unwrap_or(b.score);
+            sb.partial_cmp(&sa).unwrap_or(std::cmp::Ordering::Equal)
+        });
+        results.truncate(self.top_k);
         Ok(results)
     }
 }
