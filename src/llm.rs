@@ -213,12 +213,9 @@ impl LlmProvider {
         results
     }
 
-    /// Send a chat completion request.
+    /// Send a chat completion request with default temperature and max_tokens.
     pub async fn chat(&self, messages: Vec<ChatMessage>) -> Result<String> {
-        match self.provider.as_str() {
-            "ollama" => self.chat_ollama(messages).await,
-            _ => self.chat_openai_compatible(messages).await,
-        }
+        self.chat_with_options(messages, 0.7, 4096).await
     }
 
     /// Expand a short or ambiguous query into 2-3 reformulations.
@@ -381,79 +378,7 @@ impl LlmProvider {
         }
     }
 
-    /// OpenAI-compatible chat endpoint (Z.ai, OpenAI, etc.)
-    async fn chat_openai_compatible(&self, messages: Vec<ChatMessage>) -> Result<String> {
-        let api_key = self.api_key.as_ref()
-            .ok_or_else(|| anyhow!("API key required for {}. Set LLM_API_KEY or FALLBACK_API_KEY.", self.provider))?;
 
-        let url = format!("{}/chat/completions", self.base_url);
-
-        let body = ChatRequest {
-            model: self.model.clone(),
-            messages,
-            temperature: 0.3,
-            max_tokens: 150,
-            thinking: Some(serde_json::json!({"type": "disabled"})),
-        };
-
-        let resp = self.client
-            .post(&url)
-            .header("Authorization", format!("Bearer {}", api_key))
-            .json(&body)
-            .send()
-            .await?;
-
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let text = resp.text().await?;
-            return Err(anyhow!("{} API error {}: {}", self.provider, status, text));
-        }
-
-        let data: ChatResponse = resp.json().await?;
-        data.choices
-            .into_iter()
-            .next()
-            .map(|c| c.message.content)
-            .ok_or_else(|| anyhow!("No response from {}", self.provider))
-    }
-
-    /// Ollama chat endpoint
-    async fn chat_ollama(&self, messages: Vec<ChatMessage>) -> Result<String> {
-        let url = format!("{}/api/chat", self.base_url);
-
-        #[derive(Debug, Serialize)]
-        struct OllamaChatRequest {
-            model: String,
-            messages: Vec<ChatMessage>,
-            stream: bool,
-        }
-
-        let body = OllamaChatRequest {
-            model: self.model.clone(),
-            messages,
-            stream: false,
-        };
-
-        let mut req = self.client.post(&url).json(&body);
-        if let Some(ref api_key) = self.api_key {
-            req = req.header("Authorization", format!("Bearer {}", api_key));
-        }
-        let resp = req.send().await?;
-
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let text = resp.text().await?;
-            return Err(anyhow!("Ollama API error {}: {}", status, text));
-        }
-
-        #[derive(Debug, Deserialize)]
-        struct OllamaChatResponse {
-            message: ChatMessage,
-        }
-
-        let data: OllamaChatResponse = resp.json().await?;
-        Ok(data.message.content)
-    }
 }
 
 /// Truncate text to fit within token limits (rough: ~4 chars per token).

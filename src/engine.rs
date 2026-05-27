@@ -15,6 +15,14 @@ use crate::types::{BenchmarkDetail, BenchmarkResult, ChunkVerification, GoldenEn
 
 /// Stored DB path so list_sources/stats can query across all collections.
 static DB_PATH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// Get the data directory from DB_PATH.
+fn data_dir() -> String {
+    DB_PATH.get()
+        .map(|p| std::path::Path::new(p).parent().map(|d| d.to_string_lossy().to_string()).unwrap_or_else(|| ".".to_string()))
+        .unwrap_or_else(|| ".".to_string())
+}
+
 /// Initialize rag_engine: logger + DB pool + schema + reranker
 pub fn init(data_dir: &std::path::Path, config: &crate::config::Config) -> Result<()> {
     simple::init_core();
@@ -113,7 +121,6 @@ chunk_type: chunker::detect_chunk_type(content.trim(), true),
     let llm_start = Instant::now();
     let context_results: Vec<ContextResult> = if let Some(llm_provider) = llm {
         tracing::info!("Generating context prefixes for {} chunks via LLM...", chunks.len());
-        let chunk_texts: Vec<String> = chunks.iter().map(|c| c.content.clone()).collect();
 
         // Process in batches of 20 for rate limiting
         let mut all_results: Vec<ContextResult> = Vec::with_capacity(chunks.len());
@@ -253,7 +260,7 @@ chunk_type: chunker::detect_chunk_type(content.trim(), true),
     }
 
     // Persist HNSW index to disk for fast startup
-    let index_path = format!("/home/loops/services/rag-ferrite/data/hnsw_{}.index", collection_id);
+    let index_path = format!("{}/hnsw_{}.index", data_dir(), collection_id);
     if let Err(e) = source_rag::save_collection_hnsw_index(collection_id.clone(), index_path) {
         tracing::warn!("Failed to save HNSW index: {}", e);
     }
@@ -400,7 +407,7 @@ pub fn delete_source(source_id: i64) -> Result<()> {
             tracing::warn!("Failed to rebuild BM25 index for {}: {}", coll, e);
         }
         // Persist updated HNSW index
-        let index_path = format!("/home/loops/services/rag-ferrite/data/hnsw_{}.index", coll);
+        let index_path = format!("{}/hnsw_{}.index", data_dir(), coll);
         if let Err(e) = source_rag::save_collection_hnsw_index(coll.clone(), index_path) {
             tracing::warn!("Failed to save HNSW index for {}: {}", coll, e);
         }
@@ -436,7 +443,7 @@ pub async fn search_hybrid_with_expansion(
     // Activate the correct collection's indexes before searching
     if let Some(ref f) = filter {
         if let Some(ref coll) = f.collection_id {
-            let index_path = format!("/home/loops/services/rag-ferrite/data/hnsw_{}.index", coll);
+            let index_path = format!("{}/hnsw_{}.index", data_dir(), coll);
             if let Err(e) = source_rag::activate_collection_for_hybrid_search(coll.clone(), index_path) {
                 tracing::warn!("Failed to activate collection '{}': {}", coll, e);
             }

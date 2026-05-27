@@ -311,7 +311,7 @@ async fn main() -> Result<()> {
     let log_file = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open("/home/loops/services/rag-ferrite/rag-ferrite.log")?;
+        .open("rag-ferrite.log")?;
     tracing_subscriber::fmt()
         .with_env_filter("rag_ferrite=debug,rag_engine=debug")
         .with_writer(std::sync::Mutex::new(log_file))
