@@ -18,12 +18,12 @@ pub fn create_chunk_tags_table(db_path: &str) -> Result<()> {
     Ok(())
 }
 
-/// Insert tags for all chunks of a source, matched by chunk_index position.
-/// tags_per_chunk[i] contains the tags for the i-th kept chunk.
-pub fn insert_chunk_tags(source_id: i64, tags_per_chunk: &[Vec<String>]) -> Result<()> {
+/// Insert tags for all chunks of a source, matched by original chunk_index.
+/// tags_per_chunk contains (chunk_index, tags) pairs.
+pub fn insert_chunk_tags(source_id: i64, tags_per_chunk: &[(i32, Vec<String>)]) -> Result<()> {
     let conn = get_conn()?;
 
-    for (idx, tags) in tags_per_chunk.iter().enumerate() {
+    for &(chunk_index, ref tags) in tags_per_chunk {
         if tags.is_empty() {
             continue;
         }
@@ -31,7 +31,7 @@ pub fn insert_chunk_tags(source_id: i64, tags_per_chunk: &[Vec<String>]) -> Resu
         let chunk_id: Option<i64> = conn
             .query_row(
                 "SELECT id FROM chunks WHERE source_id = ?1 AND chunk_index = ?2",
-                rusqlite::params![source_id, idx as i32],
+                rusqlite::params![source_id, chunk_index],
                 |row| row.get(0),
             )
             .ok();
