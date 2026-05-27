@@ -233,8 +233,12 @@ async fn main() -> Result<()> {
         "cohere" => {
             let key = config.reranker.api_key.clone()
                 .expect("Cohere reranker requires reranker.api_key");
-            tracing::info!("Reranker: Cohere (top_k={})", reranker_top_k);
-            reranker::Reranker::new_cohere(key, reranker_top_k, config.reranker.preview_chars)
+            let cohere_model = config.reranker.model.clone()
+                .unwrap_or_else(|| "rerank-v3.5".to_string());
+            let cohere_url = config.reranker.base_url.clone()
+                .unwrap_or_else(|| "https://api.cohere.ai/v2/rerank".to_string());
+            tracing::info!("Reranker: Cohere {} (top_k={})", cohere_model, reranker_top_k);
+            reranker::Reranker::new_cohere(key, reranker_top_k, config.reranker.preview_chars, cohere_model, cohere_url)
         }
         _ => {
             tracing::info!("Reranker: disabled");

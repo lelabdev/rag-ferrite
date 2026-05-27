@@ -33,7 +33,7 @@ pub enum RerankerType {
     /// LLM-based reranking via LlmProvider
     Llm,
     /// Cohere Rerank API
-    Cohere { api_key: String },
+    Cohere { api_key: String, model: String, base_url: String },
     /// No reranking
     Disabled,
 }
@@ -76,9 +76,9 @@ impl Reranker {
         }
     }
 
-    pub fn new_cohere(api_key: String, top_k: usize, preview_chars: usize) -> Self {
+    pub fn new_cohere(api_key: String, top_k: usize, preview_chars: usize, model: String, base_url: String) -> Self {
         Self {
-            reranker_type: RerankerType::Cohere { api_key },
+            reranker_type: RerankerType::Cohere { api_key, model, base_url },
             llm: None,
             client: reqwest::Client::new(),
             top_k,
@@ -163,8 +163,8 @@ impl Reranker {
             RerankerType::Llm => {
                 self.rerank_llm(query, candidates).await
             }
-            RerankerType::Cohere { api_key } => {
-                self.rerank_cohere(query, candidates, api_key).await
+            RerankerType::Cohere { api_key, model, base_url } => {
+                self.rerank_cohere(query, candidates, api_key, model, base_url).await
             }
             RerankerType::Disabled => unreachable!(),
         }
@@ -255,6 +255,8 @@ impl Reranker {
         query: &str,
         candidates: Vec<RerankCandidate>,
         api_key: &str,
+        model: &str,
+        base_url: &str,
     ) -> Result<Vec<RerankedResult>> {
         let doc_texts: Vec<String> = candidates.iter()
             .map(|c| c.content.chars().take(500).collect())
@@ -268,13 +270,13 @@ impl Reranker {
         }
 
         let body = RerankRequest {
-            model: "rerank-v3.5".into(),
+            model: model.to_string(),
             query: query.to_string(),
             documents: doc_texts,
         };
 
         let resp = self.client
-            .post("https://api.cohere.ai/v2/rerank")
+            .post(base_url)
             .header("Authorization", format!("Bearer {}", api_key))
             .json(&body)
             .send()
