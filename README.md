@@ -172,9 +172,15 @@ context_batch_size = 20
 
 ```toml
 [reranker]
-# How many characters of each chunk to show the reranker
-# More context = better reranking, but costs more tokens
+# "disabled" = no reranking, "llm" = uses your configured LLM, "cohere" = Cohere Rerank API
+reranker_type = "llm"
+top_k = 10
 preview_chars = 300
+
+# Cohere-specific (only used when reranker_type = "cohere")
+# model = "rerank-v3.5"              # defaults to rerank-v3.5
+# base_url = "https://api.cohere.ai/v2/rerank"  # defaults to Cohere API
+# api_key = "your-cohere-api-key"
 ```
 
 ### Chunking & ingestion
