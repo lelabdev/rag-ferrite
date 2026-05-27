@@ -1,25 +1,16 @@
-# rag-ferrite
+# rag-ferrite — Hybrid RAG engine (Rust)
 
 > Personal RAG engine — simple, fast, Rust. One binary (15 MB), one DB, native collections. MCP-native.
 
 ## What it does
 
-Turns your documents into queryable knowledge with semantic understanding, not just keyword matching.
-Single Rust binary, SQLite storage, multi-collection, hybrid search.
+Turns documents (PDF, DOCX, TXT, MD, HTML) into queryable knowledge with semantic understanding.
+Single Rust binary, SQLite storage, multi-collection, hybrid search with LLM-powered intelligence.
 
-## Key features
-
-- Hybrid search (BM25 + HNSW vector + RRF fusion)
-- LLM-powered ingestion: relevance scoring, contextual retrieval, auto-tagging
-- Query pipeline: classification, expansion, reranking, corrective RAG
-- 9 MCP tools (query, ingest, delete, list, status, benchmark, etc.)
-- Single 15 MB binary, zero dependencies
-- One-line install: `curl -fsSL https://raw.githubusercontent.com/lelabdev/rag-ferrite/main/install.sh | bash`
-
-## Install
+## Quick start
 
 ```bash
-# One-line install
+# One-line install (Linux x86_64)
 curl -fsSL https://raw.githubusercontent.com/lelabdev/rag-ferrite/main/install.sh | bash
 
 # Or build from source
@@ -27,60 +18,275 @@ git clone https://github.com/lelabdev/rag-ferrite.git
 cd rag-ferrite && cargo build --release
 ```
 
+Requires: `poppler-utils` for PDF, an LLM provider, an embedding provider.
+
 ## Configuration
 
-Requires an LLM provider and an embedding provider (any OpenAI-compatible API).
-
 ```toml
-# config.toml
+# config.toml — minimal config
 data_dir = "./data"
 
 [embedding]
-provider = "openai"
+provider = "openai"                    # any OpenAI-compatible API
 model = "qwen/qwen3-embedding-8b"
 dimensions = 4096
 base_url = "https://openrouter.ai/api/v1"
 
 [llm]
-provider = "ollama"
+provider = "ollama"                    # ollama, openai, openrouter
 model = "gemma4:31b"
 base_url = "https://api.ollama.com"
-context_enabled = true
-relevance_scoring = true
+context_enabled = true                 # contextual retrieval
+relevance_scoring = true               # filter junk at ingestion
+min_relevance_score = 5.0              # 1-10, chunks below are discarded
+
+[reranker]
+reranker_type = "llm"                  # disabled, llm, or cohere
+top_k = 10
+preview_chars = 300
 ```
 
-## MCP Tools
+API keys via environment: `LLM_API_KEY`, `EMBEDDING_API_KEY`, or `.env` file.
+
+## MCP Tools (9)
 
 | Tool | Description |
 |---|---|
-| `query_documents(query, collection?, limit?)` | Hybrid search with optional collection filter |
-| `ingest_file(file_path, collection?)` | Ingest PDF/TXT/MD |
-| `ingest_data(content, source, collection?, format?)` | Ingest raw text or markdown |
-| `delete_file(source)` | Remove document by source identifier |
+| `query_documents(query, collection?, limit?)` | Hybrid search with filters, reranking, expansion, cache |
+| `ingest_file(file_path, collection?)` | Ingest PDF, DOCX, TXT, MD |
+| `ingest_data(content, source, collection?, format?)` | Ingest raw text, HTML, or markdown |
+| `delete_file(source)` | Remove document and all its chunks |
 | `list_files()` | List indexed documents |
 | `status()` | Engine status and document count |
 | `read_chunk_neighbors(source_id, chunk_index)` | Expand context around a chunk |
 | `check_ingestion(file_path?, content?, source_name?)` | Preview document quality before ingestion |
 | `benchmark(file_path, collection?, limit?)` | Evaluate retrieval quality against a golden dataset |
 
+## Ingestion Pipeline
+
+```
+Document → Extract text (pdftotext / docx-lite / raw)
+         → Chunk (recursive, 800 chars, 10% overlap, section-aware)
+         → Relevance scoring (LLM rates 1-10, filters junk)
+         → Contextual retrieval (LLM adds context prefix to each chunk)
+         → Auto-tagging (LLM generates 2-3 tags per chunk)
+         → Embed batch → Store in SQLite + HNSW index + BM25
+```
+
+### What gets filtered at ingestion
+
+- Tables of contents, index pages, boilerplate
+- Chunks scoring below `min_relevance_score` (default: 5/10)
+- Duplicates detected via content hashing
+- Chunks too small to be meaningful (< 200 chars merged with previous)
+
+### Ingestion quality check
+
+Before ingesting, use `check_ingestion()` to preview:
+- Character count, estimated chunk count
+- Language detection
+- Duplicate detection against existing documents
+- Warnings for very large or very small documents
+
+## Query Pipeline
+
+```
+Query → Classify (simple / standard / complex)
+      → [standard/complex] Query expansion (LLM multi-query)
+      → Hybrid retrieval (BM25 + HNSW + RRF fusion)
+      → [standard/complex] LLM reranking (0-1 scoring of top results)
+      → Query cache (TTL 300s in memory)
+      → Quality gate (confidence score)
+      → [low confidence] Corrective RAG (reformulate + retry)
+      → Return top-k chunks with tags and scores
+```
+
+### Query classification
+
+- **Simple**: direct keyword match (e.g. "what is X?")
+- **Standard**: needs expansion + reranking (e.g. "compare X and Y")
+- **Complex**: multi-step reasoning (e.g. "how does X relate to Y given Z?")
+
+Classification is automatic. Each level activates more pipeline stages.
+
+### Reranking options
+
+- `disabled`: no reranking, fast
+- `llm`: uses configured LLM to score results (0-1)
+- `cohere`: Cohere Rerank API (configurable model and URL)
+
+## Collections
+
+Multi-collection in the same SQLite database. Each MCP tool accepts an optional `collection` parameter.
+Collections are created on-the-fly — no setup needed.
+
+Use cases: separate work docs from personal notes, per-project knowledge bases, language-based splits.
+
 ## Architecture
 
 ```
-Ingestion: Document → Extract → Chunk (800 chars) → Relevance scoring (LLM)
-         → Context prefix (LLM) → Auto-tag (LLM) → Embed → SQLite + HNSW + BM25
-
-Query: Query → Classify → [Expand] → Hybrid search (BM25 + vector + RRF)
-     → [Rerank] → Quality gate → [Reformulate + retry] → Results
+rag-ferrite (single binary, 15 MB)
+├── MCP server (rmcp, stdio) — for Hermes, Claude Desktop, any MCP client
+├── HTTP API (axum, optional) — REST endpoints for web dashboards
+├── Embedding provider — OpenAI-compatible APIs, Ollama local models
+├── LLM provider — Ollama, OpenAI, OpenRouter, any OpenAI-compatible
+├── Reranker — LLM-based or Cohere
+├── Chunker — recursive character splitter, section-aware, markdown-aware
+├── Extractor — PDF (pdftotext), DOCX (docx-lite), TXT, MD
+└── Storage — SQLite + HNSW (persistent to disk) + BM25
 ```
 
-## Stack
+### Source structure
 
-- Rust + axum + rmcp (MCP)
-- SQLite + HNSW (rag_engine crate)
-- Any OpenAI-compatible LLM and embedding provider
-- License: MIT
+```
+src/
+├── main.rs        — MCP server entry point
+├── service.rs     — shared service layer (MCP + HTTP)
+├── api.rs         — HTTP REST endpoints (axum)
+├── pipeline.rs    — query orchestration, classification, cache
+├── engine/
+│   ├── mod.rs     — engine init, ingest_text, ingest_file
+│   ├── search.rs  — hybrid search with RRF fusion
+│   ├── query.rs   — list, delete, neighbors, sources
+│   ├── benchmark.rs — quality evaluation
+│   └── tags.rs    — chunk tagging
+├── llm.rs         — LLM provider (Ollama + OpenAI), scoring, tagging, context
+├── reranker.rs    — reranker (LLM, Cohere, passthrough)
+├── embedding.rs   — embedding provider (OpenAI-compatible)
+├── config.rs      — TOML config parsing
+├── chunker.rs     — recursive chunking, section extraction, language detection
+├── extractor.rs   — PDF/DOCX/text extraction
+└── types.rs       — shared structs
+```
+
+## Advanced Configuration
+
+### LLM tuning
+
+```toml
+[llm]
+temperature = 0.3                # scoring/tagging consistency
+max_tokens = 150                 # per LLM call
+expansion_temperature = 0.7      # query expansion creativity
+expansion_max_tokens = 200
+max_expansion_queries = 4        # alternative queries per original
+max_document_prompt_chars = 8000 # context window for prompts
+max_chunk_prompt_chars = 2000
+context_batch_size = 20          # parallel chunks during ingestion
+max_concurrent = 3               # concurrent LLM calls
+```
+
+### Chunking
+
+```toml
+[advanced]
+chunk_size = 800                  # characters per chunk
+chunk_overlap_ratio = 0.1         # 10% overlap between chunks
+merge_last_chunk_threshold = 200  # merge tiny last chunk
+```
+
+### Query pipeline
+
+```toml
+[advanced]
+quality_threshold = 0.3           # minimum confidence to accept
+max_retries = 1                   # corrective RAG retries
+high_confidence_threshold = 0.7   # above = high confidence
+query_limit = 10                  # default result count
+```
+
+### Database
+
+```toml
+[advanced]
+db_pool_size = 4                  # SQLite connection pool
+db_busy_timeout_ms = 5000
+embedding_batch_size = 20         # embeddings per API call
+```
+
+### Reranker (Cohere)
+
+```toml
+[reranker]
+reranker_type = "cohere"
+model = "rerank-v3.5"                          # optional, defaults to rerank-v3.5
+base_url = "https://api.cohere.ai/v2/rerank"   # optional, defaults to Cohere API
+api_key = "your-cohere-api-key"                 # or set COHERE_API_KEY env var
+top_k = 10
+preview_chars = 300
+```
+
+### Logging and HTTP
+
+```toml
+[advanced]
+log_file = "rag-ferrite.log"
+log_filter = "rag_ferrite=debug,rag_engine=debug"
+http_bind_address = "0.0.0.0"    # for REST API (if http_port > 0)
+```
+
+## Hermes / MCP Client Setup
+
+### Hermes (stdio)
+
+```yaml
+mcp_servers:
+  rag-ferrite:
+    command: /path/to/rag-ferrite
+    env:
+      LLM_API_KEY: "..."
+      EMBEDDING_API_KEY: "..."
+```
+
+### Claude Desktop / any MCP client
+
+```json
+{
+  "mcpServers": {
+    "rag-ferrite": {
+      "command": "/path/to/rag-ferrite",
+      "env": {
+        "LLM_API_KEY": "...",
+        "EMBEDDING_API_KEY": "..."
+      }
+    }
+  }
+}
+```
+
+## Performance
+
+- Single binary, no Docker, no GPU required
+- SQLite file-based storage (backup = `cp`)
+- HNSW index persisted to disk, lazy-loaded per collection
+- Query cache with 300s TTL
+- Batch embedding (configurable batch size)
+- Concurrent LLM calls (configurable max)
+
+## Comparison with alternatives
+
+| Feature | rag-ferrite | ClawRAG | mcp-rag-server | RAGent |
+|---|---|---|---|---|
+| Binary size | 15 MB | 8 GB+ (Docker) | Node.js | Node.js CLI |
+| Language | Rust | Python | TypeScript | TypeScript |
+| Database | SQLite | ChromaDB | SQLite | In-memory |
+| Hybrid search | BM25 + HNSW + RRF | BM25 + vector + RRF | Vector only | BM25 + vector |
+| MCP support | Native | Native | Native | No |
+| Relevance scoring | LLM (ingestion) | No | No | No |
+| Contextual retrieval | LLM (ingestion) | No | No | No |
+| Auto-tagging | LLM (ingestion) | No | No | No |
+| Query expansion | LLM (multi-query) | No | No | No |
+| Corrective RAG | Auto reformulate | No | No | No |
+| LLM reranking | LLM + Cohere | No | No | No |
+| Install | `curl \| bash` | Docker Compose | npm install | npm install |
+| Dependencies | Zero | Docker, Python, ChromaDB | Node.js | Node.js |
+
+## Acknowledgements
+
+The ingestion pipeline was heavily inspired by [Jonas Roman's video on production RAG workflows](https://www.youtube.com/watch?v=phZ_iqu1gN0) — specifically contextual retrieval, pre-ingestion quality checks, post-chunking verification, query expansion, LLM reranking, and golden dataset benchmarking.
 
 ## Links
 
 - GitHub: https://github.com/lelabdev/rag-ferrite
 - Releases: https://github.com/lelabdev/rag-ferrite/releases/latest
+- License: MIT
