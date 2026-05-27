@@ -134,6 +134,7 @@ Query → Classify (simple / standard / complex)
 mcp_servers:
   rag-ferrite:
     command: /path/to/rag-ferrite
+    timeout: 9999        # large files can take 10+ min with contextual retrieval
     env:
       LLM_API_KEY: "..."
       EMBEDDING_API_KEY: "..."
@@ -154,6 +155,8 @@ mcp_servers:
   }
 }
 ```
+
+> **Note:** Ingestion with contextual retrieval enabled can take 5–15 minutes per document depending on size and LLM speed. If your MCP client has a request timeout, set it high (e.g. 9999 seconds for Hermes).
 
 ---
 
