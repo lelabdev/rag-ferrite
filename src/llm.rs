@@ -215,7 +215,7 @@ impl LlmProvider {
 
     /// Send a chat completion request with default temperature and max_tokens.
     pub async fn chat(&self, messages: Vec<ChatMessage>) -> Result<String> {
-        self.chat_with_options(messages, 0.7, 4096).await
+        self.chat_with_options(messages, 0.3, 150).await
     }
 
     /// Expand a short or ambiguous query into 2-3 reformulations.
