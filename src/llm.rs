@@ -359,13 +359,13 @@ impl LlmProvider {
 
 /// Truncate text to fit within token limits (rough: ~4 chars per token).
 fn truncate_for_prompt(text: &str, max_chars: usize) -> String {
-    if text.len() <= max_chars {
+    if text.chars().count() <= max_chars {
         text.to_string()
     } else {
         // Try to cut at a sentence boundary
-        let truncated = &text[..max_chars];
+        let truncated: String = text.chars().take(max_chars).collect();
         if let Some(pos) = truncated.rfind('.') {
-            format!("{}...", &text[..=pos])
+            format!("{}...", &truncated[..=pos])
         } else {
             format!("{}...", truncated)
         }
@@ -574,7 +574,7 @@ fn parse_context_response(response: &str) -> (Option<f32>, Option<String>, Optio
         if trimmed_line.starts_with("SCORE:") && !found_score {
             let score_str = trimmed_line["SCORE:".len()..].trim();
             if let Ok(s) = score_str.parse::<f32>() {
-                score = Some(s);
+                score = Some(s.clamp(1.0, 10.0));
                 found_score = true;
                 continue;
             }
