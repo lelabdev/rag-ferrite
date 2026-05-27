@@ -22,14 +22,28 @@ pub struct LlmProvider {
     client: reqwest::Client,
     /// Fallback provider used when primary fails (rate limit, network, etc.)
     fallback: Option<Box<LlmProvider>>,
+    /// Default temperature for scoring/tagging
+    pub temperature: f64,
+    /// Default max tokens for scoring/tagging
+    pub max_tokens: usize,
+    /// Temperature for expansion/reformulation
+    pub expansion_temperature: f64,
+    /// Max tokens for expansion/reformulation
+    pub expansion_max_tokens: usize,
+    /// Max expansion queries per original query
+    pub max_expansion_queries: usize,
+    /// Max document chars in prompt
+    pub max_document_prompt_chars: usize,
+    /// Max chunk chars in prompt
+    pub max_chunk_prompt_chars: usize,
 }
 
 #[derive(Debug, Serialize)]
 struct ChatRequest {
     model: String,
     messages: Vec<ChatMessage>,
-    temperature: f32,
-    max_tokens: u32,
+    temperature: f64,
+    max_tokens: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
     thinking: Option<serde_json::Value>,
 }
@@ -95,6 +109,13 @@ impl LlmProvider {
             base_url,
             client: reqwest::Client::new(),
             fallback: None,
+            temperature: 0.3,
+            max_tokens: 150,
+            expansion_temperature: 0.7,
+            expansion_max_tokens: 200,
+            max_expansion_queries: 4,
+            max_document_prompt_chars: 8000,
+            max_chunk_prompt_chars: 2000,
         }
     }
 
@@ -124,8 +145,8 @@ impl LlmProvider {
              SCORE: <number 1-10>\n\
              CONTEXT: <short succinct context, same language as document>\n\
              TAGS: <2-3 short tags describing the topic, comma-separated>",
-            truncate_for_prompt(whole_document, 8000),
-            truncate_for_prompt(chunk_content, 2000),
+            truncate_for_prompt(whole_document, self.max_document_prompt_chars),
+            truncate_for_prompt(chunk_content, self.max_chunk_prompt_chars),
         );
 
         let messages = vec![ChatMessage {
@@ -191,7 +212,7 @@ impl LlmProvider {
 
     /// Send a chat completion request with default temperature and max_tokens.
     pub async fn chat(&self, messages: Vec<ChatMessage>) -> Result<String> {
-        self.chat_with_options(messages, 0.3, 150).await
+        self.chat_with_options(messages, self.temperature, self.max_tokens).await
     }
 
     /// Expand a short or ambiguous query into 2-3 reformulations.
@@ -220,7 +241,7 @@ impl LlmProvider {
             content: prompt,
         }];
 
-        let response = match self.chat_with_options(messages, 0.7, 200).await {
+        let response = match self.chat_with_options(messages, self.expansion_temperature, self.expansion_max_tokens).await {
             Ok(text) => text,
             Err(e) => {
                 tracing::warn!("Query expansion failed, using original query: {}", e);
@@ -238,7 +259,7 @@ impl LlmProvider {
         }
 
         // Cap at 4 total (original + 3 reformulations)
-        expansions.truncate(4);
+        expansions.truncate(self.max_expansion_queries);
         Ok(expansions)
     }
 
@@ -258,7 +279,7 @@ impl LlmProvider {
             content: prompt,
         }];
 
-        let response = self.chat_with_options(messages, 0.7, 200).await?;
+        let response = self.chat_with_options(messages, self.expansion_temperature, self.expansion_max_tokens).await?;
         Ok(response.trim().to_string())
     }
 
@@ -266,8 +287,8 @@ impl LlmProvider {
     async fn chat_with_options(
         &self,
         messages: Vec<ChatMessage>,
-        temperature: f32,
-        max_tokens: u32,
+        temperature: f64,
+        max_tokens: usize,
     ) -> Result<String> {
         match self.provider.as_str() {
             "ollama" => {
@@ -283,8 +304,8 @@ impl LlmProvider {
 
                 #[derive(Debug, Serialize)]
                 struct OllamaOptions {
-                    temperature: f32,
-                    num_predict: u32,
+                    temperature: f64,
+                    num_predict: usize,
                 }
 
                 let body = OllamaChatRequest {

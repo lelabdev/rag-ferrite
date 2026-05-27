@@ -189,6 +189,7 @@ async fn ingest_data(
         server.relevance_scoring,
         server.min_relevance_score,
         server.chunk_size,
+        server.context_batch_size,
         &req.content,
         &req.source,
         req.collection.as_deref(),
@@ -212,6 +213,7 @@ async fn ingest_file(
         server.relevance_scoring,
         server.min_relevance_score,
         server.chunk_size,
+        server.context_batch_size,
         &req.file_path,
         req.collection.as_deref(),
     )

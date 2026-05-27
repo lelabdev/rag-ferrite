@@ -113,6 +113,38 @@ pub struct LlmConfig {
     #[serde(default = "default_min_relevance_score")]
     pub min_relevance_score: f32,
 
+    /// Default temperature for scoring/tagging calls
+    #[serde(default = "default_temperature")]
+    pub temperature: f64,
+
+    /// Default max tokens for scoring/tagging calls
+    #[serde(default = "default_max_tokens")]
+    pub max_tokens: usize,
+
+    /// Temperature for query expansion and reformulation
+    #[serde(default = "default_expansion_temperature")]
+    pub expansion_temperature: f64,
+
+    /// Max tokens for query expansion and reformulation
+    #[serde(default = "default_expansion_max_tokens")]
+    pub expansion_max_tokens: usize,
+
+    /// Max generated expansion queries per original query
+    #[serde(default = "default_max_expansion_queries")]
+    pub max_expansion_queries: usize,
+
+    /// Max document chars sent to LLM in prompt (truncation)
+    #[serde(default = "default_max_document_prompt_chars")]
+    pub max_document_prompt_chars: usize,
+
+    /// Max chunk chars sent to LLM in prompt (truncation)
+    #[serde(default = "default_max_chunk_prompt_chars")]
+    pub max_chunk_prompt_chars: usize,
+
+    /// Batch size for context generation during ingestion
+    #[serde(default = "default_context_batch_size")]
+    pub context_batch_size: usize,
+
     /// Fallback LLM config — used when primary fails (rate limit, network, etc.)
     #[serde(default)]
     pub fallback: Option<FallbackLlmConfig>,
@@ -147,6 +179,30 @@ fn default_max_concurrent() -> usize {
 fn default_min_relevance_score() -> f32 {
     5.0
 }
+fn default_temperature() -> f64 {
+    0.3
+}
+fn default_max_tokens() -> usize {
+    150
+}
+fn default_expansion_temperature() -> f64 {
+    0.7
+}
+fn default_expansion_max_tokens() -> usize {
+    200
+}
+fn default_max_expansion_queries() -> usize {
+    4
+}
+fn default_max_document_prompt_chars() -> usize {
+    8000
+}
+fn default_max_chunk_prompt_chars() -> usize {
+    2000
+}
+fn default_context_batch_size() -> usize {
+    20
+}
 
 impl Default for LlmConfig {
     fn default() -> Self {
@@ -159,6 +215,14 @@ impl Default for LlmConfig {
             max_concurrent: 3,
             relevance_scoring: false,
             min_relevance_score: default_min_relevance_score(),
+            temperature: default_temperature(),
+            max_tokens: default_max_tokens(),
+            expansion_temperature: default_expansion_temperature(),
+            expansion_max_tokens: default_expansion_max_tokens(),
+            max_expansion_queries: default_max_expansion_queries(),
+            max_document_prompt_chars: default_max_document_prompt_chars(),
+            max_chunk_prompt_chars: default_max_chunk_prompt_chars(),
+            context_batch_size: default_context_batch_size(),
             fallback: None,
         }
     }
@@ -185,10 +249,15 @@ pub struct RerankerConfig {
     /// Number of top results to rerank (default 10)
     #[serde(default = "default_rerank_top_k")]
     pub top_k: usize,
+
+    /// Max chars of chunk content sent to reranker
+    #[serde(default = "default_rerank_preview_chars")]
+    pub preview_chars: usize,
 }
 
 fn default_reranker_type() -> String { "disabled".into() }
 fn default_rerank_top_k() -> usize { 10 }
+fn default_rerank_preview_chars() -> usize { 300 }
 
 impl Default for RerankerConfig {
     fn default() -> Self {
@@ -198,6 +267,7 @@ impl Default for RerankerConfig {
             api_key: None,
             base_url: None,
             top_k: default_rerank_top_k(),
+            preview_chars: default_rerank_preview_chars(),
         }
     }
 }
@@ -207,6 +277,14 @@ pub struct AdvancedConfig {
     /// Chunk size in characters for document splitting
     #[serde(default = "default_chunk_size")]
     pub chunk_size: usize,
+
+    /// Chunk overlap ratio (0.0-0.5, fraction of chunk_size)
+    #[serde(default = "default_chunk_overlap_ratio")]
+    pub chunk_overlap_ratio: f64,
+
+    /// Merge last chunk if smaller than this (chars)
+    #[serde(default = "default_merge_last_chunk_threshold")]
+    pub merge_last_chunk_threshold: usize,
 
     /// Cache TTL in seconds for query results
     #[serde(default = "default_cache_ttl_secs")]
@@ -223,22 +301,80 @@ pub struct AdvancedConfig {
     /// Maximum query result limit (upper bound)
     #[serde(default = "default_max_query_limit")]
     pub max_query_limit: usize,
+
+    /// Quality threshold for corrective RAG (0.0-1.0)
+    #[serde(default = "default_quality_threshold")]
+    pub quality_threshold: f64,
+
+    /// Max retries for query reformulation
+    #[serde(default = "default_max_retries")]
+    pub max_retries: usize,
+
+    /// High confidence threshold — skip reranking if top score exceeds this
+    #[serde(default = "default_high_confidence_threshold")]
+    pub high_confidence_threshold: f64,
+
+    /// Embedding batch size (number of texts per API call)
+    #[serde(default = "default_embedding_batch_size")]
+    pub embedding_batch_size: usize,
+
+    /// Database connection pool size
+    #[serde(default = "default_db_pool_size")]
+    pub db_pool_size: usize,
+
+    /// SQLite busy timeout in milliseconds
+    #[serde(default = "default_db_busy_timeout_ms")]
+    pub db_busy_timeout_ms: usize,
+
+    /// Log file path (relative to working directory)
+    #[serde(default = "default_log_file")]
+    pub log_file: String,
+
+    /// Log filter (tracing syntax)
+    #[serde(default = "default_log_filter")]
+    pub log_filter: String,
+
+    /// HTTP bind address
+    #[serde(default = "default_http_bind_address")]
+    pub http_bind_address: String,
 }
 
 fn default_chunk_size() -> usize { 800 }
+fn default_chunk_overlap_ratio() -> f64 { 0.1 }
+fn default_merge_last_chunk_threshold() -> usize { 200 }
 fn default_cache_ttl_secs() -> u64 { 300 }
 fn default_cache_max_entries() -> usize { 1000 }
 fn default_query_limit() -> usize { 10 }
 fn default_max_query_limit() -> usize { 100 }
+fn default_quality_threshold() -> f64 { 0.3 }
+fn default_max_retries() -> usize { 1 }
+fn default_high_confidence_threshold() -> f64 { 0.7 }
+fn default_embedding_batch_size() -> usize { 20 }
+fn default_db_pool_size() -> usize { 4 }
+fn default_db_busy_timeout_ms() -> usize { 5000 }
+fn default_log_file() -> String { "rag-ferrite.log".into() }
+fn default_log_filter() -> String { "rag_ferrite=debug,rag_engine=debug".into() }
+fn default_http_bind_address() -> String { "0.0.0.0".into() }
 
 impl Default for AdvancedConfig {
     fn default() -> Self {
         Self {
             chunk_size: default_chunk_size(),
+            chunk_overlap_ratio: default_chunk_overlap_ratio(),
+            merge_last_chunk_threshold: default_merge_last_chunk_threshold(),
             cache_ttl_secs: default_cache_ttl_secs(),
             cache_max_entries: default_cache_max_entries(),
             default_query_limit: default_query_limit(),
             max_query_limit: default_max_query_limit(),
+            quality_threshold: default_quality_threshold(),
+            max_retries: default_max_retries(),
+            high_confidence_threshold: default_high_confidence_threshold(),
+            embedding_batch_size: default_embedding_batch_size(),
+            db_pool_size: default_db_pool_size(),
+            db_busy_timeout_ms: default_db_busy_timeout_ms(),
+            log_file: default_log_file(),
+            log_filter: default_log_filter(),
+            http_bind_address: default_http_bind_address(),
         }
     }
 }

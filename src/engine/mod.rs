@@ -51,7 +51,7 @@ pub fn init(data_dir: &std::path::Path, config: &crate::config::Config) -> Resul
     let db_path = data_dir.join("rag.sqlite3");
     std::fs::create_dir_all(data_dir)?;
     let db_path_str = db_path.to_string_lossy().to_string();
-    db_pool::init_db_pool(db_path_str.clone(), 4)?;
+    db_pool::init_db_pool(db_path_str.clone(), config.advanced.db_pool_size as u32)?;
     source_rag::init_source_db()?;
 
     // Migration: add section_path column to chunks (backward-compatible)
@@ -77,7 +77,7 @@ pub fn init(data_dir: &std::path::Path, config: &crate::config::Config) -> Resul
 
     // Store a shared connection for all subsequent get_conn() calls
     let shared_conn = rusqlite::Connection::open(&db_path_str)?;
-    shared_conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;")?;
+    shared_conn.execute_batch(&format!("PRAGMA journal_mode=WAL; PRAGMA busy_timeout={};", config.advanced.db_busy_timeout_ms))?;
     let _ = DB_CONN.set(std::sync::Mutex::new(shared_conn));
 
     // Check embedding dimension mismatch: compare DB vectors with configured dimensions
@@ -128,6 +128,7 @@ pub struct IngestOptions {
     pub relevance_scoring: bool,
     pub min_relevance_score: f64,
     pub chunk_size: usize,
+    pub context_batch_size: usize,
 }
 
 /// Ingest a text document into the RAG
@@ -196,9 +197,9 @@ chunk_type: chunker::detect_chunk_type(content.trim(), true),
     let context_results: Vec<ContextResult> = if let Some(llm_provider) = llm {
         tracing::info!("Generating context prefixes for {} chunks via LLM...", chunks.len());
 
-        // Process in batches of 20 for rate limiting
+        // Process in batches for rate limiting
         let mut all_results: Vec<ContextResult> = Vec::with_capacity(chunks.len());
-        for batch in chunk_texts.chunks(20) {
+        for batch in chunk_texts.chunks(options.context_batch_size) {
             let results = llm_provider.generate_context_batch(content, batch, options.max_concurrent).await;
             for result in results {
                 match result {

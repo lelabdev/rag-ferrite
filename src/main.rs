@@ -27,6 +27,7 @@ struct RagFerriteServer {
     pub relevance_scoring: bool,
     pub min_relevance_score: f32,
     pub chunk_size: usize,
+    pub context_batch_size: usize,
     pub default_query_limit: usize,
     pub max_query_limit: usize,
 }
@@ -139,6 +140,7 @@ impl RagFerriteServer {
             self.relevance_scoring,
             self.min_relevance_score,
             self.chunk_size,
+            self.context_batch_size,
             &p.file_path,
             p.collection.as_deref(),
         )
@@ -155,6 +157,7 @@ impl RagFerriteServer {
             self.relevance_scoring,
             self.min_relevance_score,
             self.chunk_size,
+            self.context_batch_size,
             &p.content,
             &p.source,
             p.collection.as_deref(),
@@ -239,17 +242,18 @@ impl RagFerriteServer {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let config = config::Config::load()?;
+
     // Log to file for debugging MCP issues
     let log_file = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open("rag-ferrite.log")?;
+        .open(&config.advanced.log_file)?;
     tracing_subscriber::fmt()
-        .with_env_filter("rag_ferrite=debug,rag_engine=debug")
+        .with_env_filter(&config.advanced.log_filter)
         .with_writer(std::sync::Mutex::new(log_file))
         .init();
 
-    let config = config::Config::load()?;
     tracing::info!("rag-ferrite v{} starting — data: {}", env!("CARGO_PKG_VERSION"), config.data_dir.display());
 
     // Init rag_engine
@@ -273,6 +277,14 @@ async fn main() -> Result<()> {
             config.llm.api_key.clone(),
             config.llm.base_url.clone(),
         );
+        // Set configurable LLM params
+        provider.temperature = config.llm.temperature;
+        provider.max_tokens = config.llm.max_tokens;
+        provider.expansion_temperature = config.llm.expansion_temperature;
+        provider.expansion_max_tokens = config.llm.expansion_max_tokens;
+        provider.max_expansion_queries = config.llm.max_expansion_queries;
+        provider.max_document_prompt_chars = config.llm.max_document_prompt_chars;
+        provider.max_chunk_prompt_chars = config.llm.max_chunk_prompt_chars;
 
         // Set up fallback if configured
         if let Some(ref fb) = config.llm.fallback {
@@ -325,13 +337,14 @@ async fn main() -> Result<()> {
             embedder.clone(),
             llm.clone(),
             reranker,
-            0.3,
-            1,
+            config.advanced.quality_threshold,
+            config.advanced.max_retries as u32,
         ),
         max_concurrent: config.llm.max_concurrent,
         relevance_scoring: config.llm.relevance_scoring,
         min_relevance_score: config.llm.min_relevance_score,
         chunk_size: config.advanced.chunk_size,
+        context_batch_size: config.llm.context_batch_size,
         default_query_limit: config.advanced.default_query_limit,
         max_query_limit: config.advanced.max_query_limit,
     };
