@@ -16,6 +16,18 @@ use crate::types::{BenchmarkDetail, BenchmarkResult, ChunkVerification, GoldenEn
 /// Stored DB path so list_sources/stats can query across all collections.
 static DB_PATH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
+/// Centralized SQLite connection — avoids ad-hoc `Connection::open` calls.
+static DB_CONN: std::sync::OnceLock<std::sync::Mutex<rusqlite::Connection>> = std::sync::OnceLock::new();
+
+/// Obtain a locked handle to the shared SQLite connection.
+pub fn get_conn() -> Result<std::sync::MutexGuard<'static, rusqlite::Connection>> {
+    DB_CONN
+        .get()
+        .ok_or_else(|| anyhow::anyhow!("DB not initialized"))?
+        .lock()
+        .map_err(|e| anyhow::anyhow!("DB connection lock poisoned: {}", e))
+}
+
 /// Get the data directory from DB_PATH.
 fn data_dir() -> String {
     DB_PATH.get()
@@ -51,7 +63,13 @@ pub fn init(data_dir: &std::path::Path, config: &crate::config::Config) -> Resul
     // Create chunk_tags table for auto-tagging
     create_chunk_tags_table(&db_path_str)?;
 
-    let _ = DB_PATH.set(db_path_str);
+    let _ = DB_PATH.set(db_path_str.clone());
+
+    // Store a shared connection for all subsequent get_conn() calls
+    let shared_conn = rusqlite::Connection::open(&db_path_str)?;
+    shared_conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;")?;
+    let _ = DB_CONN.set(std::sync::Mutex::new(shared_conn));
+
     tracing::info!("rag_engine DB initialized at {}", db_path.display());
 
     Ok(())
@@ -318,8 +336,7 @@ pub async fn ingest_file(
 
 /// Update section_path for all chunks of a source, matched by chunk_index.
 fn update_chunk_section_paths(source_id: i64, section_paths: &[Option<String>]) -> Result<()> {
-    let db_path = DB_PATH.get().ok_or_else(|| anyhow::anyhow!("DB not initialized"))?;
-    let conn = rusqlite::Connection::open(db_path)?;
+    let conn = get_conn()?;
 
     for (idx, path) in section_paths.iter().enumerate() {
         if let Some(sp) = path {
@@ -335,8 +352,7 @@ fn update_chunk_section_paths(source_id: i64, section_paths: &[Option<String>]) 
 
 /// Update page for all chunks of a source, matched by chunk_index.
 fn update_chunk_pages(source_id: i64, pages: &[Option<u32>]) -> Result<()> {
-    let db_path = DB_PATH.get().ok_or_else(|| anyhow::anyhow!("DB not initialized"))?;
-    let conn = rusqlite::Connection::open(db_path)?;
+    let conn = get_conn()?;
     for (idx, page) in pages.iter().enumerate() {
         if let Some(p) = page {
             conn.execute(
@@ -353,8 +369,7 @@ pub fn get_section_paths_for_chunk_ids(chunk_ids: &[i64]) -> Result<std::collect
     if chunk_ids.is_empty() {
         return Ok(std::collections::HashMap::new());
     }
-    let db_path = DB_PATH.get().ok_or_else(|| anyhow::anyhow!("DB not initialized"))?;
-    let conn = rusqlite::Connection::open(db_path)?;
+    let conn = get_conn()?;
 
     // Build IN clause: SELECT id, section_path FROM chunks WHERE id IN (?,?,...)
     let placeholders: Vec<&str> = chunk_ids.iter().map(|_| "?").collect();
@@ -383,8 +398,7 @@ pub fn get_section_paths_for_chunk_ids(chunk_ids: &[i64]) -> Result<std::collect
 /// Delete a source by ID
 pub fn delete_source(source_id: i64) -> Result<()> {
     // Look up the collection before deleting, so we can rebuild its indexes
-    let db_path = DB_PATH.get().ok_or_else(|| anyhow::anyhow!("DB not initialized"))?;
-    let conn = rusqlite::Connection::open(db_path)?;
+    let conn = get_conn()?;
     let collection_id: Option<String> = conn
         .query_row(
             "SELECT collection_id FROM sources WHERE id = ?1",
@@ -399,7 +413,7 @@ pub fn delete_source(source_id: i64) -> Result<()> {
 
     // Also delete orphaned chunks and their tags (rag_engine::delete_source may not clean them)
     {
-        let conn = rusqlite::Connection::open(db_path)?;
+        let conn = get_conn()?;
         // Delete tags for chunks belonging to this source (before deleting the chunks)
         conn.execute(
             "DELETE FROM chunk_tags WHERE chunk_id IN (SELECT id FROM chunks WHERE source_id = ?1)",
@@ -514,8 +528,7 @@ pub async fn search_hybrid_with_expansion(
 
 /// Fetch page for a batch of chunk IDs.
 pub fn get_pages_for_chunk_ids(chunk_ids: &[i64]) -> Result<std::collections::HashMap<i64, Option<u32>>> {
-    let db_path = DB_PATH.get().ok_or_else(|| anyhow::anyhow!("DB not initialized"))?;
-    let conn = rusqlite::Connection::open(db_path)?;
+    let conn = get_conn()?;
     let mut map = std::collections::HashMap::new();
     for &id in chunk_ids {
         let page: Option<u32> = conn.query_row(
@@ -556,8 +569,7 @@ pub fn get_neighbors(source_id: i64, chunk_index: i64, before: i64, after: i64) 
 /// Queries the `sources` table directly instead of using
 /// `source_rag::list_sources()` which hardcodes the `__default__` collection.
 pub fn list_sources() -> Result<Vec<source_rag::SourceEntry>> {
-    let db_path = DB_PATH.get().ok_or_else(|| anyhow::anyhow!("DB not initialized"))?;
-    let conn = rusqlite::Connection::open(db_path)?;
+    let conn = get_conn()?;
 
     let mut stmt = conn.prepare(
         "SELECT id, name, created_at, metadata, status, collection_id
@@ -581,8 +593,7 @@ pub fn list_sources() -> Result<Vec<source_rag::SourceEntry>> {
 
 /// Get stats across all collections.
 pub fn stats() -> Result<Stats> {
-    let db_path = DB_PATH.get().ok_or_else(|| anyhow::anyhow!("DB not initialized"))?;
-    let conn = rusqlite::Connection::open(db_path)?;
+    let conn = get_conn()?;
 
     let count: usize = conn.query_row(
         "SELECT COUNT(*) FROM sources",
@@ -703,11 +714,7 @@ fn detect_language(text: &str) -> String {
 
 /// Check if a source with the given name already exists in the DB.
 fn check_duplicate_source(filename: &str) -> bool {
-    let db_path = match DB_PATH.get() {
-        Some(p) => p,
-        None => return false,
-    };
-    let conn = match rusqlite::Connection::open(db_path) {
+    let conn = match get_conn() {
         Ok(c) => c,
         Err(_) => return false,
     };
@@ -800,8 +807,7 @@ pub fn get_graph_data(
     threshold: f32,
     max_edges: usize,
 ) -> Result<crate::types::GraphData> {
-    let db_path = DB_PATH.get().ok_or_else(|| anyhow::anyhow!("DB not initialized"))?;
-    let conn = rusqlite::Connection::open(db_path)?;
+    let conn = get_conn()?;
 
     // 1. Get sources, optionally filtered by collection
     let sources: Vec<(i64, Option<String>, String, i32)> = if let Some(coll) = collection {
@@ -992,8 +998,7 @@ fn create_chunk_tags_table(db_path: &str) -> Result<()> {
 /// Insert tags for all chunks of a source, matched by chunk_index position.
 /// tags_per_chunk[i] contains the tags for the i-th kept chunk.
 fn insert_chunk_tags(source_id: i64, tags_per_chunk: &[Vec<String>]) -> Result<()> {
-    let db_path = DB_PATH.get().ok_or_else(|| anyhow::anyhow!("DB not initialized"))?;
-    let conn = rusqlite::Connection::open(db_path)?;
+    let conn = get_conn()?;
 
     for (idx, tags) in tags_per_chunk.iter().enumerate() {
         if tags.is_empty() {
@@ -1026,8 +1031,7 @@ pub fn get_tags_for_chunk_ids(chunk_ids: &[i64]) -> Result<std::collections::Has
     if chunk_ids.is_empty() {
         return Ok(std::collections::HashMap::new());
     }
-    let db_path = DB_PATH.get().ok_or_else(|| anyhow::anyhow!("DB not initialized"))?;
-    let conn = rusqlite::Connection::open(db_path)?;
+    let conn = get_conn()?;
 
     let mut map = std::collections::HashMap::new();
     for &id in chunk_ids {
