@@ -164,7 +164,7 @@ impl LlmProvider {
         chunks: &[String],
         max_concurrent: usize,
     ) -> Vec<Result<ContextResult>> {
-        let sem = Arc::new(tokio::sync::Semaphore::new(max_concurrent));
+        let sem = Arc::new(tokio::sync::Semaphore::new(max_concurrent.max(1)));
         let mut handles = Vec::with_capacity(chunks.len());
 
         for chunk in chunks {

@@ -28,6 +28,7 @@ pub async fn search_hybrid_with_expansion(
     // Activate the correct collection's indexes before searching
     if let Some(ref f) = filter {
         if let Some(ref coll) = f.collection_id {
+            let coll = super::sanitize_collection(coll)?;
             let index_path = format!("{}/hnsw_{}.index", data_dir(), coll);
             if let Err(e) = source_rag::activate_collection_for_hybrid_search(coll.clone(), index_path) {
                 tracing::warn!("Failed to activate collection '{}': {}", coll, e);
