@@ -45,20 +45,55 @@ git clone https://github.com/lelabdev/rag-ferrite.git
 cd rag-ferrite && cargo build --release
 ```
 
-Then configure and run:
+### Setup
+
+You need **two API keys** — one for the LLM (scoring, tagging, expansion) and one for embeddings (vector search). Any OpenAI-compatible provider works.
+
+**1. Set your API keys:**
 
 ```bash
-cp config.example.toml config.toml
-# Edit config.toml — set your LLM and embedding providers
-./rag-ferrite
+export LLM_API_KEY="your-llm-api-key"           # Ollama Cloud, OpenRouter, OpenAI, etc.
+export EMBEDDING_API_KEY="your-embedding-api-key"  # OpenRouter, OpenAI, etc.
+```
+
+Or create a `.env` file next to the binary:
+
+```
+LLM_API_KEY=your-llm-api-key
+EMBEDDING_API_KEY=your-embedding-api-key
+```
+
+**2. Edit the config** (`~/.config/rag-ferrite/config.toml`):
+
+```toml
+data_dir = "./data"
+
+[embedding]
+provider = "openai"
+model = "qwen/qwen3-embedding-8b"     # or text-embedding-3-small, etc.
+dimensions = 4096
+base_url = "https://openrouter.ai/api/v1"  # or https://api.openai.com/v1
+
+[llm]
+provider = "ollama"                    # or "openai", "openrouter"
+model = "gemma4:31b"                   # or gpt-4o, llama3, etc.
+base_url = "https://api.ollama.com"    # or https://api.openai.com/v1
+```
+
+**3. Run:**
+
+```bash
+rag-ferrite
 # → MCP server on stdin, ready for any MCP client
 ```
 
-**Prerequisites:** `poppler-utils` for PDF support (`apt install poppler-utils`), and API keys for your providers.
+**Prerequisites:** `poppler-utils` for PDF support (`apt install poppler-utils`).
 
 ## Configuration
 
 You need two things: an **LLM provider** (for understanding, scoring, tagging) and an **embedding provider** (for vector search). Any OpenAI-compatible API works.
+
+Here's a complete config with all available options:
 
 ```toml
 # config.toml
@@ -83,9 +118,7 @@ reranker_type = "llm"
 top_k = 10
 ```
 
-Set your API keys: `export LLM_API_KEY=... EMBEDDING_API_KEY=...`
-
-Then ingest and search:
+### Quick usage
 
 - `ingest_file("/path/to/document.pdf", collection: "my-docs")`
 - `query_documents("what did I write about?", collection: "my-docs")`
