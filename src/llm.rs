@@ -195,7 +195,10 @@ impl LlmProvider {
             let chunk_content = chunk.clone();
 
             handles.push(tokio::spawn(async move {
-                let _permit = sem.acquire().await.unwrap();
+                let _permit = match sem.acquire().await {
+                    Ok(p) => p,
+                    Err(_) => return Err(anyhow::anyhow!("Semaphore closed")),
+                };
                 provider.generate_context(&doc, &chunk_content).await
             }));
         }

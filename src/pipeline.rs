@@ -37,7 +37,7 @@ impl Cache {
 
     /// Look up a cached result. Returns `None` on miss or if the entry has expired.
     fn get(&self, key: &str) -> Option<QueryOutput> {
-        let map = self.entries.lock().unwrap();
+        let map = self.entries.lock().unwrap_or_else(|e| e.into_inner());
         if let Some((inserted_at, output)) = map.get(key) {
             if inserted_at.elapsed() < self.ttl {
                 return Some(output.clone());
@@ -48,7 +48,7 @@ impl Cache {
 
     /// Store a result in the cache. Evicts expired entries when the cache exceeds 1000 items.
     fn put(&self, key: String, output: QueryOutput) {
-        let mut map = self.entries.lock().unwrap();
+        let mut map = self.entries.lock().unwrap_or_else(|e| e.into_inner());
         map.insert(key, (Instant::now(), output));
         if map.len() > self.max_entries {
             let ttl = self.ttl;
