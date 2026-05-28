@@ -32,20 +32,25 @@ pub async fn query_service(
             let section_map = engine::get_section_paths_for_chunk_ids(&doc_ids).unwrap_or_default();
             let tags_map = engine::get_tags_for_chunk_ids(&doc_ids).unwrap_or_default();
 
+            // Parent resolution: for child chunks, replace content with parent's
+            let parent_map = engine::query::resolve_parents(&doc_ids).unwrap_or_default();
+
             let out: Vec<HybridResult> = output.results.into_iter().map(|r| {
                 let sp = section_map.get(&r.doc_id).cloned().flatten();
                 let tags = tags_map.get(&r.doc_id).cloned().unwrap_or_default();
+                let parent_info = parent_map.get(&r.doc_id);
+
                 HybridResult {
                     doc_id: r.doc_id,
-                    content: r.content,
+                    content: parent_info.map(|p| p.content.clone()).unwrap_or(r.content),
                     score: r.score,
                     source_id: r.source_id,
                     chunk_index: r.chunk_index,
                     metadata: r.metadata,
                     vector_rank: r.vector_rank,
                     bm25_rank: r.bm25_rank,
-                    section_path: sp,
-                    page: None,
+                    section_path: parent_info.and_then(|p| p.section_path.clone()).or(sp),
+                    page: parent_info.and_then(|p| p.page),
                     rerank_score: r.rerank_score,
                     tags,
                 }

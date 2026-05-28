@@ -24,6 +24,10 @@ pub struct Config {
     #[serde(default)]
     pub advanced: AdvancedConfig,
 
+    /// Chunking strategy configuration
+    #[serde(default)]
+    pub chunking: ChunkingConfig,
+
     /// HTTP server port (0 = disabled, stdio-only mode)
     #[serde(default)]
     pub http_port: u16,
@@ -277,6 +281,47 @@ impl Default for RerankerConfig {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct ChunkingConfig {
+    /// Chunking strategy: "recursive" (default), "parent_child", or "auto"
+    #[serde(default = "default_chunking_strategy")]
+    pub strategy: String,
+
+    /// Parent chunk size in characters (for parent_child mode)
+    #[serde(default = "default_parent_max_chars")]
+    pub parent_max_chars: usize,
+
+    /// Child chunk size in characters (for parent_child mode)
+    #[serde(default = "default_child_max_chars")]
+    pub child_max_chars: usize,
+
+    /// Child chunk overlap in characters
+    #[serde(default = "default_child_overlap")]
+    pub child_overlap: usize,
+
+    /// Auto-switch threshold: docs >= this size use parent_child (for "auto" mode)
+    #[serde(default = "default_auto_threshold")]
+    pub auto_threshold: usize,
+}
+
+fn default_chunking_strategy() -> String { "auto".into() }
+fn default_parent_max_chars() -> usize { 2000 }
+fn default_child_max_chars() -> usize { 200 }
+fn default_child_overlap() -> usize { 20 }
+fn default_auto_threshold() -> usize { 5000 }
+
+impl Default for ChunkingConfig {
+    fn default() -> Self {
+        Self {
+            strategy: default_chunking_strategy(),
+            parent_max_chars: default_parent_max_chars(),
+            child_max_chars: default_child_max_chars(),
+            child_overlap: default_child_overlap(),
+            auto_threshold: default_auto_threshold(),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
 pub struct AdvancedConfig {
     /// Chunk size in characters for document splitting
     #[serde(default = "default_chunk_size")]
@@ -427,6 +472,7 @@ impl Default for Config {
             llm: LlmConfig::default(),
             reranker: RerankerConfig::default(),
             advanced: AdvancedConfig::default(),
+            chunking: ChunkingConfig::default(),
             http_port: 0,
         }
     }

@@ -14,6 +14,11 @@ pub struct IngestConfig {
     pub context_batch_size: usize,
     pub chunk_overlap_ratio: f64,
     pub merge_last_chunk_threshold: usize,
+    pub chunking_strategy: String,
+    pub parent_max_chars: usize,
+    pub child_max_chars: usize,
+    pub child_overlap: usize,
+    pub auto_threshold: usize,
 }
 
 impl IngestConfig {
@@ -26,6 +31,11 @@ impl IngestConfig {
             context_batch_size: self.context_batch_size,
             chunk_overlap_ratio: self.chunk_overlap_ratio,
             merge_last_chunk_threshold: self.merge_last_chunk_threshold,
+            chunking_strategy: self.chunking_strategy.clone(),
+            parent_max_chars: self.parent_max_chars,
+            child_max_chars: self.child_max_chars,
+            child_overlap: self.child_overlap,
+            auto_threshold: self.auto_threshold,
         }
     }
 }

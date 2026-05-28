@@ -144,3 +144,76 @@ pub fn list_sources() -> Result<Vec<source_rag::SourceEntry>> {
 
     Ok(entries)
 }
+
+/// Parent info resolved from a child chunk.
+pub struct ParentInfo {
+    pub content: String,
+    pub section_path: Option<String>,
+    pub page: Option<u32>,
+}
+
+/// For a list of chunk IDs, resolve parents for any that are children.
+/// Returns a map from child chunk ID → ParentInfo.
+/// Chunks that are not children (recursive mode, or parents themselves) are not in the map.
+pub fn resolve_parents(chunk_ids: &[i64]) -> Result<std::collections::HashMap<i64, ParentInfo>> {
+    if chunk_ids.is_empty() {
+        return Ok(std::collections::HashMap::new());
+    }
+    let conn = get_conn()?;
+
+    // Find children (chunks with chunk_role = 'child' and a parent_id)
+    let placeholders: Vec<&str> = chunk_ids.iter().map(|_| "?").collect();
+    let sql = format!(
+        "SELECT c.id, c.parent_id FROM chunks c WHERE c.id IN ({}) AND c.chunk_role = 'child'",
+        placeholders.join(",")
+    );
+    let params: Vec<&i64> = chunk_ids.iter().collect();
+    let mut stmt = conn.prepare(&sql)?;
+    let child_rows: Vec<(i64, i64)> = stmt
+        .query_map(rusqlite::params_from_iter(params.iter().copied()), |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?))
+        })?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    if child_rows.is_empty() {
+        return Ok(std::collections::HashMap::new());
+    }
+
+    // Batch-fetch parent content
+    let parent_ids: Vec<i64> = child_rows.iter().map(|(_, pid)| *pid).collect();
+    let parent_placeholders: Vec<&str> = parent_ids.iter().map(|_| "?").collect();
+    let parent_sql = format!(
+        "SELECT id, content, section_path, page FROM chunks WHERE id IN ({})",
+        parent_placeholders.join(",")
+    );
+    let parent_params: Vec<&i64> = parent_ids.iter().collect();
+    let mut parent_stmt = conn.prepare(&parent_sql)?;
+    let mut parent_data: std::collections::HashMap<i64, (String, Option<String>, Option<u32>)> =
+        std::collections::HashMap::new();
+    for row in parent_stmt.query_map(rusqlite::params_from_iter(parent_params.iter().copied()), |row| {
+        let id: i64 = row.get(0)?;
+        let content: String = row.get(1)?;
+        let section_path: Option<String> = row.get(2)?;
+        let page: Option<u32> = row.get::<_, Option<i64>>(3)?.map(|p| p as u32);
+        Ok((id, content, section_path, page))
+    })? {
+        if let Ok((id, content, sp, page)) = row {
+            parent_data.insert(id, (content, sp, page));
+        }
+    }
+
+    // Build result map: child_id → ParentInfo
+    let mut result = std::collections::HashMap::new();
+    for (child_id, parent_id) in &child_rows {
+        if let Some((content, section_path, page)) = parent_data.get(parent_id) {
+            result.insert(*child_id, ParentInfo {
+                content: content.clone(),
+                section_path: section_path.clone(),
+                page: *page,
+            });
+        }
+    }
+
+    Ok(result)
+}
