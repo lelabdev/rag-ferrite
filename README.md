@@ -80,6 +80,7 @@ rag-ferrite understands what your documents **mean**. It filters the noise, tags
 | **Semantic search** | Finds relevant passages even without exact keyword matches |
 | **Noise filtering** | Automatically removes junk chunks (TOC, boilerplate) at ingestion |
 | **Auto-tagging** | Each chunk gets smart tags for cross-collection filtering |
+| **Hybrid chunking** | Parent-child chunking for long docs — precise matching + full context |
 | **Self-correcting** | Weak results trigger automatic reformulation and retry |
 | **Hybrid search** | BM25 + vector search combined with RRF fusion |
 | **15 MB binary** | No Docker, no GPU required. Cloud or local — your choice |
@@ -92,12 +93,20 @@ rag-ferrite understands what your documents **mean**. It filters the noise, tags
 ### Ingestion
 
 ```
-Document → Extract text → Chunk (800 chars)
+Document → Extract text → Chunk (auto/recursive/parent-child)
          → Relevance scoring (LLM filters junk)
          → Context prefix (LLM adds context to each chunk)
          → Auto-tag (LLM generates 2-3 tags per chunk)
          → Embed → Store in SQLite + HNSW + BM25
 ```
+
+**Chunking strategies** (configurable via `[chunking]`):
+
+| Strategy | How | Best for |
+|---|---|---|
+| `recursive` | Fixed-size chunks (~800 chars) with overlap | Short docs, notes, FAQ |
+| `parent_child` | Large parents (~2000 chars) → small children (~200 chars). Children are embedded for search, parents returned for context | Books, manuals, long-form docs |
+| `auto` (default) | Uses parent_child for docs ≥ 5000 chars, recursive for smaller ones | Mixed collections — best of both |
 
 ### Query
 
@@ -200,6 +209,13 @@ preview_chars = 300
 # model = "rerank-v3.5"
 # base_url = "https://api.cohere.ai/v2/rerank"
 # api_key = "your-cohere-api-key"
+
+[chunking]
+strategy = "auto"                             # recursive, parent_child, or auto
+parent_max_chars = 2000                       # parent chunk size (parent_child mode)
+child_max_chars = 200                         # child chunk size (parent_child mode)
+child_overlap = 20                            # overlap between child chunks
+auto_threshold = 5000                         # switch to parent_child above this size
 
 [advanced]
 chunk_size = 800                             # characters per chunk
