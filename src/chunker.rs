@@ -370,6 +370,244 @@ impl ChunkType {
     }
 }
 
+// === Parent-Child Chunking ===
+
+/// Result of parent-child chunking: a parent chunk with its children.
+#[derive(Debug, Clone)]
+pub struct ParentChildGroup {
+    /// Parent chunk content (~2000 chars) — NOT embedded, returned to LLM
+    pub parent: Chunk,
+    /// Child chunks (~200 chars each) — embedded, used for search matching
+    pub children: Vec<Chunk>,
+}
+
+/// Chunk text using parent-child strategy.
+/// Produces large parent chunks for context, each split into small child chunks for precise matching.
+///
+/// - `parent_max_chars`: target size for parent chunks (~2000)
+/// - `child_max_chars`: target size for child chunks (~200)
+/// - `child_overlap`: overlap between consecutive children (~20)
+pub fn chunk_text_parent_child(
+    text: &str,
+    parent_max_chars: usize,
+    child_max_chars: usize,
+    child_overlap: usize,
+    merge_threshold: usize,
+) -> Vec<ParentChildGroup> {
+    let sections = extract_sections(text);
+    let page_breaks = find_page_breaks(text);
+    let chars: Vec<char> = text.chars().collect();
+    let char_count = chars.len();
+
+    // Step 1: Split into parent-sized chunks using paragraph boundaries
+    let parent_chunks = split_into_parents(&chars, parent_max_chars, &sections, &page_breaks);
+
+    let mut groups = Vec::new();
+    let mut global_child_idx = 0i32;
+
+    for (parent_idx, parent_chunk) in parent_chunks.into_iter().enumerate() {
+        // Step 2: Split each parent into children
+        let children = split_parent_into_children(
+            &parent_chunk.content,
+            child_max_chars,
+            child_overlap,
+            parent_idx,
+            &mut global_child_idx,
+        );
+
+        // Merge last child with previous if too short
+        let children = merge_last_child(children, merge_threshold, &mut global_child_idx);
+
+        if children.is_empty() {
+            // Edge case: parent content too short for even one child
+            let child = Chunk {
+                content: parent_chunk.content.clone(),
+                index: global_child_idx,
+                start_pos: 0,
+                end_pos: parent_chunk.content.len() as i32,
+                chunk_type: ChunkType::Text,
+                section_path: parent_chunk.section_path.clone(),
+                page: parent_chunk.page,
+            };
+            global_child_idx += 1;
+            groups.push(ParentChildGroup {
+                parent: parent_chunk,
+                children: vec![child],
+            });
+        } else {
+            groups.push(ParentChildGroup {
+                parent: parent_chunk,
+                children,
+            });
+        }
+
+        tracing::debug!(
+            "Parent {} ({} chars) → {} children",
+            parent_idx,
+            groups.last().unwrap().parent.content.len(),
+            groups.last().unwrap().children.len()
+        );
+    }
+
+    groups
+}
+
+/// Split text into parent-sized chunks at paragraph boundaries.
+fn split_into_parents(
+    chars: &[char],
+    parent_max_chars: usize,
+    sections: &[(usize, String)],
+    page_breaks: &[(usize, u32)],
+) -> Vec<Chunk> {
+    let char_count = chars.len();
+    let mut chunks = Vec::new();
+    let mut char_pos: usize = 0;
+    let mut current_page: u32 = page_for_position(page_breaks, 0);
+
+    while char_pos < char_count {
+        current_page = page_for_position(page_breaks, char_pos);
+        let target_end = (char_pos + parent_max_chars).min(char_count);
+
+        let split = if target_end < char_count {
+            let slice: String = chars[char_pos..target_end].iter().collect();
+            // Prefer paragraph breaks, then newlines
+            find_best_split_char(&slice, &["\n\n", "\n", ". ", " "])
+        } else {
+            target_end - char_pos
+        };
+
+        let char_end = char_pos + split;
+        let content: String = chars[char_pos..char_end].iter().collect();
+        let trimmed = content.trim().to_string();
+
+        if !trimmed.is_empty() {
+            let byte_start: usize = chars[..char_pos].iter().collect::<String>().len();
+            let byte_end: usize = chars[..char_end].iter().collect::<String>().len();
+
+            let is_first = chunks.is_empty();
+            let chunk_type = detect_chunk_type(&trimmed, is_first);
+            let section_path = find_section_for_position(sections, byte_start);
+            let chunk_page = if page_breaks.is_empty() { None } else { Some(current_page) };
+
+            chunks.push(Chunk {
+                content: trimmed,
+                index: chunks.len() as i32,
+                start_pos: byte_start as i32,
+                end_pos: byte_end as i32,
+                chunk_type,
+                section_path,
+                page: chunk_page,
+            });
+        }
+
+        // No overlap for parents — they should cover the text exactly
+        if char_end <= char_pos { break; }
+        char_pos = char_end;
+    }
+
+    // Merge last parent with previous if too short
+    if chunks.len() > 1 {
+        let last_idx = chunks.len() - 1;
+        let threshold = parent_max_chars / 4;
+        if chunks[last_idx].content.len() < threshold {
+            let last_end = chunks[last_idx].end_pos;
+            let last_section = chunks[last_idx].section_path.clone();
+            let last_page = chunks[last_idx].page;
+            let last_content = chunks.pop().unwrap();
+            let prev = chunks.last_mut().unwrap();
+            prev.content = format!("{}\n\n{}", prev.content, last_content.content);
+            prev.end_pos = last_end;
+            if prev.section_path.is_none() && last_section.is_some() {
+                prev.section_path = last_section;
+            }
+            if prev.page.is_none() && last_page.is_some() {
+                prev.page = last_page;
+            }
+        }
+    }
+
+    chunks
+}
+
+/// Split a parent chunk's content into child-sized chunks.
+fn split_parent_into_children(
+    parent_content: &str,
+    child_max_chars: usize,
+    child_overlap: usize,
+    _parent_idx: usize,
+    global_idx: &mut i32,
+) -> Vec<Chunk> {
+    let chars: Vec<char> = parent_content.chars().collect();
+    let char_count = chars.len();
+    let mut chunks = Vec::new();
+    let mut char_pos: usize = 0;
+
+    while char_pos < char_count {
+        let target_end = (char_pos + child_max_chars).min(char_count);
+
+        let split = if target_end < char_count {
+            let slice: String = chars[char_pos..target_end].iter().collect();
+            // For children, prefer sentence boundaries
+            find_best_split_char(&slice, &["\n\n", "\n", ". ", " "])
+        } else {
+            target_end - char_pos
+        };
+
+        let char_end = char_pos + split;
+        let content: String = chars[char_pos..char_end].iter().collect();
+        let trimmed = content.trim().to_string();
+
+        if !trimmed.is_empty() {
+            chunks.push(Chunk {
+                content: trimmed,
+                index: *global_idx,
+                start_pos: char_pos as i32,
+                end_pos: char_end as i32,
+                chunk_type: ChunkType::Text,
+                section_path: None, // Children inherit parent's section
+                page: None,         // Children inherit parent's page
+            });
+            *global_idx += 1;
+        }
+
+        // Advance with overlap
+        let next = if char_end > child_overlap { char_end - child_overlap } else { char_end };
+        if next <= char_pos { break; }
+        char_pos = next;
+    }
+
+    chunks
+}
+
+/// Merge last child with previous if too short.
+fn merge_last_child(mut children: Vec<Chunk>, merge_threshold: usize, _global_idx: &mut i32) -> Vec<Chunk> {
+    if children.len() > 1 {
+        let last_idx = children.len() - 1;
+        if children[last_idx].content.len() < merge_threshold {
+            let last_content = children.pop().unwrap();
+            let prev = children.last_mut().unwrap();
+            prev.content = format!("{}\n{}", prev.content, last_content.content);
+            prev.end_pos = last_content.end_pos;
+        }
+    }
+    children
+}
+
+/// Determine which chunking strategy to use based on config and content size.
+pub fn resolve_chunking_strategy(strategy: &str, content_len: usize, auto_threshold: usize) -> &'static str {
+    match strategy {
+        "recursive" => "recursive",
+        "parent_child" => "parent_child",
+        "auto" | _ => {
+            if content_len >= auto_threshold {
+                "parent_child"
+            } else {
+                "recursive"
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -466,5 +704,51 @@ mod tests {
             assert!(overlap_found || chunks[1].start_pos < chunks[0].end_pos,
                 "Expected overlap between consecutive chunks");
         }
+    }
+
+    // === Parent-Child tests ===
+
+    #[test]
+    fn test_parent_child_basic() {
+        // Generate text long enough for multiple parents
+        let paragraph = "This is a paragraph with some meaningful content about technology and science. ".repeat(20);
+        let text = format!("{}\n\n{}\n\n{}\n\n{}", paragraph, paragraph, paragraph, paragraph);
+
+        let groups = chunk_text_parent_child(&text, 500, 100, 10, 50);
+
+        assert!(!groups.is_empty(), "Expected at least one parent group");
+        for group in &groups {
+            assert!(!group.parent.content.is_empty(), "Parent should have content");
+            assert!(!group.children.is_empty(), "Parent should have at least one child");
+            for child in &group.children {
+                assert!(child.content.len() <= 150, "Child should be <= child_max_chars + overlap, got {}", child.content.len());
+            }
+        }
+    }
+
+    #[test]
+    fn test_parent_child_short_text() {
+        let text = "Short text that fits in one parent chunk.";
+        let groups = chunk_text_parent_child(text, 2000, 200, 20, 50);
+
+        assert_eq!(groups.len(), 1, "Expected exactly 1 parent for short text");
+        assert_eq!(groups[0].children.len(), 1, "Short text should have 1 child");
+    }
+
+    #[test]
+    fn test_parent_child_empty() {
+        let groups = chunk_text_parent_child("", 2000, 200, 20, 50);
+        assert!(groups.is_empty(), "Empty text should produce no groups");
+    }
+
+    #[test]
+    fn test_resolve_chunking_strategy() {
+        assert_eq!(resolve_chunking_strategy("auto", 100, 5000), "recursive");
+        assert_eq!(resolve_chunking_strategy("auto", 5000, 5000), "parent_child");
+        assert_eq!(resolve_chunking_strategy("auto", 10000, 5000), "parent_child");
+        assert_eq!(resolve_chunking_strategy("recursive", 10000, 5000), "recursive");
+        assert_eq!(resolve_chunking_strategy("parent_child", 100, 5000), "parent_child");
+        assert_eq!(resolve_chunking_strategy("unknown", 100, 5000), "recursive");
+        assert_eq!(resolve_chunking_strategy("unknown", 10000, 5000), "parent_child");
     }
 }
