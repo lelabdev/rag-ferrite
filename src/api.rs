@@ -8,6 +8,7 @@ use axum::{
 use serde::Deserialize;
 use std::sync::Arc;
 use tower_http::cors::CorsLayer;
+use tower::ServiceExt;
 
 use crate::engine;
 use crate::params::*;
@@ -181,7 +182,31 @@ async fn delete_document(
 // --- Server startup ---
 
 pub async fn serve(server: Arc<RagFerriteServer>, port: u16, bind_address: String) -> anyhow::Result<()> {
+    use rmcp::transport::streamable_http_server::{
+        StreamableHttpService,
+        session::local::LocalSessionManager,
+    };
+
+    // Create MCP Streamable HTTP service
+    let mcp_config = rmcp::transport::streamable_http_server::StreamableHttpServerConfig::default()
+        .with_allowed_hosts(vec![
+            "localhost",
+            "127.0.0.1",
+            "0.0.0.0",
+            &bind_address,
+        ]);
+
+    let mcp_service = StreamableHttpService::new(
+        {
+            let server = server.clone();
+            move || Ok((*server).clone())
+        },
+        Arc::new(LocalSessionManager::default()),
+        mcp_config,
+    );
+
     let app = Router::new()
+        // REST API
         .route("/api/status", get(status))
         .route("/api/documents", get(list_documents))
         .route("/api/documents/{source_id}", get(get_document))
@@ -197,8 +222,22 @@ pub async fn serve(server: Arc<RagFerriteServer>, port: u16, bind_address: Strin
         .layer(CorsLayer::permissive())
         .with_state(server);
 
+    // Nest MCP Streamable HTTP under /mcp
+    let mcp_router = axum::Router::new()
+        .route("/mcp", axum::routing::any(move |req| {
+            let mcp = mcp_service.clone();
+            async move {
+                tower::ServiceExt::oneshot(mcp, req)
+                    .await
+                    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "MCP service error"))
+            }
+        }));
+
+    let app = app
+        .merge(mcp_router);
+
     let addr = format!("{}:{}", bind_address, port);
-    tracing::info!("HTTP server listening on {}", addr);
+    tracing::info!("HTTP + MCP Streamable HTTP server listening on {}", addr);
 
     let listener = tokio::net::TcpListener::bind(&addr)
         .await

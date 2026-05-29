@@ -151,6 +151,16 @@ impl RagFerriteServer {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Load .env from executable directory (automatic — no manual source needed)
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            let env_path = dir.join(".env");
+            if env_path.exists() {
+                let _ = dotenvy::from_path(&env_path);
+            }
+        }
+    }
+
     let config = config::Config::load()?;
 
     // Log to file for debugging MCP issues
@@ -278,19 +288,10 @@ async fn main() -> Result<()> {
     let server = Arc::new(server);
 
     if config.http_port > 0 {
-        let http_server = server.clone();
         let http_port = config.http_port;
         let http_bind = config.advanced.http_bind_address.clone();
-        tracing::info!("Starting dual mode: MCP stdio + HTTP on {}:{}", http_bind, http_port);
-
-        tokio::select! {
-            r = async {
-                let service = server.serve(rmcp::transport::io::stdio()).await?;
-                service.waiting().await?;
-                Ok::<(), anyhow::Error>(())
-            } => r?,
-            r = api::serve(http_server, http_port, http_bind) => r?,
-        }
+        tracing::info!("Starting MCP Streamable HTTP on {}:{}", http_bind, http_port);
+        api::serve(server, http_port, http_bind).await?;
     } else {
         tracing::info!("Starting MCP server on stdio...");
         let service = server.serve(rmcp::transport::io::stdio()).await?;

@@ -1,6 +1,6 @@
 [package]
 name = "rag-ferrite"
-version = "4.2.0"
+version = "4.3.0"
 edition = "2024"
 description = "Hybrid RAG engine — semantic + keyword search, MCP-native, single binary"
 license = "MIT"
@@ -14,7 +14,8 @@ categories = ["command-line-utilities", "text-processing"]
 rag_engine = "0.8"
 
 # MCP server
-rmcp = { version = "1.6", features = ["server", "transport-io"] }
+rmcp = { version = "1.6", features = ["server", "transport-io", "transport-streamable-http-server"] }
+dotenvy = "0.15"
 
 # Async runtime
 tokio = { version = "1", features = ["full"] }
@@ -41,6 +42,7 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 
 # Web framework (REST API)
 axum = "0.8"
+tower = "0.5"
 tower-http = { version = "0.6", features = ["cors"] }
 
 # Utility

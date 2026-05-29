@@ -76,6 +76,38 @@ pub fn init(data_dir: &std::path::Path, config: &crate::config::Config) -> Resul
         conn.execute_batch("ALTER TABLE chunks ADD COLUMN parent_id INTEGER DEFAULT NULL")?;
         conn.execute_batch("ALTER TABLE chunks ADD COLUMN chunk_role TEXT DEFAULT NULL")?;
     }
+
+    // Migration: make embedding nullable (parents don't have embeddings)
+    let embedding_notnull: bool = {
+        let mut stmt = conn.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='chunks'")?;
+        let sql: String = stmt.query_row([], |row| row.get(0))?;
+        sql.contains("embedding BLOB NOT NULL")
+    };
+    if embedding_notnull {
+        tracing::info!("Migrating: making embedding column nullable for parent-child support");
+        conn.execute_batch(
+            "CREATE TABLE chunks_new (
+                id INTEGER PRIMARY KEY,
+                source_id INTEGER NOT NULL,
+                collection_id TEXT NOT NULL DEFAULT '__default__',
+                chunk_index INTEGER NOT NULL,
+                content TEXT NOT NULL,
+                start_pos INTEGER NOT NULL,
+                end_pos INTEGER NOT NULL,
+                chunk_type TEXT DEFAULT 'general',
+                embedding BLOB,
+                embedding_i8 BLOB,
+                embedding_scale REAL,
+                section_path TEXT DEFAULT NULL,
+                page INTEGER DEFAULT NULL,
+                parent_id INTEGER DEFAULT NULL,
+                chunk_role TEXT DEFAULT NULL
+            );
+            INSERT INTO chunks_new SELECT * FROM chunks;
+            DROP TABLE chunks;
+            ALTER TABLE chunks_new RENAME TO chunks;"
+        )?;
+    }
     drop(conn);
 
     // Create chunk_tags table for auto-tagging
@@ -167,12 +199,12 @@ pub async fn ingest_text(
     }
     let collection_id = sanitize_collection(collection.unwrap_or(DEFAULT_COLLECTION_ID))?;
     let meta = metadata.map(|m| m.to_string()).unwrap_or_default();
-    let source = source_rag::add_source_in_collection(
+    let source_id = source_rag::add_source_in_collection(
         collection_id.clone(),
         content.to_string(),
         if meta.is_empty() { None } else { Some(meta) },
         Some(source_name.to_string()),
-    )?;
+    )?.source_id;
 
     // Custom recursive character chunker (faster, no freeze on large docs)
     let chunk_size = options.chunk_size;
@@ -354,20 +386,20 @@ pub async fn ingest_text(
         })
         .collect();
 
-    let count = source_rag::add_chunks(source.source_id, chunk_data)?;
-    tracing::info!("Ingested {} chunks for source {} ({})", count, source.source_id, source_name);
+    let count = source_rag::add_chunks(source_id, chunk_data)?;
+    tracing::info!("Ingested {} chunks for source {} ({})", count, source_id, source_name);
 
     // Store section_path for each chunk (separate UPDATE since rag_engine doesn't know about it)
-    update_chunk_section_paths(source.source_id, &section_paths)?;
-    update_chunk_pages(source.source_id, &pages)?;
+    update_chunk_section_paths(source_id, &section_paths)?;
+    update_chunk_pages(source_id, &pages)?;
 
     // Store auto-generated tags for each chunk in chunk_tags table
     if tags_per_chunk.iter().any(|(_, t)| !t.is_empty()) {
-        insert_chunk_tags(source.source_id, &tags_per_chunk)?;
+        insert_chunk_tags(source_id, &tags_per_chunk)?;
     }
 
     // Mark source as completed
-    if let Err(e) = source_rag::update_source_status(source.source_id, "completed".to_string()) {
+    if let Err(e) = source_rag::update_source_status(source_id, "completed".to_string()) {
         tracing::warn!("Failed to update source status: {}", e);
     }
 
@@ -389,7 +421,7 @@ pub async fn ingest_text(
         source_name: source_name.to_string(),
     };
 
-    Ok((source.source_id, report))
+    Ok((source_id, report))
 }
 
 /// Ingest a file (PDF, TXT, MD)
@@ -437,12 +469,30 @@ async fn ingest_text_parent_child(
     }
     let collection_id = sanitize_collection(collection.unwrap_or(DEFAULT_COLLECTION_ID))?;
     let meta = metadata.map(|m| m.to_string()).unwrap_or_default();
-    let source = source_rag::add_source_in_collection(
-        collection_id.clone(),
-        content.to_string(),
-        if meta.is_empty() { None } else { Some(meta) },
-        Some(source_name.to_string()),
-    )?;
+
+    // Reuse existing source if one with the same name exists in this collection
+    let source_id: i64 = {
+        let conn = get_conn()?;
+        let existing_id: Option<i64> = conn.query_row(
+            "SELECT id FROM sources WHERE name = ?1 AND collection_id = ?2 LIMIT 1",
+            rusqlite::params![source_name, collection_id],
+            |row| row.get::<_, i64>(0),
+        ).ok();
+        match existing_id {
+            Some(id) => {
+                tracing::info!("Reusing existing source id={} for '{}' (resume)", id, source_name);
+                id
+            }
+            None => {
+                source_rag::add_source_in_collection(
+                    collection_id.clone(),
+                    content.to_string(),
+                    if meta.is_empty() { None } else { Some(meta) },
+                    Some(source_name.to_string()),
+                )?.source_id
+            }
+        }
+    };
 
     // Step 1: Parent-child chunking
     let groups = chunker::chunk_text_parent_child(
@@ -460,182 +510,178 @@ async fn ingest_text_parent_child(
         total_parents, total_children
     );
 
-    // Step 2: Collect all child texts for LLM processing (context + scoring)
-    let child_texts: Vec<String> = groups
-        .iter()
-        .flat_map(|g| g.children.iter().map(|c| c.content.clone()))
-        .collect();
-
-    // Step 3: LLM context + relevance scoring (on children)
+    // Progressive commit: process and store each parent group one by one.
+    // If crash occurs, already-committed chunks are preserved in DB.
     let mut context_failures = 0usize;
+    let mut filtered_count = 0usize;
+    let mut total_kept = 0usize;
     let llm_start = Instant::now();
-    let context_results: Vec<ContextResult> = if let Some(llm_provider) = llm {
-        tracing::info!("Generating context prefixes for {} children via LLM...", child_texts.len());
-        let mut all_results: Vec<ContextResult> = Vec::with_capacity(child_texts.len());
-        for batch in child_texts.chunks(options.context_batch_size) {
-            let results = llm_provider.generate_context_batch(content, batch, options.max_concurrent).await;
-            for result in results {
-                match result {
-                    Ok(ctx_result) => {
-                        if ctx_result.context.is_none() {
-                            context_failures += 1;
+    let mut llm_duration_ms: u64 = 0;
+    let embed_start = Instant::now();
+    let mut embedding_duration_ms: u64 = 0;
+    let mut all_relevance_scores: Vec<f64> = Vec::new();
+
+    // Check how many parents already have chunks (resume support)
+    let existing_parent_count: usize = {
+        let conn = get_conn()?;
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(DISTINCT parent_id) FROM chunks WHERE source_id = ?1 AND parent_id IS NOT NULL",
+            rusqlite::params![source_id],
+            |row| row.get::<_, i64>(0),
+        )?;
+        count as usize
+    };
+    if existing_parent_count > 0 {
+        tracing::info!("Resume: {} parents already committed, starting from parent {}", existing_parent_count, existing_parent_count + 1);
+    }
+
+    for (p_idx, group) in groups.iter().enumerate() {
+        // Resume: skip parents already committed
+        if p_idx < existing_parent_count {
+            continue;
+        }
+        let children = &group.children;
+        if children.is_empty() { continue; }
+
+        // LLM context + scoring for this parent's children
+        let child_texts: Vec<String> = children.iter().map(|c| c.content.clone()).collect();
+        let context_results: Vec<ContextResult> = if let Some(ref llm_provider) = llm {
+            let t = Instant::now();
+            tracing::info!("Processing parent {}/{} ({} children)...", p_idx + 1, total_parents, children.len());
+            let mut results = Vec::with_capacity(child_texts.len());
+            for batch in child_texts.chunks(options.context_batch_size) {
+                let batch_results = llm_provider.generate_context_batch(content, batch, options.max_concurrent).await;
+                for result in batch_results {
+                    match result {
+                        Ok(ctx_result) => {
+                            if ctx_result.context.is_none() { context_failures += 1; }
+                            results.push(ctx_result);
                         }
-                        all_results.push(ctx_result)
-                    }
-                    Err(e) => {
-                        tracing::warn!("Context generation failed for child chunk: {}, using raw content", e);
-                        context_failures += 1;
-                        all_results.push(ContextResult {
-                            context: None, relevance_score: None,
-                            extracted_metadata: None, tags: Vec::new(),
-                        });
+                        Err(e) => {
+                            tracing::warn!("Context generation failed for child chunk: {}, using raw content", e);
+                            context_failures += 1;
+                            results.push(ContextResult {
+                                context: None, relevance_score: None,
+                                extracted_metadata: None, tags: Vec::new(),
+                            });
+                        }
                     }
                 }
             }
-        }
-        all_results
-    } else {
-        vec![ContextResult { context: None, relevance_score: None, extracted_metadata: None, tags: Vec::new() }; child_texts.len()]
-    };
-    let llm_duration_ms = llm_start.elapsed().as_millis() as u64;
+            llm_duration_ms += t.elapsed().as_millis() as u64;
+            results
+        } else {
+            vec![ContextResult { context: None, relevance_score: None, extracted_metadata: None, tags: Vec::new()}; child_texts.len()]
+        };
 
-    // Step 4: Filter children by relevance, track which parents to keep
-    let mut filtered_count = 0usize;
-    let mut kept_children: Vec<(usize, usize, &chunker::Chunk, &ContextResult)> = Vec::new();
-    // (parent_idx, child_idx_in_parent, child_ref, context_result)
-
-    let mut child_ctx_idx = 0;
-    for (p_idx, group) in groups.iter().enumerate() {
-        for (c_idx, child) in group.children.iter().enumerate() {
-            let ctx = &context_results[child_ctx_idx];
-            let _ = if options.relevance_scoring {
+        // Filter children by relevance
+        let mut kept: Vec<(usize, &chunker::Chunk, &ContextResult)> = Vec::new();
+        for (c_idx, child) in children.iter().enumerate() {
+            let ctx = &context_results[c_idx];
+            if options.relevance_scoring {
                 if let Some(score) = ctx.relevance_score {
                     if (score as f64) < options.min_relevance_score {
                         filtered_count += 1;
-                        child_ctx_idx += 1;
                         continue;
                     }
                 }
-            };
-            kept_children.push((p_idx, c_idx, child, ctx));
-            child_ctx_idx += 1;
+            }
+            if let Some(score) = ctx.relevance_score {
+                all_relevance_scores.push(score as f64);
+            }
+            kept.push((c_idx, child, ctx));
         }
-    }
 
-    // Step 5: Build final texts for embedding
-    let final_texts: Vec<String> = kept_children
-        .iter()
-        .map(|(_, _, chunk, ctx_result)| {
+        if kept.is_empty() { continue; }
+
+        // Build texts for embedding
+        let final_texts: Vec<String> = kept.iter().map(|(_, chunk, ctx_result)| {
             match &ctx_result.context {
                 Some(context) => format!("{}\n\n{}", context, chunk.content),
                 None => chunk.content.clone(),
             }
-        })
-        .collect();
+        }).collect();
 
-    // Step 6: Batch embed children only
-    let embed_start = Instant::now();
-    let embeddings = embedder.embed_batch(&final_texts).await?;
-    let embedding_duration_ms = embed_start.elapsed().as_millis() as u64;
+        // Embed this parent's children
+        let t = Instant::now();
+        let embeddings = embedder.embed_batch(&final_texts).await?;
+        embedding_duration_ms += t.elapsed().as_millis() as u64;
 
-    // Step 7: Store parent chunks (no embedding) then child chunks (with embedding)
-    let conn = get_conn()?;
+        // Store parent + children in DB (sync block — no awaits inside)
+        let parent_db_id: i64;
+        let mut parent_tags: Vec<(i32, Vec<String>)> = Vec::new();
+        {
+            let conn = get_conn()?;
 
-    // Collect tags for all children
-    let mut all_tags: Vec<(i32, Vec<String>)> = Vec::new();
-
-    for (p_idx, group) in groups.iter().enumerate() {
-        // Check if any child of this parent survived filtering
-        let has_kept_children = kept_children.iter().any(|(pi, _, _, _)| *pi == p_idx);
-        if !has_kept_children {
-            continue;
-        }
-
-        // Store parent chunk (no embedding, chunk_role = "parent")
-        let parent_chunk_data = ChunkData {
-            content: group.parent.content.clone(),
-            chunk_index: group.parent.index,
-            start_pos: group.parent.start_pos,
-            end_pos: group.parent.end_pos,
-            chunk_type: "parent".to_string(),
-            embedding: vec![], // No embedding for parents
-        };
-        source_rag::add_chunks(source.source_id, vec![parent_chunk_data])?;
-        let parent_db_id: i64 = conn.query_row(
-            "SELECT id FROM chunks WHERE source_id = ?1 AND chunk_index = ?2 AND chunk_role IS NULL ORDER BY id DESC LIMIT 1",
-            rusqlite::params![source.source_id, group.parent.index],
-            |row| row.get(0),
-        )?;
-
-        // Mark as parent
-        conn.execute(
-            "UPDATE chunks SET chunk_role = 'parent', vector = NULL WHERE id = ?1",
-            rusqlite::params![parent_db_id],
-        )?;
-
-        // Store section_path and page for parent
-        if let Some(sp) = &group.parent.section_path {
-            conn.execute(
-                "UPDATE chunks SET section_path = ?1 WHERE id = ?2",
-                rusqlite::params![sp, parent_db_id],
-            )?;
-        }
-        if let Some(p) = group.parent.page {
-            conn.execute(
-                "UPDATE chunks SET page = ?1 WHERE id = ?2",
-                rusqlite::params![p as i64, parent_db_id],
-            )?;
-        }
-
-        // Store child chunks that survived filtering
-        let children_for_parent: Vec<_> = kept_children
-            .iter()
-            .enumerate()
-            .filter(|(_, (pi, _, _, _))| *pi == p_idx)
-            .collect();
-
-        for (embed_idx, (_, _, child, _)) in &children_for_parent {
-            let child_chunk_data = ChunkData {
-                content: child.content.clone(),
-                chunk_index: child.index,
-                start_pos: child.start_pos,
-                end_pos: child.end_pos,
-                chunk_type: "child".to_string(),
-                embedding: embeddings[*embed_idx].clone(),
+            // Store parent chunk
+            let parent_chunk_data = ChunkData {
+                content: group.parent.content.clone(),
+                chunk_index: group.parent.index,
+                start_pos: group.parent.start_pos,
+                end_pos: group.parent.end_pos,
+                chunk_type: "parent".to_string(),
+                embedding: vec![],
             };
-            source_rag::add_chunks(source.source_id, vec![child_chunk_data])?;
-
-            // Get child DB id and set parent_id + chunk_role
-            let child_db_id: i64 = conn.query_row(
+            source_rag::add_chunks(source_id, vec![parent_chunk_data])?;
+            parent_db_id = conn.query_row(
                 "SELECT id FROM chunks WHERE source_id = ?1 AND chunk_index = ?2 AND chunk_role IS NULL ORDER BY id DESC LIMIT 1",
-                rusqlite::params![source.source_id, child.index],
+                rusqlite::params![source_id, group.parent.index],
                 |row| row.get(0),
             )?;
             conn.execute(
-                "UPDATE chunks SET parent_id = ?1, chunk_role = 'child' WHERE id = ?2",
-                rusqlite::params![parent_db_id, child_db_id],
+                "UPDATE chunks SET chunk_role = 'parent', embedding = NULL WHERE id = ?1",
+                rusqlite::params![parent_db_id],
             )?;
-
-            // Collect tags
-            let (_, _, _, ctx_result) = kept_children
-                .iter()
-                .filter(|(pi, ci, _, _)| *pi == p_idx && *ci == child.index as usize)
-                .next()
-                .unwrap();
-            if !ctx_result.tags.is_empty() {
-                all_tags.push((child.index, ctx_result.tags.clone()));
+            if let Some(sp) = &group.parent.section_path {
+                conn.execute(
+                    "UPDATE chunks SET section_path = ?1 WHERE id = ?2",
+                    rusqlite::params![sp, parent_db_id],
+                )?;
             }
-        }
-    }
-    drop(conn);
+            if let Some(p) = group.parent.page {
+                conn.execute(
+                    "UPDATE chunks SET page = ?1 WHERE id = ?2",
+                    rusqlite::params![p as i64, parent_db_id],
+                )?;
+            }
 
-    // Store tags
-    if all_tags.iter().any(|(_, t)| !t.is_empty()) {
-        insert_chunk_tags(source.source_id, &all_tags)?;
+            // Store children
+            for (embed_idx, (_, child, ctx_result)) in kept.iter().enumerate() {
+                let child_chunk_data = ChunkData {
+                    content: child.content.clone(),
+                    chunk_index: child.index,
+                    start_pos: child.start_pos,
+                    end_pos: child.end_pos,
+                    chunk_type: "child".to_string(),
+                    embedding: embeddings[embed_idx].clone(),
+                };
+                source_rag::add_chunks(source_id, vec![child_chunk_data])?;
+                let child_db_id: i64 = conn.query_row(
+                    "SELECT id FROM chunks WHERE source_id = ?1 AND chunk_index = ?2 AND chunk_role IS NULL ORDER BY id DESC LIMIT 1",
+                    rusqlite::params![source_id, child.index],
+                    |row| row.get(0),
+                )?;
+                conn.execute(
+                    "UPDATE chunks SET parent_id = ?1, chunk_role = 'child' WHERE id = ?2",
+                    rusqlite::params![parent_db_id, child_db_id],
+                )?;
+                if !ctx_result.tags.is_empty() {
+                    parent_tags.push((child.index, ctx_result.tags.clone()));
+                }
+                total_kept += 1;
+            }
+        } // conn dropped here
+
+        // Store tags for this parent's children
+        if parent_tags.iter().any(|(_, t)| !t.is_empty()) {
+            insert_chunk_tags(source_id, &parent_tags)?;
+        }
+
+        tracing::info!("Parent {}/{} committed ({} children stored)", p_idx + 1, total_parents, kept.len());
     }
 
     // Mark source as completed
-    if let Err(e) = source_rag::update_source_status(source.source_id, "completed".to_string()) {
+    if let Err(e) = source_rag::update_source_status(source_id, "completed".to_string()) {
         tracing::warn!("Failed to update source status: {}", e);
     }
 
@@ -644,20 +690,11 @@ async fn ingest_text_parent_child(
 
     let total_duration_ms = total_start.elapsed().as_millis() as u64;
 
-    // Compute relevance stats
-    let mut rel_count = 0usize;
-    let mut rel_sum = 0.0f64;
-    let mut rel_min = f64::INFINITY;
-    let mut rel_max = 0.0f64;
-    for c in &context_results {
-        if let Some(s) = c.relevance_score {
-            let s = s as f64;
-            rel_count += 1;
-            rel_sum += s;
-            if s < rel_min { rel_min = s; }
-            if s > rel_max { rel_max = s; }
-        }
-    }
+    // Compute relevance stats from accumulated scores
+    let rel_count = all_relevance_scores.len();
+    let rel_sum: f64 = all_relevance_scores.iter().sum();
+    let rel_min = all_relevance_scores.iter().cloned().fold(f64::INFINITY, f64::min);
+    let rel_max = all_relevance_scores.iter().cloned().fold(0.0f64, f64::max);
     let avg_relevance = if rel_count == 0 { 0.0 } else { rel_sum / rel_count as f64 };
     let min_relevance = if rel_count == 0 { 0.0 } else { rel_min };
 
@@ -675,11 +712,11 @@ async fn ingest_text_parent_child(
     };
 
     tracing::info!(
-        "Parent-child ingestion complete: {} parents, {} children ({} filtered) in {}ms",
-        total_parents, total_children, filtered_count, total_duration_ms
+        "Parent-child ingestion complete: {} parents, {} children ({} kept, {} filtered) in {}ms",
+        total_parents, total_children, total_kept, filtered_count, total_duration_ms
     );
 
-    Ok((source.source_id, report))
+    Ok((source_id, report))
 }
 
 /// Update section_path for all chunks of a source, matched by chunk_index.
