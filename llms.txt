@@ -66,7 +66,7 @@ API keys via environment: `LLM_API_KEY`, `EMBEDDING_API_KEY`, or `.env` file.
 
 ```
 Document → Extract text (pdftotext / docx-lite / raw)
-         → Chunk (recursive, 800 chars, 10% overlap, section-aware)
+         → Chunk (auto/recursive/parent-child, configurable)
          → Relevance scoring (LLM rates 1-10, filters junk)
          → Contextual retrieval (LLM adds context prefix to each chunk)
          → Auto-tagging (LLM generates 2-3 tags per chunk)
@@ -131,7 +131,7 @@ rag-ferrite (single binary, 15 MB)
 ├── Embedding provider — OpenAI-compatible APIs, Ollama local models
 ├── LLM provider — Ollama, OpenAI, OpenRouter, any OpenAI-compatible
 ├── Reranker — LLM-based or Cohere
-├── Chunker — recursive character splitter, section-aware, markdown-aware
+├── Chunker — recursive + parent-child, section-aware, markdown-aware
 ├── Extractor — PDF (pdftotext), DOCX (docx-lite), TXT, MD
 └── Storage — SQLite + HNSW (persistent to disk) + BM25
 ```
@@ -154,7 +154,7 @@ src/
 ├── reranker.rs    — reranker (LLM, Cohere, passthrough)
 ├── embedding.rs   — embedding provider (OpenAI-compatible)
 ├── config.rs      — TOML config parsing
-├── chunker.rs     — recursive chunking, section extraction, language detection
+├── chunker.rs     — recursive + parent-child chunking, section extraction, language detection
 ├── extractor.rs   — PDF/DOCX/text extraction
 └── types.rs       — shared structs
 ```
@@ -178,11 +178,21 @@ max_concurrent = 3               # concurrent LLM calls
 
 ### Chunking
 
+Three strategies via `[chunking]` config:
+
+| Strategy | How | Best for |
+|---|---|---|
+| `recursive` | Fixed-size chunks (~800 chars) with overlap | Short docs, notes, FAQ |
+| `parent_child` | Large parents (~2000 chars) → small children (~200 chars). Children embedded for search, parents returned for context | Books, manuals, long-form |
+| `auto` (default) | parent_child for docs ≥ 5000 chars, recursive for smaller | Mixed collections |
+
 ```toml
-[advanced]
-chunk_size = 800                  # characters per chunk
-chunk_overlap_ratio = 0.1         # 10% overlap between chunks
-merge_last_chunk_threshold = 200  # merge tiny last chunk
+[chunking]
+strategy = "auto"                    # recursive, parent_child, or auto
+parent_max_chars = 2000              # parent chunk size (parent_child mode)
+child_max_chars = 200                # child chunk size (parent_child mode)
+child_overlap = 20                   # overlap between child chunks
+auto_threshold = 5000                # switch to parent_child above this size
 ```
 
 ### Query pipeline
@@ -233,6 +243,7 @@ http_bind_address = "0.0.0.0"    # for REST API (if http_port > 0)
 mcp_servers:
   rag-ferrite:
     command: /path/to/rag-ferrite
+    timeout: 9999        # large files can take 10+ min with contextual retrieval
     env:
       LLM_API_KEY: "..."
       EMBEDDING_API_KEY: "..."
