@@ -137,9 +137,10 @@ Query → Classify (simple / standard / complex)
 
 ### MCP client setup
 
-**Hermes:**
+**Option A — stdio** (local, simple):
 
 ```yaml
+# Hermes
 mcp_servers:
   rag-ferrite:
     command: /path/to/rag-ferrite
@@ -149,9 +150,8 @@ mcp_servers:
       EMBEDDING_API_KEY: "..."
 ```
 
-**Claude Desktop:**
-
 ```json
+// Claude Desktop
 {
   "mcpServers": {
     "rag-ferrite": {
@@ -164,6 +164,44 @@ mcp_servers:
   }
 }
 ```
+
+**Option B — Streamable HTTP** (recommended for production, remote servers, shared access):
+
+Set `http_port = 4242` in `config.toml`, then run as a service:
+
+```bash
+# Run directly
+rag-ferrite
+# → MCP server on stdio + Streamable HTTP on http://0.0.0.0:4242/mcp
+
+# Or as a systemd service (recommended)
+sudo cp rag-ferrite.service /etc/systemd/system/
+sudo systemctl enable rag-ferrite
+```
+
+Connect from any MCP client:
+
+```yaml
+# Hermes — local
+mcp_servers:
+  rag-ferrite:
+    url: "http://localhost:4242/mcp"
+    timeout: 9999
+```
+
+```yaml
+# Hermes — remote server
+mcp_servers:
+  rag-ferrite:
+    url: "http://100.x.x.x:4242/mcp"
+    timeout: 9999
+```
+
+**Why Streamable HTTP?**
+- rag-ferrite runs as an **independent service** — survives client restarts
+- Works over the **network** — run rag-ferrite on any server
+- **Multiple clients** can connect simultaneously
+- Long ingestions are **decoupled** from client lifecycle
 
 > **Note:** Ingestion with contextual retrieval enabled can take 5–15 minutes per document depending on size and LLM speed. If your MCP client has a request timeout, set it high (e.g. 9999 seconds for Hermes).
 

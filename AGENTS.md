@@ -1,20 +1,23 @@
 # rag-ferrite — Custom RAG Engine (Rust)
 
-Moteur RAG personnel, en Rust. MCP server unique exposé via stdio à Hermes.
+Moteur RAG personnel, en Rust. MCP server exposé via stdio ou Streamable HTTP.
 
 ## Stack
 
 | Composant | Choix | Rôle |
 |---|---|---|
 | Coeur RAG | rag_engine v0.8 | HNSW vector search, BM25, hybrid fusion (RRF), SQLite storage, semantic chunking |
-| MCP Server | rmcp | Exposition stdio via Hermes |
+| MCP Server | rmcp | Exposition stdio + Streamable HTTP |
 | Embeddings | OpenRouter (Qwen3 8B) | Vecteurs 4096 dims |
 | LLM | Ollama Cloud (Gemma4 31B) | Scoring, contextual retrieval, tagging, reranking |
 | Stockage | SQLite + HNSW | 1 fichier DB, backup = cp |
 
 ## Architecture
 
-Binaire unique, mode MCP stdio uniquement. Pas de HTTP.
+Binaire unique. Deux modes :
+
+- **stdio** (défaut) : MCP sur stdin/stdout, Hermes spawn le process
+- **Streamable HTTP** (`http_port > 0`) : MCP sur HTTP `/mcp`, service indépendant, accessible à distance
 
 ~/services/rag-ferrite/
   rag-ferrite          <- binaire

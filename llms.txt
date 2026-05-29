@@ -237,7 +237,7 @@ http_bind_address = "0.0.0.0"    # for REST API (if http_port > 0)
 
 ## Hermes / MCP Client Setup
 
-### Hermes (stdio)
+### Option A — stdio (local, simple)
 
 ```yaml
 mcp_servers:
@@ -248,6 +248,24 @@ mcp_servers:
       LLM_API_KEY: "..."
       EMBEDDING_API_KEY: "..."
 ```
+
+### Option B — Streamable HTTP (recommended for production / remote)
+
+Set `http_port = 4242` in config.toml. rag-ferrite serves MCP over HTTP at `/mcp`.
+
+```yaml
+# Hermes — local or remote
+mcp_servers:
+  rag-ferrite:
+    url: "http://localhost:4242/mcp"
+    timeout: 9999
+```
+
+**Why Streamable HTTP:**
+- Independent service — survives client restarts
+- Works over the network — run on any server
+- Multiple clients can connect
+- Long ingestions decoupled from client lifecycle
 
 ### Claude Desktop / any MCP client
 
