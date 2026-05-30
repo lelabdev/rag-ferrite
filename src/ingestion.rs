@@ -141,6 +141,15 @@ async fn background_worker(
             }
         }
     }
+
+    // Channel closed — all senders dropped. Reset progress to Idle so the
+    // API never reports a stale "Running" status after shutdown.
+    {
+        let mut p = progress.lock().unwrap();
+        p.status = IngestStatus::Idle;
+        p.current_source = None;
+    }
+
     tracing::info!("Ingestion worker shut down.");
 }
 
@@ -175,6 +184,8 @@ async fn process_file_job(
     match result {
         Ok((_id, report)) => {
             tracing::info!("Ingestion complete: {} — {} chunks", file_path, report.total_chunks);
+            p.parents_total = report.total_chunks;
+            p.parents_done = report.total_chunks;
             p.last_completed = Some(file_path.to_string());
             p.last_error = None;
         }
@@ -221,6 +232,8 @@ async fn process_data_job(
     match result {
         Ok((_id, report)) => {
             tracing::info!("Ingestion complete: {} — {} chunks", source, report.total_chunks);
+            p.parents_total = report.total_chunks;
+            p.parents_done = report.total_chunks;
             p.last_completed = Some(source.to_string());
             p.last_error = None;
         }
