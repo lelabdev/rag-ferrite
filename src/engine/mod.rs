@@ -169,6 +169,7 @@ pub struct IngestOptions {
     pub min_relevance_score: f64,
     pub chunk_size: usize,
     pub context_batch_size: usize,
+    pub context_max_retries: usize,
     pub chunk_overlap_ratio: f64,
     pub merge_last_chunk_threshold: usize,
     /// Chunking strategy: "recursive", "parent_child", or "auto"
@@ -264,30 +265,14 @@ pub async fn ingest_text(
     let llm_start = Instant::now();
     let context_results: Vec<ContextResult> = if let Some(llm_provider) = llm {
         tracing::info!("Generating context prefixes for {} chunks via LLM...", chunks.len());
-
-        // Process in batches for rate limiting
-        let mut all_results: Vec<ContextResult> = Vec::with_capacity(chunks.len());
-        for batch in chunk_texts.chunks(options.context_batch_size) {
-            let results = llm_provider.generate_context_batch(content, batch, options.max_concurrent).await;
-            for result in results {
-                match result {
-                    Ok(ctx_result) => {
-                        if ctx_result.context.is_none() {
-                            context_failures += 1;
-                        }
-                        all_results.push(ctx_result)
-                    }
-                    Err(e) => {
-                        tracing::warn!("Context generation failed for chunk: {}, using raw content", e);
-                        context_failures += 1;
-                        all_results.push(ContextResult { context: None, relevance_score: None, extracted_metadata: None, tags: Vec::new() });
-                    }
-                }
-            }
-        }
-        let with_ctx = all_results.iter().filter(|c| c.context.is_some()).count();
+        let (results, failures) = generate_contexts(
+            llm_provider, content, &chunk_texts,
+            options.context_batch_size, options.context_max_retries,
+        ).await;
+        let with_ctx = results.iter().filter(|c| c.context.is_some()).count();
         tracing::info!("Generated {}/{} context prefixes", with_ctx, chunks.len());
-        all_results
+        context_failures = failures;
+        results
     } else {
         vec![ContextResult { context: None, relevance_score: None, extracted_metadata: None, tags: Vec::new() }; chunks.len()]
     };
@@ -314,22 +299,8 @@ pub async fn ingest_text(
         .map(|((idx, chunk), ctx_result)| (idx, chunk, ctx_result))
         .collect();
 
-    // Compute relevance statistics from all context results (single-pass)
-    let mut rel_count = 0usize;
-    let mut rel_sum = 0.0f64;
-    let mut rel_min = f64::INFINITY;
-    let mut rel_max = 0.0f64;
-    for c in &context_results {
-        if let Some(s) = c.relevance_score {
-            let s = s as f64;
-            rel_count += 1;
-            rel_sum += s;
-            if s < rel_min { rel_min = s; }
-            if s > rel_max { rel_max = s; }
-        }
-    }
-    let avg_relevance = if rel_count == 0 { 0.0 } else { rel_sum / rel_count as f64 };
-    let min_relevance = if rel_count == 0 { 0.0 } else { rel_min };
+    // Compute relevance statistics
+    let (avg_relevance, min_relevance, rel_max) = compute_relevance_stats(&context_results);
 
     if filtered_count > 0 {
         tracing::info!("Relevance scoring: filtered {}/{} chunks (threshold={:.1})", filtered_count, chunks.len(), options.min_relevance_score);
@@ -454,6 +425,88 @@ pub async fn ingest_file(
 
 /// Ingest text using parent-child chunking strategy.
 /// Parents are stored without embeddings, children are embedded for search.
+/// Generate context for a batch of chunk texts using LLM (batch + individual retry).
+/// Shared by both recursive and parent-child ingestion paths.
+async fn generate_contexts(
+    llm_provider: &LlmProvider,
+    whole_document: &str,
+    chunk_texts: &[String],
+    batch_size: usize,
+    max_retries: usize,
+) -> (Vec<ContextResult>, usize) {
+    let mut failures = 0usize;
+    let mut results = Vec::with_capacity(chunk_texts.len());
+
+    // Batch: send groups of chunks in one LLM call each
+    for batch in chunk_texts.chunks(batch_size) {
+        let batch_results = llm_provider.generate_context_for_parent(whole_document, batch).await;
+        for result in batch_results {
+            match result {
+                Ok(ctx) => {
+                    if ctx.context.is_none() { failures += 1; }
+                    results.push(ctx);
+                }
+                Err(e) => {
+                    tracing::warn!("Context generation failed: {}, using raw content", e);
+                    failures += 1;
+                    results.push(ContextResult {
+                        context: None, relevance_score: None,
+                        extracted_metadata: None, tags: Vec::new(),
+                    });
+                }
+            }
+        }
+    }
+
+    // Retry failed chunks individually (up to max_retries)
+    if max_retries > 0 {
+        let mut retry_count = 0usize;
+        for (i, result) in results.iter_mut().enumerate() {
+            if result.context.is_some() { continue; }
+            for attempt in 1..=max_retries {
+                match llm_provider.generate_context(whole_document, &chunk_texts[i]).await {
+                    Ok(ctx) if ctx.context.is_some() => {
+                        tracing::debug!("Retry {}/{} succeeded for chunk {}", attempt, max_retries, i);
+                        failures = failures.saturating_sub(1);
+                        retry_count += 1;
+                        *result = ctx;
+                        break;
+                    }
+                    Ok(_) => {} // context still None
+                    Err(e) => {
+                        tracing::debug!("Retry {}/{} failed for chunk {}: {}", attempt, max_retries, i, e);
+                    }
+                }
+            }
+        }
+        if retry_count > 0 {
+            tracing::info!("Retry recovered {}/{} failed chunks", retry_count, chunk_texts.len());
+        }
+    }
+
+    (results, failures)
+}
+
+/// Compute relevance statistics from context results.
+fn compute_relevance_stats(context_results: &[ContextResult]) -> (f64, f64, f64) {
+    let mut count = 0usize;
+    let mut sum = 0.0f64;
+    let mut min = f64::INFINITY;
+    let mut max = 0.0f64;
+    for c in context_results {
+        if let Some(s) = c.relevance_score {
+            let s = s as f64;
+            count += 1;
+            sum += s;
+            if s < min { min = s; }
+            if s > max { max = s; }
+        }
+    }
+    let avg = if count == 0 { 0.0 } else { sum / count as f64 };
+    let min_val = if count == 0 { 0.0 } else { min };
+    (avg, min_val, max)
+}
+
 async fn ingest_text_parent_child(
     embedder: &EmbeddingProvider,
     llm: Option<&LlmProvider>,
@@ -545,33 +598,18 @@ async fn ingest_text_parent_child(
 
         // LLM context + scoring for this parent's children
         let child_texts: Vec<String> = children.iter().map(|c| c.content.clone()).collect();
-        let context_results: Vec<ContextResult> = if let Some(ref llm_provider) = llm {
-            let t = Instant::now();
+        let (context_results, batch_failures) = if let Some(ref llm_provider) = llm {
             tracing::info!("Processing parent {}/{} ({} children)...", p_idx + 1, total_parents, children.len());
-            let mut results = Vec::with_capacity(child_texts.len());
-            for batch in child_texts.chunks(options.context_batch_size) {
-                let batch_results = llm_provider.generate_context_batch(content, batch, options.max_concurrent).await;
-                for result in batch_results {
-                    match result {
-                        Ok(ctx_result) => {
-                            if ctx_result.context.is_none() { context_failures += 1; }
-                            results.push(ctx_result);
-                        }
-                        Err(e) => {
-                            tracing::warn!("Context generation failed for child chunk: {}, using raw content", e);
-                            context_failures += 1;
-                            results.push(ContextResult {
-                                context: None, relevance_score: None,
-                                extracted_metadata: None, tags: Vec::new(),
-                            });
-                        }
-                    }
-                }
-            }
+            let t = Instant::now();
+            let (results, failures) = generate_contexts(
+                llm_provider, content, &child_texts,
+                options.context_batch_size, options.context_max_retries,
+            ).await;
             llm_duration_ms += t.elapsed().as_millis() as u64;
-            results
+            context_failures += failures;
+            (results, failures)
         } else {
-            vec![ContextResult { context: None, relevance_score: None, extracted_metadata: None, tags: Vec::new()}; child_texts.len()]
+            (vec![ContextResult { context: None, relevance_score: None, extracted_metadata: None, tags: Vec::new()}; child_texts.len()], 0)
         };
 
         // Filter children by relevance
@@ -691,12 +729,10 @@ async fn ingest_text_parent_child(
     let total_duration_ms = total_start.elapsed().as_millis() as u64;
 
     // Compute relevance stats from accumulated scores
-    let rel_count = all_relevance_scores.len();
-    let rel_sum: f64 = all_relevance_scores.iter().sum();
-    let rel_min = all_relevance_scores.iter().cloned().fold(f64::INFINITY, f64::min);
+    let avg_relevance = if all_relevance_scores.is_empty() { 0.0 } else { all_relevance_scores.iter().sum::<f64>() / all_relevance_scores.len() as f64 };
+    let min_relevance = all_relevance_scores.iter().cloned().fold(f64::INFINITY, f64::min);
     let rel_max = all_relevance_scores.iter().cloned().fold(0.0f64, f64::max);
-    let avg_relevance = if rel_count == 0 { 0.0 } else { rel_sum / rel_count as f64 };
-    let min_relevance = if rel_count == 0 { 0.0 } else { rel_min };
+    let min_relevance = if min_relevance == f64::INFINITY { 0.0 } else { min_relevance };
 
     let report = IngestionReport {
         total_chunks: total_children,

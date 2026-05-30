@@ -178,6 +178,79 @@ impl LlmProvider {
         })
     }
 
+    /// Generate context prefixes for multiple chunks of the SAME parent in a single LLM call.
+    /// Much faster than one call per child — the document is sent once, context for all chunks is returned.
+    pub async fn generate_context_for_parent(
+        &self,
+        whole_document: &str,
+        child_chunks: &[String],
+    ) -> Vec<Result<ContextResult>> {
+        if child_chunks.is_empty() {
+            return vec![];
+        }
+        if child_chunks.len() == 1 {
+            // Single child — use the existing single-call method
+            return vec![self.generate_context(whole_document, &child_chunks[0]).await];
+        }
+
+        // Build numbered chunks for the prompt
+        let numbered_chunks: String = child_chunks
+            .iter()
+            .enumerate()
+            .map(|(i, c)| format!("CHUNK {}:\n{}", i + 1, c))
+            .collect::<Vec<_>>()
+            .join("\n\n");
+
+        let prompt = format!(
+            "<document>\n{}\n</document>\n\n\
+             Here are {} chunks from the same section. For EACH chunk, assess its relevance \
+             for informative retrieval on a scale of 1 to 10 (1=noise, 10=highly informative) \
+             and give a short context to situate it within the document.\n\n\
+             Chunks:\n{}\n\n\
+             Answer ONLY in this exact format, one block per chunk:\n\
+             CHUNK 1:\n\
+             SCORE: <number 1-10>\n\
+             CONTEXT: <short succinct context, same language as document>\n\
+             TAGS: <2-3 short tags, comma-separated>\n\
+             CHUNK 2:\n\
+             SCORE: <number 1-10>\n\
+             CONTEXT: <short succinct context>\n\
+             TAGS: <2-3 short tags, comma-separated>\n\
+             (etc.)",
+            truncate_for_prompt(whole_document, self.max_document_prompt_chars),
+            child_chunks.len(),
+            numbered_chunks,
+        );
+
+        let messages = vec![ChatMessage {
+            role: "user".into(),
+            content: prompt,
+        }];
+
+        let response_text = match self.chat(messages.clone()).await {
+            Ok(text) => text,
+            Err(e) => {
+                if let Some(ref fb) = self.fallback {
+                    tracing::warn!("Primary LLM ({}/{}) failed: {}. Trying fallback ({}/{})",
+                        self.provider, self.model, e, fb.provider, fb.model);
+                    match fb.chat(messages).await {
+                        Ok(text) => text,
+                        Err(e2) => {
+                            let err = e2.to_string();
+                            return child_chunks.iter().map(|_| Err(anyhow!("{}", err))).collect();
+                        }
+                    }
+                } else {
+                    let err = e.to_string();
+                    return child_chunks.iter().map(|_| Err(anyhow!("{}", err))).collect();
+                }
+            }
+        };
+
+        // Parse multi-chunk response
+        parse_multi_chunk_response(&response_text, child_chunks.len())
+    }
+
     /// Generate context prefixes for multiple chunks in a single batch.
     /// Processes chunks concurrently (up to 10 at a time).
     pub async fn generate_context_batch(
@@ -584,6 +657,66 @@ mod tests {
 /// Parse the LLM response for SCORE, CONTEXT, TAGS and METADATA lines.
 /// Returns (relevance_score, context, metadata, tags). If parsing fails, uses the whole
 /// response as context and returns score = None (backward compat).
+/// Parse a multi-chunk LLM response into individual ContextResults.
+/// Expected format: CHUNK N: / SCORE: / CONTEXT: / TAGS: blocks separated by blank lines.
+fn parse_multi_chunk_response(response: &str, expected_count: usize) -> Vec<Result<ContextResult>> {
+    let mut results: Vec<Result<ContextResult>> = Vec::with_capacity(expected_count);
+    
+    // Split response by "CHUNK N:" markers
+    let chunk_pattern = regex::Regex::new(r"(?m)^CHUNK\s+\d+\s*:").unwrap_or_else(|_| {
+        tracing::warn!("Failed to compile chunk pattern regex");
+        regex::Regex::new(r"nevermatch").unwrap()
+    });
+    
+    let mut chunks: Vec<&str> = Vec::new();
+    let mut last_end = 0;
+    
+    for mat in chunk_pattern.find_iter(response) {
+        if last_end > 0 || mat.start() > 0 {
+            if last_end > 0 {
+                chunks.push(&response[last_end..mat.start()]);
+            }
+        }
+        last_end = mat.start();
+    }
+    if last_end < response.len() {
+        chunks.push(&response[last_end..]);
+    }
+    
+    if chunks.is_empty() {
+        // Fallback: couldn't parse chunks, try parsing as single response
+        tracing::warn!("Could not parse multi-chunk response, falling back to single parse");
+        let (score, context, metadata, tags) = parse_context_response(response);
+        results.push(Ok(ContextResult {
+            context, relevance_score: score, extracted_metadata: metadata, tags,
+        }));
+        // Fill rest with empty results
+        while results.len() < expected_count {
+            results.push(Ok(ContextResult {
+                context: None, relevance_score: None, extracted_metadata: None, tags: Vec::new(),
+            }));
+        }
+        return results;
+    }
+    
+    for chunk_text in &chunks {
+        let (score, context, metadata, tags) = parse_context_response(chunk_text);
+        results.push(Ok(ContextResult {
+            context, relevance_score: score, extracted_metadata: metadata, tags,
+        }));
+    }
+    
+    // Pad if we got fewer results than expected
+    while results.len() < expected_count {
+        results.push(Ok(ContextResult {
+            context: None, relevance_score: None, extracted_metadata: None, tags: Vec::new(),
+        }));
+    }
+    
+    results.truncate(expected_count);
+    results
+}
+
 fn parse_context_response(response: &str) -> (Option<f32>, Option<String>, Option<serde_json::Value>, Vec<String>) {
     let mut score: Option<f32> = None;
     let mut context_lines: Vec<&str> = Vec::new();

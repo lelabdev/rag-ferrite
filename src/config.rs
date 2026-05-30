@@ -149,6 +149,10 @@ pub struct LlmConfig {
     #[serde(default = "default_context_batch_size")]
     pub context_batch_size: usize,
 
+    /// Max retries for failed context generation per chunk
+    #[serde(default = "default_context_max_retries")]
+    pub context_max_retries: usize,
+
     /// Fallback LLM config — used when primary fails (rate limit, network, etc.)
     #[serde(default)]
     pub fallback: Option<FallbackLlmConfig>,
@@ -211,6 +215,9 @@ fn default_max_chunk_prompt_chars() -> usize {
 fn default_context_batch_size() -> usize {
     20
 }
+fn default_context_max_retries() -> usize {
+    3
+}
 
 impl Default for LlmConfig {
     fn default() -> Self {
@@ -231,6 +238,7 @@ impl Default for LlmConfig {
             max_document_prompt_chars: default_max_document_prompt_chars(),
             max_chunk_prompt_chars: default_max_chunk_prompt_chars(),
             context_batch_size: default_context_batch_size(),
+            context_max_retries: default_context_max_retries(),
             fallback: None,
         }
     }

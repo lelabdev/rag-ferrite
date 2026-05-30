@@ -273,6 +273,7 @@ async fn main() -> Result<()> {
             min_relevance_score: config.llm.min_relevance_score,
             chunk_size: config.advanced.chunk_size,
             context_batch_size: config.llm.context_batch_size,
+            context_max_retries: config.llm.context_max_retries,
             chunk_overlap_ratio: config.advanced.chunk_overlap_ratio,
             merge_last_chunk_threshold: config.advanced.merge_last_chunk_threshold,
             chunking_strategy: config.chunking.strategy.clone(),
