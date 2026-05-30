@@ -12,6 +12,7 @@ mod chunker;
 mod embedding;
 mod engine;
 mod extractor;
+mod ingestion;
 mod llm;
 mod params;
 mod pipeline;
@@ -21,10 +22,11 @@ mod types;
 
 use params::*;
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 struct RagFerriteServer {
     pub pipeline: pipeline::QueryPipeline,
     pub ingest_config: params::IngestConfig,
+    pub ingestion_manager: ingestion::IngestionManager,
     pub default_query_limit: usize,
     pub max_query_limit: usize,
 }
@@ -256,18 +258,7 @@ async fn main() -> Result<()> {
         }
     };
 
-    let server = RagFerriteServer {
-        pipeline: pipeline::QueryPipeline::new(
-            embedder.clone(),
-            llm.clone(),
-            reranker,
-            config.advanced.quality_threshold,
-            config.advanced.max_retries as u32,
-            config.advanced.cache_ttl_secs,
-            config.advanced.cache_max_entries,
-            config.advanced.high_confidence_threshold,
-        ),
-        ingest_config: params::IngestConfig {
+    let ingest_config = params::IngestConfig {
             max_concurrent: config.llm.max_concurrent,
             relevance_scoring: config.llm.relevance_scoring,
             min_relevance_score: config.llm.min_relevance_score,
@@ -282,7 +273,23 @@ async fn main() -> Result<()> {
             child_overlap: config.chunking.child_overlap,
             auto_threshold: config.chunking.auto_threshold,
             child_min_chars: config.chunking.child_min_chars,
-        },
+        };
+
+    let pipeline = pipeline::QueryPipeline::new(
+        embedder.clone(),
+        llm.clone(),
+        reranker,
+        config.advanced.quality_threshold,
+        config.advanced.max_retries as u32,
+        config.advanced.cache_ttl_secs,
+        config.advanced.cache_max_entries,
+        config.advanced.high_confidence_threshold,
+    );
+
+    let server = RagFerriteServer {
+        pipeline: pipeline.clone(),
+        ingestion_manager: ingestion::IngestionManager::new(pipeline, ingest_config.clone()),
+        ingest_config,
         default_query_limit: config.advanced.default_query_limit,
         max_query_limit: config.advanced.max_query_limit,
     };

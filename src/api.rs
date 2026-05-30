@@ -75,6 +75,11 @@ async fn status(State(_server): State<Arc<RagFerriteServer>>) -> impl IntoRespon
     json_response(crate::service::status_service())
 }
 
+async fn ingest_progress(State(server): State<Arc<RagFerriteServer>>) -> impl IntoResponse {
+    let progress = server.ingestion_manager.get_progress();
+    (StatusCode::OK, Json(serde_json::json!(progress)))
+}
+
 async fn list_documents(
     State(_server): State<Arc<RagFerriteServer>>,
     Query(params): Query<ListDocumentsQuery>,
@@ -137,14 +142,11 @@ async fn ingest_data(
     State(server): State<Arc<RagFerriteServer>>,
     Json(req): Json<IngestDataParams>,
 ) -> impl IntoResponse {
-    let val = crate::service::ingest_data_service(
-        &server.pipeline,
-        &server.ingest_config,
-        &req.content,
-        &req.source,
-        req.collection.as_deref(),
-    )
-    .await;
+    let val = server.ingestion_manager.ingest_data(
+        req.content,
+        req.source,
+        req.collection,
+    );
     json_response(val)
 }
 
@@ -152,13 +154,10 @@ async fn ingest_file(
     State(server): State<Arc<RagFerriteServer>>,
     Json(req): Json<IngestFileParams>,
 ) -> impl IntoResponse {
-    let val = crate::service::ingest_file_service(
-        &server.pipeline,
-        &server.ingest_config,
-        &req.file_path,
-        req.collection.as_deref(),
-    )
-    .await;
+    let val = server.ingestion_manager.ingest_file(
+        req.file_path,
+        req.collection,
+    );
     json_response(val)
 }
 
@@ -208,6 +207,7 @@ pub async fn serve(server: Arc<RagFerriteServer>, port: u16, bind_address: Strin
     let app = Router::new()
         // REST API
         .route("/api/status", get(status))
+        .route("/api/ingest/progress", get(ingest_progress))
         .route("/api/documents", get(list_documents))
         .route("/api/documents/{source_id}", get(get_document))
         .route(
