@@ -19,6 +19,18 @@ Binaire unique. Deux modes :
 - **stdio** (défaut) : MCP sur stdin/stdout, Hermes spawn le process
 - **Streamable HTTP** (`http_port > 0`) : MCP sur HTTP `/mcp`, service indépendant, accessible à distance
 
+### Architecture decisions
+
+All technical decisions are documented as ADR files in `docs/adr/`.
+See `docs/DECISIONS.md` for the index.
+
+Key decisions:
+- Single binary, Rust, SQLite + HNSW (no external DB, no Python)
+- Parent-child chunking with contextual retrieval
+- Parallel parents (JoinSet) + batch children for ingestion speed
+- Merge consecutive small children (<100 chars) for technical docs
+- Won't fix: #122 (chunker rewrite), #128 (DELETE pattern), #130 (graph config)
+
 ~/services/rag-ferrite/
   rag-ferrite          <- binaire
   rag-ferrite-mcp      <- wrapper (cd + exec)
