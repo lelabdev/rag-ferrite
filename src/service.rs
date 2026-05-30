@@ -1,6 +1,7 @@
 //! Shared service layer — business logic called by both MCP tools (main.rs) and HTTP handlers (api.rs).
 
 use crate::engine;
+use crate::llm;
 use crate::params::IngestConfig;
 use crate::pipeline::QueryPipeline;
 use crate::types::{ChunkResult, HybridResult, SourceInfo};
@@ -71,12 +72,15 @@ pub async fn query_service(
 pub async fn ingest_file_service(
     pipeline: &QueryPipeline,
     cfg: &IngestConfig,
+    ingestion_llm: Option<&llm::LlmProvider>,
     file_path: &str,
     collection: Option<&str>,
 ) -> serde_json::Value {
+    // Use ingestion_llm if available, otherwise fall back to pipeline.llm
+    let llm = ingestion_llm.or(pipeline.llm.as_ref());
     match engine::ingest_file(
         &pipeline.embedder,
-        pipeline.llm.as_ref(),
+        llm,
         file_path,
         collection,
         cfg.to_engine_options(),
@@ -99,13 +103,16 @@ pub async fn ingest_file_service(
 pub async fn ingest_data_service(
     pipeline: &QueryPipeline,
     cfg: &IngestConfig,
+    ingestion_llm: Option<&llm::LlmProvider>,
     content: &str,
     source: &str,
     collection: Option<&str>,
 ) -> serde_json::Value {
+    // Use ingestion_llm if available, otherwise fall back to pipeline.llm
+    let llm = ingestion_llm.or(pipeline.llm.as_ref());
     match engine::ingest_text(
         &pipeline.embedder,
-        pipeline.llm.as_ref(),
+        llm,
         content,
         source,
         None,

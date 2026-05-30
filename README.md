@@ -55,6 +55,49 @@ model = "gemma4:31b"                         # or gpt-4o, llama3, etc.
 base_url = "https://api.ollama.com"          # or https://api.openai.com/v1, http://localhost:11434
 ```
 
+### Modular LLM profiles (optional)
+
+Assign different models to different actions — ingestion, queries, and reranking can each use their own provider.
+
+```toml
+# Define named profiles
+[[llm_profile]]
+name = "ollama"
+provider = "ollama"
+model = "gemma4:31b"
+base_url = "https://api.ollama.com"
+
+[[llm_profile]]
+name = "fast"
+provider = "ollama"
+model = "ministral-3:3b"
+base_url = "https://api.ollama.com"
+
+[[llm_profile]]
+name = "smart"
+provider = "openai_compatible"
+model = "glm-5.1"
+base_url = "https://api.z.ai/api/coding/paas/v4"
+api_key_env = "GLM_API_KEY"              # which env var holds the key (default: LLM_API_KEY)
+
+# Assign profiles to actions
+[llm]
+ingestion_profile = "fast"                # contextualisation during ingestion
+query_profile = "smart"                   # query expansion + reformulation
+reranker_profile = "fast"                 # reranking search results
+context_enabled = true
+```
+
+**What each action needs:**
+
+| Action | Priority | Why | Recommended models |
+|--------|----------|-----|--------------------|
+| **Ingestion** | Speed + cost | Thousands of LLM calls per document. Task is simple (summarize a chunk) | ministral-3:3b, gemma-3-4b ($0.04/1M tokens) |
+| **Query** | Quality | One call per query. Must understand user intent and generate good variants | gemma4:31b, glm-5.1, gpt-4o-mini |
+| **Reranker** | Speed + cost | One call per query. Mechanical scoring task | Same as ingestion — small fast models |
+
+Without profiles, all actions use the single `[llm]` provider (backward compatible).
+
 Run:
 
 ```bash
@@ -230,14 +273,18 @@ context_enabled = true                       # add context prefix to each chunk
 relevance_scoring = true                     # LLM filters junk at ingestion
 min_relevance_score = 5.0                    # chunks below 5/10 are discarded
 temperature = 0.3                            # scoring/tagging consistency
-max_tokens = 150                             # per LLM call
+max_tokens = 150                            # per LLM call
 expansion_temperature = 0.7                  # query expansion creativity
 expansion_max_tokens = 200                   # per expansion call
 max_expansion_queries = 4                    # alternative queries per original
 max_document_prompt_chars = 8000             # context window for prompts
 max_chunk_prompt_chars = 2000
-context_batch_size = 20                      # parallel chunks during ingestion
+context_batch_size = 3                       # chunks per batch LLM call (lower = more reliable)
 max_concurrent = 3                           # concurrent LLM calls
+# Optional: assign profiles to actions (see "Modular LLM profiles" above)
+# ingestion_profile = "fast"
+# query_profile = "smart"
+# reranker_profile = "fast"
 
 [reranker]
 reranker_type = "llm"                        # disabled, llm, or cohere

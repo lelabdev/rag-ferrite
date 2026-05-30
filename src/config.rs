@@ -16,6 +16,11 @@ pub struct Config {
     #[serde(default)]
     pub llm: LlmConfig,
 
+    /// Named LLM profiles — when defined, [llm] action fields reference profiles by name.
+    /// If empty, the legacy single-provider [llm] config is used for all actions.
+    #[serde(default)]
+    pub llm_profile: Vec<LlmProfile>,
+
     /// Reranker configuration
     #[serde(default)]
     pub reranker: RerankerConfig,
@@ -37,6 +42,34 @@ pub struct Config {
     #[serde(default)]
     pub http_port: u16,
 
+}
+
+/// A named LLM profile with its own provider, model, base_url, and optional API key env var.
+#[derive(Debug, Deserialize, Clone)]
+pub struct LlmProfile {
+    /// Profile name — referenced by ingestion_profile, query_profile, reranker_profile.
+    pub name: String,
+    /// LLM provider: "ollama", "openai_compatible", etc.
+    pub provider: String,
+    /// Model name (e.g. "gemma4:31b", "ministral-3:3b").
+    pub model: String,
+    /// API base URL.
+    pub base_url: String,
+    /// Environment variable name holding the API key (defaults to "LLM_API_KEY").
+    #[serde(default = "default_api_key_env")]
+    pub api_key_env: String,
+}
+
+fn default_api_key_env() -> String {
+    "LLM_API_KEY".into()
+}
+
+impl Config {
+    /// Look up an LLM profile by name. Returns None if no profiles are defined
+    /// or the name doesn't match.
+    pub fn get_profile(&self, name: &str) -> Option<&LlmProfile> {
+        self.llm_profile.iter().find(|p| p.name == name)
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -161,6 +194,23 @@ pub struct LlmConfig {
     /// Fallback LLM config — used when primary fails (rate limit, network, etc.)
     #[serde(default)]
     pub fallback: Option<FallbackLlmConfig>,
+
+    // ── Profile-based action assignment ──
+    // When [[llm_profile]] entries exist, these reference profile names.
+    // When no profiles are defined, the legacy single-provider fields above are used.
+
+    /// Profile name for ingestion (contextualisation during ingestion).
+    /// If set and the profile exists, overrides provider/model/base_url/api_key.
+    #[serde(default)]
+    pub ingestion_profile: Option<String>,
+
+    /// Profile name for query (expansion + reformulation).
+    #[serde(default)]
+    pub query_profile: Option<String>,
+
+    /// Profile name for reranking results.
+    #[serde(default)]
+    pub reranker_profile: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -218,7 +268,7 @@ fn default_max_chunk_prompt_chars() -> usize {
     2000
 }
 fn default_context_batch_size() -> usize {
-    20
+    3
 }
 fn default_context_max_retries() -> usize {
     3
@@ -245,6 +295,9 @@ impl Default for LlmConfig {
             context_batch_size: default_context_batch_size(),
             context_max_retries: default_context_max_retries(),
             fallback: None,
+            ingestion_profile: None,
+            query_profile: None,
+            reranker_profile: None,
         }
     }
 }
@@ -489,6 +542,7 @@ impl Default for Config {
             data_dir: default_data_dir(),
             embedding: EmbeddingConfig::default(),
             llm: LlmConfig::default(),
+            llm_profile: Vec::new(),
             reranker: RerankerConfig::default(),
             advanced: AdvancedConfig::default(),
             chunking: ChunkingConfig::default(),

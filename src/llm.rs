@@ -67,7 +67,31 @@ struct ChatChoice {
 }
 
 impl LlmProvider {
+    /// Create an LlmProvider from a named profile (reads API key from the profile's env var).
+    pub fn from_profile(profile: &crate::config::LlmProfile) -> Self {
+        let api_key = std::env::var(&profile.api_key_env).ok();
+        Self::build(
+            profile.provider.clone(),
+            profile.model.clone(),
+            api_key,
+            Some(profile.base_url.clone()),
+        )
+    }
+
     pub fn new(
+        provider: String,
+        model: String,
+        api_key: Option<String>,
+        base_url: Option<String>,
+    ) -> Self {
+        let api_key = api_key
+            .or_else(|| std::env::var("LLM_API_KEY").ok())
+            .or_else(|| std::env::var("FALLBACK_API_KEY").ok());
+
+        Self::build(provider, model, api_key, base_url)
+    }
+
+    pub fn new_query_fallback(
         provider: String,
         model: String,
         api_key: Option<String>,
@@ -104,6 +128,14 @@ impl LlmProvider {
             tracing::warn!("No base_url configured for LLM provider '{}', using http://localhost:11434", provider);
             "http://localhost:11434".into()
         });
+
+        tracing::info!(
+            "LLM provider: {} / {}, base_url: {}, api_key: {}",
+            provider,
+            model,
+            base_url,
+            if api_key.is_some() { format!("{}***", &api_key.as_ref().unwrap()[..8.min(api_key.as_ref().unwrap().len())]) } else { "NONE".into() }
+        );
 
         Self {
             provider,

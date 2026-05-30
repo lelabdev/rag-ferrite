@@ -26,6 +26,8 @@ use params::*;
 struct RagFerriteServer {
     pub pipeline: pipeline::QueryPipeline,
     pub query_fallback_pipeline: Option<pipeline::QueryPipeline>,
+    /// LLM provider dedicated to ingestion (MCP tool calls that bypass the queue).
+    pub ingestion_llm: Option<llm::LlmProvider>,
     pub ingest_config: params::IngestConfig,
     pub ingestion_manager: ingestion::IngestionManager,
     pub default_query_limit: usize,
@@ -63,6 +65,7 @@ impl RagFerriteServer {
         service::ingest_file_service(
             &self.pipeline,
             &self.ingest_config,
+            self.ingestion_llm.as_ref(),
             &p.file_path,
             p.collection.as_deref(),
         )
@@ -76,6 +79,7 @@ impl RagFerriteServer {
         service::ingest_data_service(
             &self.pipeline,
             &self.ingest_config,
+            self.ingestion_llm.as_ref(),
             &p.content,
             &p.source,
             p.collection.as_deref(),
@@ -198,52 +202,120 @@ async fn main() -> Result<()> {
     );
     tracing::info!("Embedding provider: {} / {}", config.embedding.provider, config.embedding.model);
 
-    // Init LLM provider (optional, for contextual retrieval)
-    let llm = if config.llm.context_enabled {
-        let mut provider = llm::LlmProvider::new(
-            config.llm.provider.clone(),
-            config.llm.model.clone(),
-            config.llm.api_key.clone(),
-            config.llm.base_url.clone(),
-        );
-        // Set configurable LLM params
-        provider.temperature = config.llm.temperature;
-        provider.max_tokens = config.llm.max_tokens;
-        provider.expansion_temperature = config.llm.expansion_temperature;
-        provider.expansion_max_tokens = config.llm.expansion_max_tokens;
-        provider.max_expansion_queries = config.llm.max_expansion_queries;
-        provider.max_document_prompt_chars = config.llm.max_document_prompt_chars;
-        provider.max_chunk_prompt_chars = config.llm.max_chunk_prompt_chars;
+    // Init LLM providers — profile-based or legacy single provider.
+    // When [[llm_profile]] entries exist and action profiles are set, create
+    // separate LlmProvider instances for ingestion, query, and reranking.
+    // Otherwise, fall back to the legacy single [llm] provider for everything.
+    let has_profiles = !config.llm_profile.is_empty();
 
-        // Set up fallback if configured
-        if let Some(ref fb) = config.llm.fallback {
+    // Helper: apply configurable LLM params from LlmConfig to a provider.
+    let apply_llm_params = |provider: &mut llm::LlmProvider, cfg: &config::LlmConfig| {
+        provider.temperature = cfg.temperature;
+        provider.max_tokens = cfg.max_tokens;
+        provider.expansion_temperature = cfg.expansion_temperature;
+        provider.expansion_max_tokens = cfg.expansion_max_tokens;
+        provider.max_expansion_queries = cfg.max_expansion_queries;
+        provider.max_document_prompt_chars = cfg.max_document_prompt_chars;
+        provider.max_chunk_prompt_chars = cfg.max_chunk_prompt_chars;
+    };
+
+    // Helper: attach fallback from config if present.
+    let apply_fallback = |provider: llm::LlmProvider, cfg: &config::LlmConfig| -> llm::LlmProvider {
+        if let Some(ref fb) = cfg.fallback {
             let fb_provider = llm::LlmProvider::new_fallback(
                 fb.provider.clone(),
                 fb.model.clone(),
                 fb.api_key.clone(),
                 fb.base_url.clone(),
             );
-            provider = provider.with_fallback(fb_provider);
-            tracing::info!("LLM provider: {} / {} → fallback: {} / {} (contextual retrieval enabled)",
-                config.llm.provider, config.llm.model, fb.provider, fb.model);
+            provider.with_fallback(fb_provider)
         } else {
-            tracing::info!("LLM provider: {} / {} (contextual retrieval enabled)",
-                config.llm.provider, config.llm.model);
+            provider
         }
+    };
 
-        Some(provider)
+    // --- Resolve ingestion LLM ---
+    let ingestion_llm: Option<llm::LlmProvider> = if config.llm.context_enabled {
+        if let Some(ref profile_name) = config.llm.ingestion_profile {
+            if let Some(profile) = config.get_profile(profile_name) {
+                tracing::info!("Ingestion LLM: profile '{}' ({} / {})", profile.name, profile.provider, profile.model);
+                let mut provider = llm::LlmProvider::from_profile(profile);
+                apply_llm_params(&mut provider, &config.llm);
+                Some(provider)
+            } else {
+                tracing::warn!("ingestion_profile '{}' not found, using legacy config", profile_name);
+                let mut provider = llm::LlmProvider::new(
+                    config.llm.provider.clone(),
+                    config.llm.model.clone(),
+                    config.llm.api_key.clone(),
+                    config.llm.base_url.clone(),
+                );
+                apply_llm_params(&mut provider, &config.llm);
+                provider = apply_fallback(provider, &config.llm);
+                Some(provider)
+            }
+        } else {
+            // Legacy: use single [llm] config
+            let mut provider = llm::LlmProvider::new(
+                config.llm.provider.clone(),
+                config.llm.model.clone(),
+                config.llm.api_key.clone(),
+                config.llm.base_url.clone(),
+            );
+            apply_llm_params(&mut provider, &config.llm);
+            provider = apply_fallback(provider, &config.llm);
+            if has_profiles {
+                tracing::info!("Ingestion LLM: using legacy config ({} / {})", config.llm.provider, config.llm.model);
+            }
+            Some(provider)
+        }
     } else {
         tracing::info!("Contextual retrieval disabled");
         None
     };
 
+    // --- Resolve query LLM ---
+    let query_llm: Option<llm::LlmProvider> = if let Some(ref profile_name) = config.llm.query_profile {
+        if let Some(profile) = config.get_profile(profile_name) {
+            tracing::info!("Query LLM: profile '{}' ({} / {})", profile.name, profile.provider, profile.model);
+            let mut provider = llm::LlmProvider::from_profile(profile);
+            apply_llm_params(&mut provider, &config.llm);
+            Some(provider)
+        } else {
+            tracing::warn!("query_profile '{}' not found, falling back to ingestion LLM", profile_name);
+            ingestion_llm.clone()
+        }
+    } else {
+        // Legacy: same as ingestion LLM
+        ingestion_llm.clone()
+    };
+
+    // Log legacy mode
+    if !has_profiles && config.llm.context_enabled {
+        tracing::info!("LLM provider: {} / {} (contextual retrieval enabled)", config.llm.provider, config.llm.model);
+    }
+
     // Build reranker from LLM provider
     let reranker_top_k = config.reranker.top_k;
     let reranker = match config.reranker.reranker_type.as_str() {
         "llm" => {
-            if let Some(ref llm_provider) = llm {
-                tracing::info!("Reranker: LLM (reusing main LLM provider, top_k={})", reranker_top_k);
-                reranker::Reranker::new_llm(Arc::new(llm_provider.clone()), reranker_top_k, config.reranker.preview_chars)
+            // Resolve reranker LLM: dedicated profile > query LLM > ingestion LLM
+            let reranker_llm = if let Some(ref profile_name) = config.llm.reranker_profile {
+                if let Some(profile) = config.get_profile(profile_name) {
+                    tracing::info!("Reranker LLM: profile '{}' ({} / {})", profile.name, profile.provider, profile.model);
+                    Some(Arc::new(llm::LlmProvider::from_profile(profile)))
+                } else {
+                    tracing::warn!("reranker_profile '{}' not found, falling back", profile_name);
+                    query_llm.as_ref().map(|l| Arc::new(l.clone()))
+                }
+            } else {
+                // Legacy: reuse query LLM (or ingestion LLM)
+                query_llm.as_ref().map(|l| Arc::new(l.clone()))
+            };
+
+            if let Some(provider) = reranker_llm {
+                tracing::info!("Reranker: LLM (top_k={})", reranker_top_k);
+                reranker::Reranker::new_llm(provider, reranker_top_k, config.reranker.preview_chars)
             } else {
                 tracing::warn!("Reranker: LLM requested but no LLM provider available, disabling");
                 reranker::Reranker::disabled()
@@ -285,7 +357,7 @@ async fn main() -> Result<()> {
     let reranker_for_fallback = reranker.clone();
     let pipeline = pipeline::QueryPipeline::new(
         embedder.clone(),
-        llm.clone(),
+        query_llm.clone(),
         reranker,
         config.advanced.quality_threshold,
         config.advanced.max_retries as u32,
@@ -298,7 +370,7 @@ async fn main() -> Result<()> {
         pipeline: pipeline.clone(),
         query_fallback_pipeline: config.query_fallback.as_ref().map(|fb| {
             tracing::info!("Query fallback LLM: {} / {} (used during ingestion)", fb.provider, fb.model);
-            let fb_llm = llm::LlmProvider::new(
+            let fb_llm = llm::LlmProvider::new_query_fallback(
                 fb.provider.clone(),
                 fb.model.clone(),
                 fb.api_key.clone(),
@@ -315,7 +387,8 @@ async fn main() -> Result<()> {
                 config.advanced.high_confidence_threshold,
             )
         }),
-        ingestion_manager: ingestion::IngestionManager::new(pipeline, ingest_config.clone()),
+        ingestion_llm: ingestion_llm.clone(),
+        ingestion_manager: ingestion::IngestionManager::new(pipeline, ingest_config.clone(), ingestion_llm),
         ingest_config,
         default_query_limit: config.advanced.default_query_limit,
         max_query_limit: config.advanced.max_query_limit,

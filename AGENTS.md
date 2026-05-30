@@ -9,7 +9,8 @@ Moteur RAG personnel, en Rust. MCP server exposé via stdio ou Streamable HTTP.
 | Coeur RAG | rag_engine v0.8 | HNSW vector search, BM25, hybrid fusion (RRF), SQLite storage, semantic chunking |
 | MCP Server | rmcp | Exposition stdio + Streamable HTTP |
 | Embeddings | OpenRouter (Qwen3 8B) | Vecteurs 4096 dims |
-| LLM | Ollama Cloud (Gemma4 31B) | Scoring, contextual retrieval, tagging, reranking |
+|| LLM | Ollama Cloud (Gemma4 31B) | Scoring, contextual retrieval, tagging, reranking |
+|| LLM Profiles | Modular per action | Ingestion, query, reranker can use different providers/models |
 | Stockage | SQLite + HNSW | 1 fichier DB, backup = cp |
 
 ## Architecture
@@ -28,9 +29,10 @@ Key decisions:
 - Single binary, Rust, SQLite + HNSW (no external DB, no Python)
 - Parent-child chunking with contextual retrieval
 - Parallel parents (JoinSet) + batch children for ingestion speed
+- Modular LLM profiles: different models for ingestion, query, reranker (see `[[llm_profile]]` in config)
+- Non-blocking ingestion queue (mpsc channel + background worker)
 - Merge consecutive small children (<100 chars) for technical docs
 - Skip small chunks before LLM call (saves tokens, accurate stats)
-- Non-blocking ingestion queue (mpsc channel + background worker)
 - Progress endpoint for monitoring active ingestions
 - Won't fix: #122 (chunker rewrite), #128 (DELETE pattern), #130 (graph config)
 
@@ -62,10 +64,10 @@ src/
     query.rs     — get_section_paths, get_neighbors, delete_source, list_sources
     benchmark.rs — run_benchmark(), get_graph_data()
     tags.rs      — create_chunk_tags_table, insert_chunk_tags, get_tags_for_chunk_ids
-  llm.rs         — LlmProvider (ollama + openai), contextual retrieval, scoring, tagging
+  llm.rs         — LlmProvider (ollama + openai), contextual retrieval, scoring, tagging, profile builder
   reranker.rs    — Reranker (LLM + passthrough), rerank_hybrid()
   embedding.rs   — EmbeddingProvider (openai-compatible)
-  config.rs      — Config TOML parsing
+  config.rs      — Config TOML parsing, LlmProfile struct, profile lookup
   chunker.rs     — Recursive chunking, section extraction, language detection
   extractor.rs   — PDF/DOCX/text extraction
   types.rs       — Structs partagés + From impls
