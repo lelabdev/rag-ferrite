@@ -15,7 +15,6 @@ use serde::Serialize;
 use std::sync::Arc;
 use std::sync::Mutex;
 use tokio::sync::mpsc;
-use tokio::runtime::Runtime;
 
 // ── Job types ──────────────────────────────────────────────────────────
 
@@ -79,19 +78,14 @@ impl Clone for IngestionManager {
 }
 
 impl IngestionManager {
-    /// Create a new ingestion manager and spawn the background worker
-    /// on a **separate tokio runtime** so ingestion doesn't block the HTTP server.
+    /// Create a new ingestion manager and spawn the background worker.
     pub fn new(pipeline: QueryPipeline, ingest_config: IngestConfig) -> Self {
         let (sender, receiver) = mpsc::unbounded_channel();
         let progress = Arc::new(Mutex::new(IngestProgress::default()));
 
         let worker_progress = progress.clone();
-        // Dedicated runtime for ingestion — HTTP server stays responsive
-        std::thread::spawn(move || {
-            let rt = Runtime::new().expect("Failed to create ingestion runtime");
-            rt.block_on(async move {
-                background_worker(receiver, pipeline, ingest_config, worker_progress).await;
-            });
+        tokio::spawn(async move {
+            background_worker(receiver, pipeline, ingest_config, worker_progress).await;
         });
 
         IngestionManager { progress, sender }
