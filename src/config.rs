@@ -309,12 +309,17 @@ pub struct ChunkingConfig {
     /// Auto-switch threshold: docs >= this size use parent_child (for "auto" mode)
     #[serde(default = "default_auto_threshold")]
     pub auto_threshold: usize,
+
+    /// Min child chars — consecutive children below this are merged into one chunk
+    #[serde(default = "default_child_min_chars")]
+    pub child_min_chars: usize,
 }
 
 fn default_chunking_strategy() -> String { "auto".into() }
 fn default_parent_max_chars() -> usize { 2000 }
 fn default_child_max_chars() -> usize { 200 }
 fn default_child_overlap() -> usize { 20 }
+fn default_child_min_chars() -> usize { 100 }
 fn default_auto_threshold() -> usize { 5000 }
 
 impl Default for ChunkingConfig {
@@ -325,6 +330,7 @@ impl Default for ChunkingConfig {
             child_max_chars: default_child_max_chars(),
             child_overlap: default_child_overlap(),
             auto_threshold: default_auto_threshold(),
+            child_min_chars: default_child_min_chars(),
         }
     }
 }

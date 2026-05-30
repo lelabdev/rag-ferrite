@@ -182,6 +182,8 @@ pub struct IngestOptions {
     pub child_overlap: usize,
     /// Auto-switch threshold (for "auto" mode)
     pub auto_threshold: usize,
+    /// Min child chars — consecutive children below this are merged
+    pub child_min_chars: usize,
 }
 
 /// Ingest a text document into the RAG
@@ -740,6 +742,7 @@ async fn ingest_text_parent_child(
         options.child_max_chars,
         options.child_overlap,
         options.merge_last_chunk_threshold,
+        options.child_min_chars,
     );
 
     let total_parents = groups.len();

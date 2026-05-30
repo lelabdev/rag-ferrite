@@ -20,6 +20,7 @@ pub struct IngestConfig {
     pub child_max_chars: usize,
     pub child_overlap: usize,
     pub auto_threshold: usize,
+    pub child_min_chars: usize,
 }
 
 impl IngestConfig {
@@ -38,6 +39,7 @@ impl IngestConfig {
             child_max_chars: self.child_max_chars,
             child_overlap: self.child_overlap,
             auto_threshold: self.auto_threshold,
+            child_min_chars: self.child_min_chars,
         }
     }
 }

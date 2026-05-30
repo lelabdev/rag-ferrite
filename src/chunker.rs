@@ -381,6 +381,72 @@ pub struct ParentChildGroup {
     pub children: Vec<Chunk>,
 }
 
+/// Merge consecutive children below `min_chars` into a single chunk.
+/// Preserves context for tables, code snippets, and short fragments.
+/// Merged chunks keep the section_path and page of the first child in the group.
+fn merge_small_children(children: Vec<Chunk>, min_chars: usize) -> Vec<Chunk> {
+    if children.is_empty() || min_chars == 0 {
+        return children;
+    }
+
+    let mut merged: Vec<Chunk> = Vec::new();
+    let mut buffer_content = String::new();
+    let mut buffer_start = 0i32;
+    let mut buffer_end = 0i32;
+    let mut buffer_index = 0i32;
+    let mut buffer_section: Option<String> = None;
+    let mut buffer_page: Option<u32> = None;
+
+    for child in children {
+        let is_small = child.content.len() < min_chars;
+
+        if is_small {
+            // Accumulate small chunks
+            if buffer_content.is_empty() {
+                buffer_start = child.start_pos;
+                buffer_index = child.index;
+                buffer_section = child.section_path.clone();
+                buffer_page = child.page;
+            }
+            if !buffer_content.is_empty() {
+                buffer_content.push('\n');
+            }
+            buffer_content.push_str(&child.content);
+            buffer_end = child.end_pos;
+        } else {
+            // Flush accumulated small chunks if any
+            if !buffer_content.is_empty() {
+                merged.push(Chunk {
+                    content: std::mem::take(&mut buffer_content),
+                    index: buffer_index,
+                    start_pos: buffer_start,
+                    end_pos: buffer_end,
+                    chunk_type: ChunkType::Text,
+                    section_path: buffer_section.take(),
+                    page: buffer_page.take(),
+                });
+            }
+            // Push the normal-sized chunk as-is
+            merged.push(child);
+        }
+    }
+
+    // Flush remaining buffer
+    if !buffer_content.is_empty() {
+        merged.push(Chunk {
+            content: buffer_content,
+            index: buffer_index,
+            start_pos: buffer_start,
+            end_pos: buffer_end,
+            chunk_type: ChunkType::Text,
+            section_path: buffer_section,
+            page: buffer_page,
+        });
+    }
+
+    merged
+}
+
 /// Chunk text using parent-child strategy.
 /// Produces large parent chunks for context, each split into small child chunks for precise matching.
 ///
@@ -393,6 +459,7 @@ pub fn chunk_text_parent_child(
     child_max_chars: usize,
     child_overlap: usize,
     merge_threshold: usize,
+    child_min_chars: usize,
 ) -> Vec<ParentChildGroup> {
     let sections = extract_sections(text);
     let page_breaks = find_page_breaks(text);
@@ -417,6 +484,9 @@ pub fn chunk_text_parent_child(
 
         // Merge last child with previous if too short
         let children = merge_last_child(children, merge_threshold, &mut global_child_idx);
+
+        // Merge consecutive small children (tables, code fragments)
+        let children = merge_small_children(children, child_min_chars);
 
         if children.is_empty() {
             // Edge case: parent content too short for even one child
@@ -714,7 +784,7 @@ mod tests {
         let paragraph = "This is a paragraph with some meaningful content about technology and science. ".repeat(20);
         let text = format!("{}\n\n{}\n\n{}\n\n{}", paragraph, paragraph, paragraph, paragraph);
 
-        let groups = chunk_text_parent_child(&text, 500, 100, 10, 50);
+        let groups = chunk_text_parent_child(&text, 500, 100, 10, 50, 100);
 
         assert!(!groups.is_empty(), "Expected at least one parent group");
         for group in &groups {
@@ -729,7 +799,7 @@ mod tests {
     #[test]
     fn test_parent_child_short_text() {
         let text = "Short text that fits in one parent chunk.";
-        let groups = chunk_text_parent_child(text, 2000, 200, 20, 50);
+        let groups = chunk_text_parent_child(text, 2000, 200, 20, 50, 100);
 
         assert_eq!(groups.len(), 1, "Expected exactly 1 parent for short text");
         assert_eq!(groups[0].children.len(), 1, "Short text should have 1 child");
@@ -737,7 +807,7 @@ mod tests {
 
     #[test]
     fn test_parent_child_empty() {
-        let groups = chunk_text_parent_child("", 2000, 200, 20, 50);
+        let groups = chunk_text_parent_child("", 2000, 200, 20, 50, 100);
         assert!(groups.is_empty(), "Empty text should produce no groups");
     }
 

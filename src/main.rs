@@ -281,6 +281,7 @@ async fn main() -> Result<()> {
             child_max_chars: config.chunking.child_max_chars,
             child_overlap: config.chunking.child_overlap,
             auto_threshold: config.chunking.auto_threshold,
+            child_min_chars: config.chunking.child_min_chars,
         },
         default_query_limit: config.advanced.default_query_limit,
         max_query_limit: config.advanced.max_query_limit,
