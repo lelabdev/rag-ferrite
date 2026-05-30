@@ -15,6 +15,8 @@ Decisions are documented as individual ADR files in `docs/adr/`.
 | [0007](adr/0007-no-external-vector-databases.md) | No external vector databases | Accepted |
 | [0008](adr/0008-no-graphrag-or-multi-hop-reasoning.md) | No GraphRAG or multi-hop reasoning | Accepted |
 | [0012](adr/0012-parallel-parents-with-joinset-for-ingestion-speed.md) | Parallel parents with JoinSet | Accepted |
+| [0013](adr/0013-skip-small-chunks-before-llm.md) | Skip small chunks before LLM call | Accepted |
+| [0014](adr/0014-non-blocking-ingestion-queue.md) | Non-blocking ingestion queue | Accepted |
 
 ## Won't fix
 

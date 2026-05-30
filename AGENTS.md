@@ -29,6 +29,9 @@ Key decisions:
 - Parent-child chunking with contextual retrieval
 - Parallel parents (JoinSet) + batch children for ingestion speed
 - Merge consecutive small children (<100 chars) for technical docs
+- Skip small chunks before LLM call (saves tokens, accurate stats)
+- Non-blocking ingestion queue (mpsc channel + background worker)
+- Progress endpoint for monitoring active ingestions
 - Won't fix: #122 (chunker rewrite), #128 (DELETE pattern), #130 (graph config)
 
 ~/services/rag-ferrite/
@@ -50,6 +53,7 @@ Déploiement : copie du binaire compilé vers ~/services/rag-ferrite/
 src/
   main.rs        — MCP server (rmcp), initialise pipeline + reranker
   service.rs     — Couche service partagée MCP + HTTP
+  ingestion.rs   — Queue d'ingestion non-bloquante (mpsc + background worker)
   api.rs         — HTTP endpoints (axum, optionnel)
   pipeline.rs    — Orchestration query (simple/standard/complex), cache
   engine/
@@ -103,11 +107,16 @@ Collections actuelles : svelte, code, security, growth, wellness, rpg, general.
 
   Document → Pre-ingestion check (qualité, doublons, langue)
            → Extraction texte (pdftotext / docx-lite / raw)
-           → Chunking récursif (800 chars, 10% overlap)
+           → Chunking parent-child ou récursif (auto-détecté)
+           → Merge consecutive small children (<100 chars)
+           → Skip chunks below child_min_chars (no LLM call)
            → Relevance scoring LLM (1-10, filtre le bruit)
-           → Contextual retrieval (LLM context prefix)
+           → Contextual retrieval (LLM context prefix, batch + retry)
            → Auto-tagging (2-3 tags par chunk)
            → Embedding batch → SQLite + HNSW + BM25
+
+Ingestion is queued via mpsc channel — HTTP returns immediately.
+Progress: GET /api/ingest/progress
 
 ## Pipeline de query
 
