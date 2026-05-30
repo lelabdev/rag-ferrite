@@ -28,6 +28,11 @@ pub struct Config {
     #[serde(default)]
     pub chunking: ChunkingConfig,
 
+    /// Query fallback LLM — used for queries during active ingestion
+    /// to avoid saturating the main LLM provider
+    #[serde(default)]
+    pub query_fallback: Option<FallbackLlmConfig>,
+
     /// HTTP server port (0 = disabled, stdio-only mode)
     #[serde(default)]
     pub http_port: u16,
@@ -487,6 +492,7 @@ impl Default for Config {
             reranker: RerankerConfig::default(),
             advanced: AdvancedConfig::default(),
             chunking: ChunkingConfig::default(),
+            query_fallback: None,
             http_port: 0,
         }
     }

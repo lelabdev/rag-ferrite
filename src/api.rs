@@ -126,8 +126,14 @@ async fn query_documents(
     State(server): State<Arc<RagFerriteServer>>,
     Json(req): Json<QueryParams>,
 ) -> impl IntoResponse {
+    // Use fallback pipeline during active ingestion (if configured)
+    let pipeline = if server.ingestion_manager.get_progress().status == crate::ingestion::IngestStatus::Running {
+        server.query_fallback_pipeline.as_ref().unwrap_or(&server.pipeline)
+    } else {
+        &server.pipeline
+    };
     let val = crate::service::query_service(
-        &server.pipeline,
+        pipeline,
         &req.query,
         req.limit.unwrap_or(server.default_query_limit).clamp(1, server.max_query_limit),
         req.source_ids,

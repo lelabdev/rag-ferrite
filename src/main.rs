@@ -25,6 +25,7 @@ use params::*;
 #[derive(Clone)]
 struct RagFerriteServer {
     pub pipeline: pipeline::QueryPipeline,
+    pub query_fallback_pipeline: Option<pipeline::QueryPipeline>,
     pub ingest_config: params::IngestConfig,
     pub ingestion_manager: ingestion::IngestionManager,
     pub default_query_limit: usize,
@@ -38,8 +39,14 @@ impl RagFerriteServer {
     #[tool(name = "query_documents", description = "Search documents using hybrid search (BM25 + vector with RRF fusion). Returns relevant chunks with scores.")]
     async fn query_documents(&self, params: Parameters<QueryParams>) -> String {
         let p = params.0;
+        // Use fallback pipeline during active ingestion (if configured)
+        let pipeline = if self.ingestion_manager.get_progress().status == ingestion::IngestStatus::Running {
+            self.query_fallback_pipeline.as_ref().unwrap_or(&self.pipeline)
+        } else {
+            &self.pipeline
+        };
         service::query_service(
-            &self.pipeline,
+            pipeline,
             &p.query,
             p.limit.unwrap_or(self.default_query_limit).clamp(1, self.max_query_limit),
             p.source_ids,
@@ -275,6 +282,7 @@ async fn main() -> Result<()> {
             child_min_chars: config.chunking.child_min_chars,
         };
 
+    let reranker_for_fallback = reranker.clone();
     let pipeline = pipeline::QueryPipeline::new(
         embedder.clone(),
         llm.clone(),
@@ -288,6 +296,25 @@ async fn main() -> Result<()> {
 
     let server = RagFerriteServer {
         pipeline: pipeline.clone(),
+        query_fallback_pipeline: config.query_fallback.as_ref().map(|fb| {
+            tracing::info!("Query fallback LLM: {} / {} (used during ingestion)", fb.provider, fb.model);
+            let fb_llm = llm::LlmProvider::new(
+                fb.provider.clone(),
+                fb.model.clone(),
+                fb.api_key.clone(),
+                fb.base_url.clone(),
+            );
+            pipeline::QueryPipeline::new(
+                embedder.clone(),
+                Some(fb_llm),
+                reranker_for_fallback.clone(),
+                config.advanced.quality_threshold,
+                config.advanced.max_retries as u32,
+                config.advanced.cache_ttl_secs,
+                config.advanced.cache_max_entries,
+                config.advanced.high_confidence_threshold,
+            )
+        }),
         ingestion_manager: ingestion::IngestionManager::new(pipeline, ingest_config.clone()),
         ingest_config,
         default_query_limit: config.advanced.default_query_limit,
