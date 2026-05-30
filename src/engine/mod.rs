@@ -264,16 +264,22 @@ pub async fn ingest_text(
 
     // Contextual retrieval: generate context prefixes + relevance scores via LLM
     let mut context_failures = 0usize;
+    let mut context_skipped = 0usize;
     let llm_start = Instant::now();
     let context_results: Vec<ContextResult> = if let Some(llm_provider) = llm {
         tracing::info!("Generating context prefixes for {} chunks via LLM...", chunks.len());
-        let (results, failures) = generate_contexts(
+        let (results, failures, skipped) = generate_contexts(
             llm_provider, content, &chunk_texts,
             options.context_batch_size, options.context_max_retries,
+            options.child_min_chars,
         ).await;
         let with_ctx = results.iter().filter(|c| c.context.is_some()).count();
-        tracing::info!("Generated {}/{} context prefixes", with_ctx, chunks.len());
+        tracing::info!(
+            "Context: {}/{} contextualized, {} skipped, {} failed",
+            with_ctx, chunks.len(), skipped, failures
+        );
         context_failures = failures;
+        context_skipped = skipped;
         results
     } else {
         vec![ContextResult { context: None, relevance_score: None, extracted_metadata: None, tags: Vec::new() }; chunks.len()]
@@ -388,6 +394,7 @@ pub async fn ingest_text(
         min_relevance,
         max_relevance: rel_max,
         context_failures,
+        context_skipped,
         total_duration_ms,
         embedding_duration_ms,
         llm_duration_ms,
@@ -428,6 +435,7 @@ pub async fn ingest_file(
 /// Ingest text using parent-child chunking strategy.
 /// Parents are stored without embeddings, children are embedded for search.
 /// Generate context for a batch of chunk texts using LLM (batch + individual retry).
+/// Chunks below `min_chars` are skipped (no LLM call) and counted separately.
 /// Shared by both recursive and parent-child ingestion paths.
 async fn generate_contexts(
     llm_provider: &LlmProvider,
@@ -435,43 +443,84 @@ async fn generate_contexts(
     chunk_texts: &[String],
     batch_size: usize,
     max_retries: usize,
-) -> (Vec<ContextResult>, usize) {
+    min_chars: usize,
+) -> (Vec<ContextResult>, usize, usize) {
     let mut failures = 0usize;
+    let mut skipped = 0usize;
     let mut results = Vec::with_capacity(chunk_texts.len());
 
-    // Batch: send groups of chunks in one LLM call each
-    for batch in chunk_texts.chunks(batch_size) {
-        let batch_results = llm_provider.generate_context_for_parent(whole_document, batch).await;
-        for result in batch_results {
+    // Separate chunks into contextualize (long enough) and skip (too short)
+    let mut long_indices = Vec::new();
+    for (i, text) in chunk_texts.iter().enumerate() {
+        if text.len() < min_chars {
+            skipped += 1;
+            results.push(ContextResult {
+                context: None,
+                relevance_score: None,
+                extracted_metadata: None,
+                tags: Vec::new(),
+            });
+        } else {
+            long_indices.push(i);
+        }
+    }
+
+    // Batch: send groups of long chunks in one LLM call each
+    for batch_idx in long_indices.chunks(batch_size) {
+        let batch_texts: Vec<String> = batch_idx.iter().map(|&i| chunk_texts[i].clone()).collect();
+        let batch_results = llm_provider.generate_context_for_parent(whole_document, &batch_texts).await;
+        for (j, result) in batch_results.into_iter().enumerate() {
+            let global_i = batch_idx[j];
             match result {
                 Ok(ctx) => {
                     if ctx.context.is_none() { failures += 1; }
-                    results.push(ctx);
+                    // Insert at correct position
+                    while results.len() <= global_i {
+                        results.push(ContextResult {
+                            context: None, relevance_score: None,
+                            extracted_metadata: None, tags: Vec::new(),
+                        });
+                    }
+                    results[global_i] = ctx;
                 }
                 Err(e) => {
                     tracing::warn!("Context generation failed: {}, using raw content", e);
                     failures += 1;
-                    results.push(ContextResult {
+                    while results.len() <= global_i {
+                        results.push(ContextResult {
+                            context: None, relevance_score: None,
+                            extracted_metadata: None, tags: Vec::new(),
+                        });
+                    }
+                    results[global_i] = ContextResult {
                         context: None, relevance_score: None,
                         extracted_metadata: None, tags: Vec::new(),
-                    });
+                    };
                 }
             }
         }
     }
 
+    // Ensure results vector is full size
+    while results.len() < chunk_texts.len() {
+        results.push(ContextResult {
+            context: None, relevance_score: None,
+            extracted_metadata: None, tags: Vec::new(),
+        });
+    }
+
     // Retry failed chunks individually (up to max_retries)
     if max_retries > 0 {
         let mut retry_count = 0usize;
-        for (i, result) in results.iter_mut().enumerate() {
-            if result.context.is_some() { continue; }
+        for &i in &long_indices {
+            if results[i].context.is_some() { continue; }
             for attempt in 1..=max_retries {
                 match llm_provider.generate_context(whole_document, &chunk_texts[i]).await {
                     Ok(ctx) if ctx.context.is_some() => {
                         tracing::debug!("Retry {}/{} succeeded for chunk {}", attempt, max_retries, i);
                         failures = failures.saturating_sub(1);
                         retry_count += 1;
-                        *result = ctx;
+                        results[i] = ctx;
                         break;
                     }
                     Ok(_) => {} // context still None
@@ -482,11 +531,11 @@ async fn generate_contexts(
             }
         }
         if retry_count > 0 {
-            tracing::info!("Retry recovered {}/{} failed chunks", retry_count, chunk_texts.len());
+            tracing::info!("Retry recovered {}/{} failed chunks", retry_count, long_indices.len());
         }
     }
 
-    (results, failures)
+    (results, failures, skipped)
 }
 
 /// Compute relevance statistics from context results.
@@ -513,6 +562,7 @@ fn compute_relevance_stats(context_results: &[ContextResult]) -> (f64, f64, f64)
 struct ParentProcessResult {
     p_idx: usize,
     context_failures: usize,
+    context_skipped: usize,
     filtered_count: usize,
     kept_data: Vec<KeptChild>,
     parent_chunk: chunker::Chunk,
@@ -542,12 +592,13 @@ async fn process_parent(
     whole_document: String,
     batch_size: usize,
     max_retries: usize,
+    child_min_chars: usize,
     relevance_scoring: bool,
     min_relevance_score: f64,
 ) -> Result<ParentProcessResult> {
     if children.is_empty() {
         return Ok(ParentProcessResult {
-            p_idx, context_failures: 0, filtered_count: 0,
+            p_idx, context_failures: 0, context_skipped: 0, filtered_count: 0,
             kept_data: vec![], parent_chunk, relevance_scores: vec![],
             llm_duration_ms: 0, embedding_duration_ms: 0,
         });
@@ -556,17 +607,17 @@ async fn process_parent(
     let child_texts: Vec<String> = children.iter().map(|c| c.content.clone()).collect();
 
     // LLM context generation
-    let (context_results, context_failures, llm_ms) = if let Some(ref llm_provider) = llm {
+    let (context_results, context_failures, context_skipped, llm_ms) = if let Some(ref llm_provider) = llm {
         tracing::info!("Processing parent {}/{} ({} children)...", p_idx + 1, total_parents, children.len());
         let t = Instant::now();
-        let (results, failures) = generate_contexts(
+        let (results, failures, skipped) = generate_contexts(
             llm_provider, &whole_document, &child_texts,
-            batch_size, max_retries,
+            batch_size, max_retries, child_min_chars,
         ).await;
         let dur = t.elapsed().as_millis() as u64;
-        (results, failures, dur)
+        (results, failures, skipped, dur)
     } else {
-        (vec![ContextResult { context: None, relevance_score: None, extracted_metadata: None, tags: Vec::new()}; child_texts.len()], 0, 0)
+        (vec![ContextResult { context: None, relevance_score: None, extracted_metadata: None, tags: Vec::new()}; child_texts.len()], 0, 0, 0)
     };
 
     // Filter by relevance and build final texts
@@ -598,7 +649,7 @@ async fn process_parent(
 
     if kept_children.is_empty() {
         return Ok(ParentProcessResult {
-            p_idx, context_failures, filtered_count,
+            p_idx, context_failures, context_skipped, filtered_count,
             kept_data: vec![], parent_chunk, relevance_scores,
             llm_duration_ms: llm_ms, embedding_duration_ms: 0,
         });
@@ -622,7 +673,7 @@ async fn process_parent(
         .collect();
 
     Ok(ParentProcessResult {
-        p_idx, context_failures, filtered_count,
+        p_idx, context_failures, context_skipped, filtered_count,
         kept_data, parent_chunk, relevance_scores,
         llm_duration_ms: llm_ms, embedding_duration_ms: embed_ms,
     })
@@ -757,6 +808,7 @@ async fn ingest_text_parent_child(
     // DB commits happen sequentially as results arrive.
     let concurrency = options.max_concurrent.max(1);
     let mut context_failures = 0usize;
+    let mut context_skipped = 0usize;
     let mut filtered_count = 0usize;
     let mut total_kept = 0usize;
     let mut llm_duration_ms: u64 = 0;
@@ -791,6 +843,7 @@ async fn ingest_text_parent_child(
         let content_owned = content.to_string();
         let batch_size = options.context_batch_size;
         let max_retries = options.context_max_retries;
+        let child_min_chars_val = options.child_min_chars;
         let relevance_scoring = options.relevance_scoring;
         let min_relevance_score = options.min_relevance_score;
 
@@ -808,7 +861,7 @@ async fn ingest_text_parent_child(
                 join_set.spawn(async move {
                     process_parent(
                         p_idx, total_parents, children, parent_chunk,
-                        llm, embedder, doc, batch_size, max_retries,
+                        llm, embedder, doc, batch_size, max_retries, child_min_chars_val,
                         relevance_scoring, min_relevance_score,
                     ).await
                 });
@@ -827,7 +880,7 @@ async fn ingest_text_parent_child(
                 join_set.spawn(async move {
                     process_parent(
                         p_idx, total_parents, children, parent_chunk,
-                        llm, embedder, doc, batch_size, max_retries,
+                        llm, embedder, doc, batch_size, max_retries, child_min_chars_val,
                         relevance_scoring, min_relevance_score,
                     ).await
                 });
@@ -841,6 +894,7 @@ async fn ingest_text_parent_child(
             };
 
             context_failures += processed.context_failures;
+            context_skipped += processed.context_skipped;
             filtered_count += processed.filtered_count;
             llm_duration_ms += processed.llm_duration_ms;
             embedding_duration_ms += processed.embedding_duration_ms;
@@ -878,15 +932,17 @@ async fn ingest_text_parent_child(
         min_relevance,
         max_relevance: rel_max,
         context_failures,
+        context_skipped,
         total_duration_ms,
         embedding_duration_ms,
         llm_duration_ms,
         source_name: source_name.to_string(),
     };
 
+    let contextualized = total_children - context_failures - context_skipped - filtered_count;
     tracing::info!(
-        "Parent-child ingestion complete: {} parents, {} children ({} kept, {} filtered) in {}ms",
-        total_parents, total_children, total_kept, filtered_count, total_duration_ms
+        "Parent-child ingestion complete: {} parents, {} children in {}ms | {} contextualized, {} skipped, {} failed, {} filtered",
+        total_parents, total_children, total_duration_ms, contextualized, context_skipped, context_failures, filtered_count
     );
 
     Ok((source_id, report))

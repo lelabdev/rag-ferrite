@@ -31,6 +31,7 @@ pub struct IngestionReport {
     pub min_relevance: f64,
     pub max_relevance: f64,
     pub context_failures: usize,
+    pub context_skipped: usize,
     pub total_duration_ms: u64,
     pub embedding_duration_ms: u64,
     pub llm_duration_ms: u64,
