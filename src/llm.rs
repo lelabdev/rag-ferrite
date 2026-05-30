@@ -1,6 +1,7 @@
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use std::time::Duration;
 
 /// Result of contextual retrieval: optional context prefix, optional relevance score (1-10),
 /// optional extracted metadata, and auto-generated tags.
@@ -108,7 +109,7 @@ impl LlmProvider {
             model,
             api_key,
             base_url,
-            client: reqwest::Client::new(),
+            client: reqwest::Client::builder().timeout(Duration::from_secs(120)).build().unwrap(),
             fallback: None,
             temperature: 0.3,
             max_tokens: 150,

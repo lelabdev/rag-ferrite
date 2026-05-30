@@ -1,5 +1,6 @@
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 
 #[derive(Debug, Clone)]
 pub struct EmbeddingProvider {
@@ -49,7 +50,7 @@ impl EmbeddingProvider {
             detected_dimensions: std::sync::Arc::new(std::sync::OnceLock::new()),
             api_key,
             base_url,
-            client: reqwest::Client::new(),
+            client: reqwest::Client::builder().timeout(Duration::from_secs(120)).build().unwrap(),
             batch_size,
         }
     }
