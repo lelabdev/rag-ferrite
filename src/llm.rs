@@ -74,6 +74,7 @@ impl LlmProvider {
         base_url: Option<String>,
     ) -> Self {
         let api_key = api_key
+            .or_else(|| std::env::var("QUERY_FALLBACK_API_KEY").ok())
             .or_else(|| std::env::var("LLM_API_KEY").ok())
             .or_else(|| std::env::var("FALLBACK_API_KEY").ok());
 
