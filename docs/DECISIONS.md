@@ -66,3 +66,12 @@ Average book (~300 pages) ≈ 500 chunks
 
 ### #107 — ingest_text is a 214-line mega-function
 **Status:** Done. Refactored into shared functions: `generate_contexts`, `compute_relevance_stats`, `process_parent`, `commit_parent_to_db`.
+
+### #128 — api.rs delete_document bypasses json_response
+**Decision:** Won't fix. DELETE endpoints have different response semantics (no body, status-only). Forcing the same json_response pattern adds complexity for no functional gain.
+
+### #122 — Chunker byte position allocates intermediate Strings
+**Decision:** Won't fix. Entire chunker is built on Vec<char> indexing. Switching to char_indices() would require rewriting most of the chunker (splits, overlaps, positions) for negligible perf gain (~ms on 1MB docs).
+
+### #130 — HTTP graph defaults should be config
+**Decision:** Won't fix. Graph defaults are per-request query params by design, not global config.
