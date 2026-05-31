@@ -1,6 +1,6 @@
 [package]
 name = "rag-ferrite"
-version = "4.3.0"
+version = "4.4.0"
 edition = "2024"
 description = "Hybrid RAG engine — semantic + keyword search, MCP-native, single binary"
 license = "MIT"
