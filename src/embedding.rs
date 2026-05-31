@@ -95,27 +95,54 @@ impl EmbeddingProvider {
         let base = self.base_url.as_deref().unwrap_or("https://api.openai.com/v1");
         let url = format!("{}/embeddings", base);
 
-        let body = EmbeddingRequest {
-            model: self.model.clone(),
-            input: texts.to_vec(),
-            dimensions: self.dimensions,
-        };
+        let batch_size = if self.batch_size > 0 { self.batch_size } else { 20 };
+        let mut all_embeddings = Vec::with_capacity(texts.len());
 
-        let resp = self.client
-            .post(&url)
-            .header("Authorization", format!("Bearer {}", api_key))
-            .json(&body)
-            .send()
-            .await?;
+        for (i, chunk) in texts.chunks(batch_size).enumerate() {
+            let total_batches = (texts.len() + batch_size - 1) / batch_size;
+            tracing::info!("Embedding batch {}/{} ({} texts)", i + 1, total_batches, chunk.len());
 
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let text = resp.text().await?;
-            return Err(anyhow!("OpenAI API error {}: {}", status, text));
+            let body = EmbeddingRequest {
+                model: self.model.clone(),
+                input: chunk.to_vec(),
+                dimensions: self.dimensions,
+            };
+
+            let mut attempt = 0;
+            let max_retries = 3;
+            let resp = loop {
+                attempt += 1;
+                match self.client
+                    .post(&url)
+                    .header("Authorization", format!("Bearer {}", api_key))
+                    .json(&body)
+                    .send()
+                    .await
+                {
+                    Ok(r) => break r,
+                    Err(e) if attempt < max_retries => {
+                        tracing::warn!("Embedding attempt {}/{} failed: {} — retrying in 2s", attempt, max_retries, e);
+                        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                    }
+                    Err(e) => {
+                        tracing::error!("Embedding failed after {} attempts: {}", max_retries, e);
+                        return Err(anyhow!("Embedding request failed: {}", e));
+                    }
+                }
+            };
+
+            if !resp.status().is_success() {
+                let status = resp.status();
+                let text = resp.text().await.unwrap_or_default();
+                tracing::error!("Embedding API error {}: {}", status, text);
+                return Err(anyhow!("OpenAI API error {}: {}", status, text));
+            }
+
+            let data: EmbeddingResponse = resp.json().await?;
+            all_embeddings.extend(data.data.into_iter().map(|d| d.embedding));
         }
 
-        let data: EmbeddingResponse = resp.json().await?;
-        Ok(data.data.into_iter().map(|d| d.embedding).collect())
+        Ok(all_embeddings)
     }
 
     async fn embed_cohere(&self, texts: &[String]) -> Result<Vec<Vec<f32>>> {

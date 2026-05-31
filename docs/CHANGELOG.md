@@ -2,6 +2,17 @@
 
 All notable changes to rag-ferrite are documented here.
 
+## [4.4.1] - 2025-05-31
+
+### Fixed
+- **Embedding batch failure on large files** — `embed_openai()` sent all chunks in a single request, causing reqwest to fail on files with 1000+ texts. Added configurable batching (default: 20 texts per batch).
+- **No retry on embedding failures** — Added 3-attempt retry with 2s delay on embedding request failures.
+
+### Added
+- **Embedding batching** — `embed_openai()` now splits texts into configurable batch sizes before sending to the API.
+- **Embedding retry logic** — Failed embedding requests retry up to 3 times with delay.
+- **Application logging** — `[advanced] log_file` and `log_filter` in config.toml for persistent file logging via tracing.
+
 ## [4.4.0] - 2025-05-31
 
 ### Fixed
