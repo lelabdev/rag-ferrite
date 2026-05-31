@@ -1,10 +1,11 @@
 use anyhow::Result;
+use rusqlite::Connection;
 
 use super::get_conn;
 
 /// Create the chunk_tags table if it doesn't exist.
 pub fn create_chunk_tags_table(db_path: &str) -> Result<()> {
-    let conn = rusqlite::Connection::open(db_path)?;
+    let conn = Connection::open(db_path)?;
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS chunk_tags (
             chunk_id INTEGER NOT NULL,
@@ -20,8 +21,14 @@ pub fn create_chunk_tags_table(db_path: &str) -> Result<()> {
 
 /// Insert tags for all chunks of a source, matched by original chunk_index.
 /// tags_per_chunk contains (chunk_index, tags) pairs.
-pub fn insert_chunk_tags(source_id: i64, tags_per_chunk: &[(i32, Vec<String>)]) -> Result<()> {
-    let conn = get_conn()?;
+/// If `conn` is provided, uses it (avoids deadlock when caller already holds get_conn lock).
+pub fn insert_chunk_tags(source_id: i64, tags_per_chunk: &[(i32, Vec<String>)], conn: Option<&Connection>) -> Result<()> {
+    // If caller provided a connection, use it. Otherwise get our own.
+    let owned_conn;
+    let conn: &Connection = match conn {
+        Some(c) => c,
+        None => { owned_conn = get_conn()?; &owned_conn }
+    };
 
     for &(chunk_index, ref tags) in tags_per_chunk {
         if tags.is_empty() {

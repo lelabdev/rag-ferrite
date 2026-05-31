@@ -374,7 +374,7 @@ pub async fn ingest_text(
 
     // Store auto-generated tags for each chunk in chunk_tags table
     if tags_per_chunk.iter().any(|(_, t)| !t.is_empty()) {
-        insert_chunk_tags(source_id, &tags_per_chunk)?;
+        insert_chunk_tags(source_id, &tags_per_chunk, None)?;
     }
 
     // Mark source as completed
@@ -468,6 +468,7 @@ async fn generate_contexts(
     // Batch: send groups of long chunks in one LLM call each
     for batch_idx in long_indices.chunks(batch_size) {
         let batch_texts: Vec<String> = batch_idx.iter().map(|&i| chunk_texts[i].clone()).collect();
+        tracing::info!("Calling generate_context_for_parent ({} chunks)...", batch_texts.len());
         let batch_results = llm_provider.generate_context_for_parent(whole_document, &batch_texts).await;
         for (j, result) in batch_results.into_iter().enumerate() {
             let global_i = batch_idx[j];
@@ -656,6 +657,7 @@ async fn process_parent(
     }
 
     // Embed
+    tracing::info!("Embedding {} texts...", final_texts.len());
     let t = Instant::now();
     let embeddings = embedder.embed_batch(&final_texts).await?;
     let embed_ms = t.elapsed().as_millis() as u64;
@@ -688,24 +690,15 @@ fn commit_parent_to_db(
     let conn = get_conn()?;
     let mut parent_tags: Vec<(i32, Vec<String>)> = Vec::new();
 
-    // Store parent chunk
-    let parent_chunk_data = ChunkData {
-        content: parent_chunk.content.clone(),
-        chunk_index: parent_chunk.index,
-        start_pos: parent_chunk.start_pos,
-        end_pos: parent_chunk.end_pos,
-        chunk_type: "parent".to_string(),
-        embedding: vec![],
-    };
-    source_rag::add_chunks(source_id, vec![parent_chunk_data])?;
-    let parent_db_id: i64 = conn.query_row(
-        "SELECT id FROM chunks WHERE source_id = ?1 AND chunk_index = ?2 AND chunk_role IS NULL ORDER BY id DESC LIMIT 1",
-        rusqlite::params![source_id, parent_chunk.index],
-        |row| row.get(0),
-    )?;
+    // Store parent chunk (direct INSERT — single connection, no pool contention)
     conn.execute(
-        "UPDATE chunks SET chunk_role = 'parent', embedding = NULL WHERE id = ?1",
-        rusqlite::params![parent_db_id],
+        "INSERT INTO chunks (source_id, content, chunk_index, start_pos, end_pos, chunk_type) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        rusqlite::params![source_id, parent_chunk.content, parent_chunk.index, parent_chunk.start_pos, parent_chunk.end_pos, "parent"],
+    )?;
+    let parent_db_id: i64 = conn.query_row(
+        "SELECT last_insert_rowid()",
+        [],
+        |row| row.get(0),
     )?;
     if let Some(sp) = &parent_chunk.section_path {
         conn.execute("UPDATE chunks SET section_path = ?1 WHERE id = ?2", rusqlite::params![sp, parent_db_id])?;
@@ -714,25 +707,20 @@ fn commit_parent_to_db(
         conn.execute("UPDATE chunks SET page = ?1 WHERE id = ?2", rusqlite::params![p as i64, parent_db_id])?;
     }
 
-    // Store children
+    // Store children (direct INSERT — avoids pool contention)
     for child in kept_data {
-        let child_chunk_data = ChunkData {
-            content: child.content.clone(),
-            chunk_index: child.chunk_index,
-            start_pos: child.start_pos,
-            end_pos: child.end_pos,
-            chunk_type: "child".to_string(),
-            embedding: child.embedding.clone(),
+        let embedding_blob = if child.embedding.is_empty() {
+            None
+        } else {
+            // Serialize Vec<f32> to bytes (little-endian f32 array)
+            let bytes: Vec<u8> = child.embedding.iter()
+                .flat_map(|f| f.to_le_bytes())
+                .collect();
+            Some(bytes)
         };
-        source_rag::add_chunks(source_id, vec![child_chunk_data])?;
-        let child_db_id: i64 = conn.query_row(
-            "SELECT id FROM chunks WHERE source_id = ?1 AND chunk_index = ?2 AND chunk_role IS NULL ORDER BY id DESC LIMIT 1",
-            rusqlite::params![source_id, child.chunk_index],
-            |row| row.get(0),
-        )?;
         conn.execute(
-            "UPDATE chunks SET parent_id = ?1, chunk_role = 'child' WHERE id = ?2",
-            rusqlite::params![parent_db_id, child_db_id],
+            "INSERT INTO chunks (source_id, content, chunk_index, start_pos, end_pos, chunk_type, parent_id, embedding) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            rusqlite::params![source_id, child.content, child.chunk_index, child.start_pos, child.end_pos, "child", parent_db_id, embedding_blob],
         )?;
         if !child.tags.is_empty() {
             parent_tags.push((child.chunk_index, child.tags.clone()));
@@ -740,7 +728,7 @@ fn commit_parent_to_db(
     }
 
     if parent_tags.iter().any(|(_, t)| !t.is_empty()) {
-        insert_chunk_tags(source_id, &parent_tags)?;
+        insert_chunk_tags(source_id, &parent_tags, Some(&conn))?;
     }
 
     Ok(kept_data.len())
