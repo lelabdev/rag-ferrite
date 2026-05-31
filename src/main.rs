@@ -162,7 +162,7 @@ impl RagFerriteServer {
     }
 }
 
-#[tokio::main]
+#[tokio::main(worker_threads = 12)]
 async fn main() -> Result<()> {
     // Load .env from executable directory (automatic — no manual source needed)
     if let Ok(exe) = std::env::current_exe() {
