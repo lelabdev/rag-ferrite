@@ -19,7 +19,7 @@ pub mod tags;
 
 // Re-export public items from sub-modules
 pub use search::{search_hybrid, search_hybrid_with_expansion};
-pub use query::{get_section_paths_for_chunk_ids, get_neighbors, delete_source, list_sources, resolve_parents};
+pub use query::{get_section_paths_for_chunk_ids, get_neighbors, delete_source, list_sources};
 pub use benchmark::{run_benchmark, get_graph_data};
 pub use tags::{create_chunk_tags_table, insert_chunk_tags, get_tags_for_chunk_ids};
 
@@ -293,15 +293,13 @@ pub async fn ingest_text(
         .enumerate()
         .zip(context_results.iter())
         .filter(|((_, _), ctx_result)| {
-            if options.relevance_scoring {
-                if let Some(score) = ctx_result.relevance_score {
-                    if (score as f64) < options.min_relevance_score {
+            if options.relevance_scoring
+                && let Some(score) = ctx_result.relevance_score
+                    && (score as f64) < options.min_relevance_score {
                         filtered_count += 1;
                         tracing::info!("Filtered chunk (score={:.1} < threshold={:.1})", score, options.min_relevance_score);
                         return false;
                     }
-                }
-            }
             true
         })
         .map(|((idx, chunk), ctx_result)| (idx, chunk, ctx_result))
@@ -354,7 +352,7 @@ pub async fn ingest_text(
 
     let chunk_data: Vec<ChunkData> = kept
         .into_iter()
-        .zip(embeddings.into_iter())
+        .zip(embeddings)
         .map(|((_, chunk, _), emb)| ChunkData {
             content: chunk.content.clone(),
             chunk_index: chunk.index,
@@ -629,14 +627,12 @@ async fn process_parent(
 
     for (c_idx, child) in children.iter().enumerate() {
         let ctx = &context_results[c_idx];
-        if relevance_scoring {
-            if let Some(score) = ctx.relevance_score {
-                if (score as f64) < min_relevance_score {
+        if relevance_scoring
+            && let Some(score) = ctx.relevance_score
+                && (score as f64) < min_relevance_score {
                     filtered_count += 1;
                     continue;
                 }
-            }
-        }
         if let Some(score) = ctx.relevance_score {
             relevance_scores.push(score as f64);
         }
@@ -663,7 +659,7 @@ async fn process_parent(
     let embed_ms = t.elapsed().as_millis() as u64;
 
     // Build kept data
-    let kept_data: Vec<KeptChild> = kept_children.iter().zip(embeddings.into_iter())
+    let kept_data: Vec<KeptChild> = kept_children.iter().zip(embeddings)
         .map(|((_, child, ctx_result), embedding)| KeptChild {
             content: child.content.clone(),
             chunk_index: child.index,
@@ -1011,7 +1007,7 @@ pub fn pre_check_document(content: &str, filename: &str, chunk_size: usize) -> c
     } else if char_count < chunk_size {
         1
     } else {
-        (char_count + chunk_size - 1) / chunk_size
+        char_count.div_ceil(chunk_size)
     };
 
     // Language detection via simple heuristic
@@ -1049,10 +1045,10 @@ fn detect_language(text: &str) -> String {
                 french_accents += 1;
                 latin_chars += 1;
             }
-            c if c >= '\u{4E00}' && c <= '\u{9FFF}' => cjk_chars += 1,
-            c if c >= '\u{3040}' && c <= '\u{309F}' || c >= '\u{30A0}' && c <= '\u{30FF}' => cjk_chars += 1,
-            c if c >= '\u{0600}' && c <= '\u{06FF}' || c >= '\u{0750}' && c <= '\u{077F}' => arabic_chars += 1,
-            c if c >= '\u{0400}' && c <= '\u{04FF}' => cyrillic_chars += 1,
+            c if ('\u{4E00}'..='\u{9FFF}').contains(&c) => cjk_chars += 1,
+            c if ('\u{3040}'..='\u{309F}').contains(&c) || ('\u{30A0}'..='\u{30FF}').contains(&c) => cjk_chars += 1,
+            c if ('\u{0600}'..='\u{06FF}').contains(&c) || ('\u{0750}'..='\u{077F}').contains(&c) => arabic_chars += 1,
+            c if ('\u{0400}'..='\u{04FF}').contains(&c) => cyrillic_chars += 1,
             'a'..='z' | 'A'..='Z' => latin_chars += 1,
             _ => {}
         }
@@ -1153,13 +1149,8 @@ pub fn list_collections() -> Vec<String> {
     };
     let mut collections = Vec::new();
     let rows = stmt.query_map([], |row| row.get::<_, String>(0));
-    match rows {
-        Ok(mapped) => {
-            for r in mapped {
-                if let Ok(c) = r { collections.push(c); }
-            }
-        }
-        Err(_) => {}
+    if let Ok(mapped) = rows {
+        for c in mapped.flatten() { collections.push(c); }
     }
     collections
 }

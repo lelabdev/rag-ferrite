@@ -49,16 +49,13 @@ pub struct IngestProgress {
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum IngestStatus {
+    #[default]
     Idle,
     Running,
 }
 
-impl Default for IngestStatus {
-    fn default() -> Self {
-        IngestStatus::Idle
-    }
-}
 
 // ── Manager ────────────────────────────────────────────────────────────
 

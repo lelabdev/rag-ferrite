@@ -99,7 +99,7 @@ impl EmbeddingProvider {
         let mut all_embeddings = Vec::with_capacity(texts.len());
 
         for (i, chunk) in texts.chunks(batch_size).enumerate() {
-            let total_batches = (texts.len() + batch_size - 1) / batch_size;
+            let total_batches = texts.len().div_ceil(batch_size);
             tracing::info!("Embedding batch {}/{} ({} texts)", i + 1, total_batches, chunk.len());
 
             let body = EmbeddingRequest {

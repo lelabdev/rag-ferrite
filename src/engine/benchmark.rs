@@ -201,7 +201,7 @@ pub fn get_graph_data(
 
 /// Decode a BLOB of native-endian f32 bytes into a Vec<f32>.
 fn decode_f32_embedding(blob: &[u8]) -> Vec<f32> {
-    if blob.len() % 4 != 0 {
+    if !blob.len().is_multiple_of(4) {
         return Vec::new();
     }
     blob.chunks(4)

@@ -161,14 +161,13 @@ impl RagFerriteServer {
 #[tokio::main(worker_threads = 12)]
 async fn main() -> Result<()> {
     // Load .env from executable directory (automatic — no manual source needed)
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(dir) = exe.parent() {
             let env_path = dir.join(".env");
             if env_path.exists() {
                 let _ = dotenvy::from_path(&env_path);
             }
         }
-    }
 
     let config = config::Config::load()?;
 

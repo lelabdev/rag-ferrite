@@ -26,15 +26,14 @@ pub async fn search_hybrid_with_expansion(
     filter: Option<hybrid_search::SearchFilter>,
 ) -> Result<Vec<hybrid_search::HybridSearchResult>> {
     // Activate the correct collection's indexes before searching
-    if let Some(ref f) = filter {
-        if let Some(ref coll) = f.collection_id {
+    if let Some(ref f) = filter
+        && let Some(ref coll) = f.collection_id {
             let coll = super::sanitize_collection(coll)?;
             let index_path = format!("{}/hnsw_{}.index", data_dir(), coll);
             if let Err(e) = source_rag::activate_collection_for_hybrid_search(coll.clone(), index_path) {
                 tracing::warn!("Failed to activate collection '{}': {}", coll, e);
             }
         }
-    }
 
     // Expand short queries (< 5 words) if LLM is available
     let queries = if let Some(llm_provider) = llm {

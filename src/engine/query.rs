@@ -1,7 +1,7 @@
 use anyhow::Result;
 use rag_engine::api::source_rag::{self, ChunkSearchResult};
 
-use super::{data_dir, get_conn};
+use super::get_conn;
 
 /// Fetch section_path for a batch of chunk IDs.
 pub fn get_section_paths_for_chunk_ids(chunk_ids: &[i64]) -> Result<std::collections::HashMap<i64, Option<String>>> {
@@ -191,16 +191,14 @@ pub fn resolve_parents(chunk_ids: &[i64]) -> Result<std::collections::HashMap<i6
     let mut parent_stmt = conn.prepare(&parent_sql)?;
     let mut parent_data: std::collections::HashMap<i64, (String, Option<String>, Option<u32>)> =
         std::collections::HashMap::new();
-    for row in parent_stmt.query_map(rusqlite::params_from_iter(parent_params.iter().copied()), |row| {
+    for (id, content, sp, page) in parent_stmt.query_map(rusqlite::params_from_iter(parent_params.iter().copied()), |row| {
         let id: i64 = row.get(0)?;
         let content: String = row.get(1)?;
         let section_path: Option<String> = row.get(2)?;
         let page: Option<u32> = row.get::<_, Option<i64>>(3)?.map(|p| p as u32);
         Ok((id, content, section_path, page))
-    })? {
-        if let Ok((id, content, sp, page)) = row {
-            parent_data.insert(id, (content, sp, page));
-        }
+    })?.flatten() {
+        parent_data.insert(id, (content, sp, page));
     }
 
     // Build result map: child_id → ParentInfo

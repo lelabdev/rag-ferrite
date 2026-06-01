@@ -706,11 +706,10 @@ fn parse_multi_chunk_response(response: &str, expected_count: usize) -> Vec<Resu
     let mut last_end = 0;
     
     for mat in chunk_pattern.find_iter(response) {
-        if last_end > 0 || mat.start() > 0 {
-            if last_end > 0 {
+        if (last_end > 0 || mat.start() > 0)
+            && last_end > 0 {
                 chunks.push(&response[last_end..mat.start()]);
             }
-        }
         last_end = mat.start();
     }
     if last_end < response.len() {
@@ -794,11 +793,10 @@ fn parse_context_response(response: &str) -> (Option<f32>, Option<String>, Optio
             continue;
         }
         // After CONTEXT: line, collect remaining lines as part of context
-        if found_context {
-            if !trimmed_line.is_empty() {
+        if found_context
+            && !trimmed_line.is_empty() {
                 context_lines.push(trimmed_line);
             }
-        }
     }
 
     if found_score || found_context {

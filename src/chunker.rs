@@ -98,11 +98,10 @@ pub fn chunk_text(text: &str, chunk_size: usize, overlap_ratio: f64, merge_thres
 
 fn find_best_split_char(text: &str, separators: &[&str]) -> usize {
     for sep in separators {
-        if let Some(p) = text.rfind(sep) {
-            if p > text.len() * 3 / 10 {
+        if let Some(p) = text.rfind(sep)
+            && p > text.len() * 3 / 10 {
                 return text[..p].chars().count();
             }
-        }
     }
     text.chars().count().saturating_sub(1)
 }
@@ -136,11 +135,10 @@ pub fn detect_chunk_type(text: &str, is_first_chunk: bool) -> ChunkType {
     }
 
     // 3. Heading: first non-empty line starts with #
-    if let Some(first) = lines.iter().find(|l| !l.is_empty()) {
-        if first.starts_with('#') {
+    if let Some(first) = lines.iter().find(|l| !l.is_empty())
+        && first.starts_with('#') {
             return ChunkType::Heading;
         }
-    }
 
     // 4. List: majority of non-empty lines start with list markers
     if detect_list(&lines) {
@@ -202,7 +200,7 @@ fn detect_list(lines: &[&str]) -> bool {
     let list_lines = non_empty.iter().filter(|l| {
         let trimmed = l.trim();
         (trimmed.starts_with("- ") || trimmed.starts_with("* "))
-        || trimmed.starts_with(|c: char| c.is_ascii_digit()) && trimmed.contains('.') && trimmed.find('.').map_or(false, |pos| pos <= 3)
+        || trimmed.starts_with(|c: char| c.is_ascii_digit()) && trimmed.contains('.') && trimmed.find('.').is_some_and(|pos| pos <= 3)
     }).count();
 
     list_lines * 2 > non_empty.len()
@@ -257,7 +255,7 @@ pub fn count_hash_prefix(s: &str) -> usize {
             return 0;
         }
     }
-    if count >= 1 && count <= 6 {
+    if (1..=6).contains(&count) {
         count
     } else {
         0
@@ -464,7 +462,7 @@ pub fn chunk_text_parent_child(
     let sections = extract_sections(text);
     let page_breaks = find_page_breaks(text);
     let chars: Vec<char> = text.chars().collect();
-    let char_count = chars.len();
+    let _char_count = chars.len();
 
     // Step 1: Split into parent-sized chunks using paragraph boundaries
     let parent_chunks = split_into_parents(&chars, parent_max_chars, &sections, &page_breaks);

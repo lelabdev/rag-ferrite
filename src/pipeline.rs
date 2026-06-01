@@ -79,7 +79,7 @@ pub fn classify_query(query: &str) -> QueryComplexity {
         "what", "how", "why", "when", "where", "which", "who", "whom",
         "whose", "whether",
         "comment", "pourquoi", "quand", "où", "quel", "quelle", "quels",
-        "quelles", "qui", "comment",
+        "quelles", "qui",
     ];
 
     // Boolean operators
