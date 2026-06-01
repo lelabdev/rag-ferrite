@@ -15,13 +15,12 @@ pub async fn query_service(
     limit: usize,
     source_ids: Option<Vec<i64>>,
     metadata_like: Option<String>,
-    collection: Option<String>,
 ) -> serde_json::Value {
-    let filter = if source_ids.is_some() || collection.is_some() || metadata_like.is_some() {
+    let filter = if source_ids.is_some() || metadata_like.is_some() {
         Some(rag_engine::api::hybrid_search::SearchFilter {
             source_ids,
             metadata_like,
-            collection_id: collection,
+            collection_id: None,
         })
     } else {
         None
@@ -74,7 +73,6 @@ pub async fn ingest_file_service(
     cfg: &IngestConfig,
     ingestion_llm: Option<&llm::LlmProvider>,
     file_path: &str,
-    collection: Option<&str>,
 ) -> serde_json::Value {
     // Use ingestion_llm if available, otherwise fall back to pipeline.llm
     let llm = ingestion_llm.or(pipeline.llm.as_ref());
@@ -82,7 +80,7 @@ pub async fn ingest_file_service(
         &pipeline.embedder,
         llm,
         file_path,
-        collection,
+        Some("general"),
         cfg.to_engine_options(),
     )
     .await
@@ -91,7 +89,6 @@ pub async fn ingest_file_service(
             "status": "ok",
             "source_id": id,
             "file_path": file_path,
-            "collection": collection,
             "report": report
         }),
         Err(e) => json!({ "error": e.to_string() }),
@@ -106,7 +103,6 @@ pub async fn ingest_data_service(
     ingestion_llm: Option<&llm::LlmProvider>,
     content: &str,
     source: &str,
-    collection: Option<&str>,
 ) -> serde_json::Value {
     // Use ingestion_llm if available, otherwise fall back to pipeline.llm
     let llm = ingestion_llm.or(pipeline.llm.as_ref());
@@ -116,7 +112,7 @@ pub async fn ingest_data_service(
         content,
         source,
         None,
-        collection,
+        Some("general"),
         cfg.to_engine_options(),
     )
     .await
@@ -146,13 +142,10 @@ pub fn delete_service(source: &str) -> serde_json::Value {
 
 // ── List sources ───────────────────────────────────────────────────────
 
-pub fn list_sources_service(collection: Option<&str>) -> serde_json::Value {
+pub fn list_sources_service() -> serde_json::Value {
     match engine::list_sources() {
         Ok(sources) => {
-            let mut out: Vec<SourceInfo> = sources.into_iter().map(SourceInfo::from).collect();
-            if let Some(coll) = collection {
-                out.retain(|s| &s.collection_id == coll);
-            }
+            let out: Vec<SourceInfo> = sources.into_iter().map(SourceInfo::from).collect();
             json!({ "files": out })
         }
         Err(e) => json!({ "error": e.to_string() }),

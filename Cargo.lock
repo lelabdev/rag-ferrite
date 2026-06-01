@@ -2018,7 +2018,7 @@ dependencies = [
 
 [[package]]
 name = "rag-ferrite"
-version = "4.4.0"
+version = "4.4.1"
 dependencies = [
  "anyhow",
  "axum",

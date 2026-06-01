@@ -27,12 +27,9 @@ impl Cache {
         }
     }
 
-    /// Build a cache key from query, limit, and optional collection.
-    fn make_key(query: &str, limit: usize, collection: Option<&str>) -> String {
-        match collection {
-            Some(c) => format!("{}|{}|{}", query, limit, c),
-            None => format!("{}|{}|", query, limit),
-        }
+    /// Build a cache key from query and limit.
+    fn make_key(query: &str, limit: usize) -> String {
+        format!("{}|{}", query, limit)
     }
 
     /// Look up a cached result. Returns `None` on miss or if the entry has expired.
@@ -192,8 +189,7 @@ impl QueryPipeline {
         limit: usize,
         filter: Option<rag_engine::api::hybrid_search::SearchFilter>,
     ) -> Result<QueryOutput> {
-        let collection = filter.as_ref().and_then(|f| f.collection_id.as_deref());
-        let cache_key = Cache::make_key(query, limit, collection);
+        let cache_key = Cache::make_key(query, limit);
 
         // Check cache before executing the query
         if let Some(cached) = self.cache.get(&cache_key) {

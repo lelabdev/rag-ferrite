@@ -53,27 +53,24 @@ impl RagFerriteServer {
             p.limit.unwrap_or(self.default_query_limit).clamp(1, self.max_query_limit),
             p.source_ids,
             p.metadata_like,
-            p.collection,
         )
         .await
         .to_string()
     }
 
-    #[tool(name = "ingest_file", description = "Parse and index a document file (PDF, TXT, MD) into the RAG. Optionally specify a collection.")]
+    #[tool(name = "ingest_file", description = "Parse and index a document file (PDF, TXT, MD) into the RAG.")]
     async fn ingest_file(&self, params: Parameters<IngestFileParams>) -> String {
-        let p = params.0;
         service::ingest_file_service(
             &self.pipeline,
             &self.ingest_config,
             self.ingestion_llm.as_ref(),
-            &p.file_path,
-            p.collection.as_deref(),
+            &params.0.file_path,
         )
         .await
         .to_string()
     }
 
-    #[tool(name = "ingest_data", description = "Index content directly (text, HTML, or markdown) with a source identifier. Optionally specify a collection.")]
+    #[tool(name = "ingest_data", description = "Index content directly (text, HTML, or markdown) with a source identifier.")]
     async fn ingest_data(&self, params: Parameters<IngestDataParams>) -> String {
         let p = params.0;
         service::ingest_data_service(
@@ -82,7 +79,6 @@ impl RagFerriteServer {
             self.ingestion_llm.as_ref(),
             &p.content,
             &p.source,
-            p.collection.as_deref(),
         )
         .await
         .to_string()
@@ -95,7 +91,7 @@ impl RagFerriteServer {
 
     #[tool(name = "list_files", description = "List all indexed documents with their metadata.")]
     async fn list_files(&self, _params: Parameters<NoParams>) -> String {
-        service::list_sources_service(None).to_string()
+        service::list_sources_service().to_string()
     }
 
     #[tool(name = "status", description = "Get RAG engine status: document count.")]
@@ -143,7 +139,7 @@ impl RagFerriteServer {
             return serde_json::json!({ "error": "Golden dataset is empty" }).to_string();
         }
         let limit = p.limit.unwrap_or(self.default_query_limit).clamp(1, self.max_query_limit);
-        match engine::run_benchmark(&self.pipeline.embedder, entries, p.collection, limit).await {
+        match engine::run_benchmark(&self.pipeline.embedder, entries, None, limit).await {
             Ok(result) => serde_json::to_string(&result).unwrap_or_else(|e| serde_json::json!({ "error": e.to_string() }).to_string()),
             Err(e) => serde_json::json!({ "error": e.to_string() }).to_string(),
         }

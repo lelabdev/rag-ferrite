@@ -17,12 +17,6 @@ use crate::RagFerriteServer;
 // --- HTTP-only request types (differ from MCP params) ---
 
 #[derive(Debug, Deserialize)]
-pub struct ListDocumentsQuery {
-    #[serde(default)]
-    pub collection: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
 pub struct NeighborsPath {
     pub source_id: i64,
     pub chunk_index: i64,
@@ -30,8 +24,6 @@ pub struct NeighborsPath {
 
 #[derive(Debug, Deserialize)]
 pub struct GraphQuery {
-    #[serde(default)]
-    pub collection: Option<String>,
     #[serde(default = "default_threshold")]
     pub threshold: f32,
     #[serde(default = "default_max_edges")]
@@ -62,7 +54,7 @@ async fn get_graph(
     State(_server): State<Arc<RagFerriteServer>>,
     Query(params): Query<GraphQuery>,
 ) -> impl IntoResponse {
-    match engine::get_graph_data(params.collection.as_deref(), params.threshold, params.max_edges) {
+    match engine::get_graph_data(None, params.threshold, params.max_edges) {
         Ok(graph) => (StatusCode::OK, Json(serde_json::json!(graph))),
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -82,9 +74,8 @@ async fn ingest_progress(State(server): State<Arc<RagFerriteServer>>) -> impl In
 
 async fn list_documents(
     State(_server): State<Arc<RagFerriteServer>>,
-    Query(params): Query<ListDocumentsQuery>,
 ) -> impl IntoResponse {
-    json_response(crate::service::list_sources_service(params.collection.as_deref()))
+    json_response(crate::service::list_sources_service())
 }
 
 async fn get_document(
@@ -138,7 +129,6 @@ async fn query_documents(
         req.limit.unwrap_or(server.default_query_limit).clamp(1, server.max_query_limit),
         req.source_ids,
         req.metadata_like,
-        req.collection,
     )
     .await;
     json_response(val)
@@ -151,7 +141,6 @@ async fn ingest_data(
     let val = server.ingestion_manager.ingest_data(
         req.content,
         req.source,
-        req.collection,
     );
     json_response(val)
 }
@@ -162,7 +151,6 @@ async fn ingest_file(
 ) -> impl IntoResponse {
     let val = server.ingestion_manager.ingest_file(
         req.file_path,
-        req.collection,
     );
     json_response(val)
 }
@@ -182,6 +170,15 @@ async fn delete_document(
         StatusCode::OK
     };
     (code, Json(val))
+}
+
+async fn rebuild_indexes(
+    State(_server): State<Arc<RagFerriteServer>>,
+) -> impl IntoResponse {
+    tokio::task::spawn_blocking(|| {
+        engine::rebuild_and_save_indexes("general");
+    });
+    (StatusCode::OK, Json(serde_json::json!({"status": "rebuilding"})))
 }
 
 // --- Server startup ---
@@ -225,6 +222,7 @@ pub async fn serve(server: Arc<RagFerriteServer>, port: u16, bind_address: Strin
         .route("/api/ingest/file", post(ingest_file))
         .route("/api/documents/{source_id}", delete(delete_document))
         .route("/api/graph", get(get_graph))
+        .route("/api/rebuild-indexes", post(rebuild_indexes))
         .layer(CorsLayer::permissive())
         .with_state(server);
 

@@ -1142,6 +1142,28 @@ fn verify_chunks(chunks: &[String], source: &str) -> ChunkVerification {
 }
 
 /// Rebuild and persist HNSW + BM25 indexes for a collection.
+pub fn list_collections() -> Vec<String> {
+    let conn = match get_conn() {
+        Ok(c) => c,
+        Err(_) => return Vec::new(),
+    };
+    let mut stmt = match conn.prepare("SELECT DISTINCT collection_id FROM chunks") {
+        Ok(s) => s,
+        Err(_) => return Vec::new(),
+    };
+    let mut collections = Vec::new();
+    let rows = stmt.query_map([], |row| row.get::<_, String>(0));
+    match rows {
+        Ok(mapped) => {
+            for r in mapped {
+                if let Ok(c) = r { collections.push(c); }
+            }
+        }
+        Err(_) => {}
+    }
+    collections
+}
+
 pub fn rebuild_and_save_indexes(collection_id: &str) {
     if let Err(e) = source_rag::rebuild_chunk_hnsw_index_for_collection(collection_id.to_string()) {
         tracing::warn!("Failed to rebuild HNSW index for {}: {}", collection_id, e);

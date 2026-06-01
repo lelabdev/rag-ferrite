@@ -8,7 +8,7 @@
 
 **Your documents, searchable with meaning — not just keywords.**
 
-Single binary (15 MB). Single database. Multi-collection. MCP-native. Built in Rust.
+Single binary (15 MB). Single database. Tag-based classification. MCP-native. Built in Rust.
 
 ---
 
@@ -107,8 +107,8 @@ rag-ferrite
 
 Usage:
 
-- `ingest_file("/path/to/document.pdf", collection: "my-docs")`
-- `query_documents("what did I write about?", collection: "my-docs")`
+- `ingest_file("/path/to/document.pdf")`
+- `query_documents("what did I write about?")`
 
 ---
 
@@ -122,7 +122,7 @@ rag-ferrite understands what your documents **mean**. It filters the noise, tags
 |---|---|
 | **Semantic search** | Finds relevant passages even without exact keyword matches |
 | **Noise filtering** | Automatically removes junk chunks (TOC, boilerplate) at ingestion |
-| **Auto-tagging** | Each chunk gets smart tags for cross-collection filtering |
+| **Auto-tagging** | Each chunk gets smart tags for filtering and classification |
 | **Hybrid chunking** | Parent-child chunking for long docs — precise matching + full context |
 | **Self-correcting** | Weak results trigger automatic reformulation and retry |
 | **Hybrid search** | BM25 + vector search combined with RRF fusion |
@@ -149,7 +149,7 @@ Document → Extract text → Chunk (auto/recursive/parent-child)
 |---|---|---|
 | `recursive` | Fixed-size chunks (~800 chars) with overlap | Short docs, notes, FAQ |
 | `parent_child` | Large parents (~2000 chars) → small children (~200 chars). Children are embedded for search, parents returned for context | Books, manuals, long-form docs |
-| `auto` (default) | Uses parent_child for docs ≥ 5000 chars, recursive for smaller ones | Mixed collections — best of both |
+| `auto` (default) | Uses parent_child for docs ≥ 5000 chars, recursive for smaller ones | Mixed document sizes — best of both |
 
 ### Query
 
@@ -168,15 +168,15 @@ Query → Classify (simple / standard / complex)
 
 | Tool | Description |
 |---|---|
-| `query_documents(query, collection?, limit?)` | Hybrid search with optional collection filter |
-| `ingest_file(file_path, collection?)` | Ingest PDF, DOCX, TXT, or MD |
-| `ingest_data(content, source, collection?, format?)` | Ingest raw text, HTML, or markdown |
+| `query_documents(query, limit?)` | Hybrid search with optional limit |
+| `ingest_file(file_path)` | Ingest PDF, DOCX, TXT, or MD |
+| `ingest_data(content, source, format?)` | Ingest raw text, HTML, or markdown |
 | `delete_file(source)` | Remove document and all its chunks |
 | `list_files()` | List indexed documents |
 | `status()` | Engine status and document count |
 | `read_chunk_neighbors(source_id, chunk_index)` | Expand context around a chunk |
 | `check_ingestion(file_path?, content?, source_name?)` | Preview document quality before ingestion |
-| `benchmark(file_path, collection?, limit?)` | Evaluate retrieval quality against a golden dataset |
+| `benchmark(file_path, limit?)` | Evaluate retrieval quality against a golden dataset |
 
 ### MCP client setup
 

@@ -23,12 +23,10 @@ use tokio::sync::mpsc;
 enum IngestJob {
     File {
         file_path: String,
-        collection: Option<String>,
     },
     Data {
         content: String,
         source: String,
-        collection: Option<String>,
     },
 }
 
@@ -103,12 +101,11 @@ impl IngestionManager {
     }
 
     /// Queue a file ingestion. Returns immediately.
-    pub fn ingest_file(&self, file_path: String, collection: Option<String>) -> serde_json::Value {
-        match self.sender.send(IngestJob::File { file_path: file_path.clone(), collection: collection.clone() }) {
+    pub fn ingest_file(&self, file_path: String) -> serde_json::Value {
+        match self.sender.send(IngestJob::File { file_path: file_path.clone() }) {
             Ok(()) => serde_json::json!({
                 "status": "queued",
                 "file_path": file_path,
-                "collection": collection,
                 "message": "Ingestion queued. Check GET /api/ingest/progress for status."
             }),
             Err(_) => serde_json::json!({ "error": "Failed to queue ingestion" }),
@@ -116,12 +113,11 @@ impl IngestionManager {
     }
 
     /// Queue a data ingestion. Returns immediately.
-    pub fn ingest_data(&self, content: String, source: String, collection: Option<String>) -> serde_json::Value {
-        match self.sender.send(IngestJob::Data { content, source: source.clone(), collection: collection.clone() }) {
+    pub fn ingest_data(&self, content: String, source: String) -> serde_json::Value {
+        match self.sender.send(IngestJob::Data { content, source: source.clone() }) {
             Ok(()) => serde_json::json!({
                 "status": "queued",
                 "source": source,
-                "collection": collection,
                 "message": "Ingestion queued. Check GET /api/ingest/progress for status."
             }),
             Err(_) => serde_json::json!({ "error": "Failed to queue ingestion" }),
@@ -145,11 +141,11 @@ async fn background_worker(
 ) {
     while let Some(job) = receiver.recv().await {
         match job {
-            IngestJob::File { file_path, collection } => {
-                process_file_job(&pipeline, &ingest_config, &progress, &ingestion_llm, &file_path, collection.as_deref()).await;
+            IngestJob::File { file_path } => {
+                process_file_job(&pipeline, &ingest_config, &progress, &ingestion_llm, &file_path).await;
             }
-            IngestJob::Data { content, source, collection } => {
-                process_data_job(&pipeline, &ingest_config, &progress, &ingestion_llm, &content, &source, collection.as_deref()).await;
+            IngestJob::Data { content, source } => {
+                process_data_job(&pipeline, &ingest_config, &progress, &ingestion_llm, &content, &source).await;
             }
         }
     }
@@ -171,7 +167,6 @@ async fn process_file_job(
     progress: &Arc<Mutex<IngestProgress>>,
     ingestion_llm: &Option<LlmProvider>,
     file_path: &str,
-    collection: Option<&str>,
 ) {
     {
         let mut p = progress.lock().unwrap();
@@ -190,7 +185,7 @@ async fn process_file_job(
         &pipeline.embedder,
         llm,
         file_path,
-        collection,
+        Some("general"),
         cfg.to_engine_options(),
     )
     .await;
@@ -220,7 +215,6 @@ async fn process_data_job(
     ingestion_llm: &Option<LlmProvider>,
     content: &str,
     source: &str,
-    collection: Option<&str>,
 ) {
     {
         let mut p = progress.lock().unwrap();
@@ -241,7 +235,7 @@ async fn process_data_job(
         content,
         source,
         None,
-        collection,
+        Some("general"),
         cfg.to_engine_options(),
     )
     .await;

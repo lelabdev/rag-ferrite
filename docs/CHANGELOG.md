@@ -2,6 +2,15 @@
 
 All notable changes to rag-ferrite are documented here.
 
+## [4.5.0] - 2025-06-01
+
+### Changed
+- **Removed collections** — Switched to a single flat index with tags-only classification. All multi-collection logic removed from codebase, API, and config.
+- **Simplified API** — Removed `collection` parameter from all MCP tools and HTTP endpoints. Queries run against a single unified index.
+
+### Added
+- **`/api/rebuild-indexes` endpoint** — Async, non-blocking endpoint to trigger full HNSW + BM25 index rebuild from existing SQLite data.
+
 ## [4.4.1] - 2025-05-31
 
 ### Fixed

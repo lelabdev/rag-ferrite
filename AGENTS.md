@@ -99,12 +99,6 @@ config.toml :
 
 API keys via .env : LLM_API_KEY (Ollama Cloud), EMBEDDING_API_KEY (OpenRouter).
 
-## Collections
-
-Multi-collections dans la même DB. Chaque outil MCP accepte un paramètre `collection` optionnel.
-
-Collections actuelles : svelte, code, security, growth, wellness, rpg, general.
-
 ## Pipeline d'ingestion
 
   Document → Pre-ingestion check (qualité, doublons, langue)
@@ -157,7 +151,6 @@ Progress: GET /api/ingest/progress
 | Markdown-aware chunking | markdown_chunk |
 | PDF / DOCX parsing | pdf-extract / docx-lite |
 | SQLite storage | db_pool + source_rag |
-| Multi-collections | source_rag |
 | Chunk neighbors | get_adjacent_chunks |
 | Metadata filtering | SearchFilter |
 | Tokenization | HuggingFace tokenizers |

@@ -57,9 +57,6 @@ pub struct QueryParams {
     /// Filter by metadata using SQL LIKE pattern (e.g. "%.pdf")
     #[serde(default)]
     pub metadata_like: Option<String>,
-    /// Filter by collection name
-    #[serde(default)]
-    pub collection: Option<String>,
 }
 
 pub fn default_limit() -> Option<usize> {
@@ -69,16 +66,12 @@ pub fn default_limit() -> Option<usize> {
 #[derive(Debug, Default, Serialize, Deserialize, JsonSchema)]
 pub struct IngestFileParams {
     pub file_path: String,
-    #[serde(default)]
-    pub collection: Option<String>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize, JsonSchema)]
 pub struct IngestDataParams {
     pub content: String,
     pub source: String,
-    #[serde(default)]
-    pub collection: Option<String>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize, JsonSchema)]
@@ -117,9 +110,6 @@ pub struct CheckIngestionParams {
 pub struct BenchmarkParams {
     /// Path to the golden dataset JSON file
     pub file_path: String,
-    /// Optional collection to filter queries against
-    #[serde(default)]
-    pub collection: Option<String>,
     /// Number of top results to consider per query (default: 10)
     #[serde(default = "default_limit")]
     pub limit: Option<usize>,
