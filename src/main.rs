@@ -1,10 +1,21 @@
 use anyhow::Result;
 use std::sync::Arc;
+use std::fmt::Write;
 use rmcp::{
     ServiceExt,
     handler::server::wrapper::Parameters,
     tool, tool_router,
 };
+
+/// Custom log timer using local timezone (Europe/Paris).
+struct LocalTimer;
+
+impl tracing_subscriber::fmt::time::FormatTime for LocalTimer {
+    fn format_time(&self, w: &mut tracing_subscriber::fmt::format::Writer<'_>) -> std::fmt::Result {
+        let now = chrono::Local::now();
+        write!(w, "{}", now.format("%Y-%m-%dT%H:%M:%S%.3f%:z"))
+    }
+}
 
 mod api;
 mod config;
@@ -179,6 +190,7 @@ async fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(&config.advanced.log_filter)
         .with_writer(std::sync::Mutex::new(log_file))
+        .with_timer(LocalTimer)
         .init();
 
     tracing::info!("rag-ferrite v{} starting — data: {}", env!("CARGO_PKG_VERSION"), config.data_dir.display());
