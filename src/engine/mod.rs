@@ -117,7 +117,10 @@ pub fn init(data_dir: &std::path::Path, config: &crate::config::Config) -> Resul
 
     // Store a shared connection for all subsequent get_conn() calls
     let shared_conn = rusqlite::Connection::open(&db_path_str)?;
-    shared_conn.execute_batch(&format!("PRAGMA journal_mode=WAL; PRAGMA busy_timeout={};", config.advanced.db_busy_timeout_ms))?;
+    shared_conn.execute_batch(&format!(
+        "PRAGMA journal_mode=WAL; PRAGMA busy_timeout={}; PRAGMA cache_size=-{};",
+        config.advanced.db_busy_timeout_ms, config.advanced.db_cache_size_mb
+    ))?;
     let _ = DB_CONN.set(std::sync::Mutex::new(shared_conn));
 
     // Check embedding dimension mismatch: compare DB vectors with configured dimensions
@@ -184,6 +187,10 @@ pub struct IngestOptions {
     pub auto_threshold: usize,
     /// Min child chars — consecutive children below this are merged
     pub child_min_chars: usize,
+    /// Defer HNSW + BM25 index rebuild to explicit flush (saves RAM during batch ingestion)
+    pub defer_index_rebuild: bool,
+    /// WAL checkpoint every N parents committed (0 = disabled)
+    pub wal_checkpoint_interval: usize,
 }
 
 /// Ingest a text document into the RAG
@@ -380,8 +387,12 @@ pub async fn ingest_text(
         tracing::warn!("Failed to update source status: {}", e);
     }
 
-    // Rebuild indexes for the target collection
-    rebuild_and_save_indexes(&collection_id);
+    // Rebuild indexes only if not deferred (batch ingestion defers to explicit flush)
+    if !options.defer_index_rebuild {
+        rebuild_and_save_indexes(&collection_id);
+    } else {
+        tracing::info!("Index rebuild deferred (defer_index_rebuild=true)");
+    }
 
     let total_duration_ms = total_start.elapsed().as_millis() as u64;
 
@@ -889,6 +900,12 @@ async fn ingest_text_parent_child(
                 let kept_count = commit_parent_to_db(source_id, &processed.parent_chunk, &processed.kept_data)?;
                 total_kept += kept_count;
                 tracing::info!("Parent {}/{} committed ({} children stored)", processed.p_idx + 1, total_parents, kept_count);
+
+                // Periodic WAL checkpoint to prevent WAL bloat during ingestion
+                if options.wal_checkpoint_interval > 0 && total_kept % options.wal_checkpoint_interval == 0 {
+                    tracing::info!("Periodic WAL checkpoint ({} children committed)", total_kept);
+                    wal_checkpoint();
+                }
             }
         }
     }
@@ -898,8 +915,12 @@ async fn ingest_text_parent_child(
         tracing::warn!("Failed to update source status: {}", e);
     }
 
-    // Rebuild indexes
-    rebuild_and_save_indexes(&collection_id);
+    // Rebuild indexes only if not deferred (batch ingestion defers to explicit flush)
+    if !options.defer_index_rebuild {
+        rebuild_and_save_indexes(&collection_id);
+    } else {
+        tracing::info!("Index rebuild deferred (defer_index_rebuild=true)");
+    }
 
     let total_duration_ms = total_start.elapsed().as_millis() as u64;
 
@@ -1165,5 +1186,18 @@ pub fn rebuild_and_save_indexes(collection_id: &str) {
     let index_path = format!("{}/hnsw_{}.index", data_dir(), collection_id);
     if let Err(e) = source_rag::save_collection_hnsw_index(collection_id.to_string(), index_path) {
         tracing::warn!("Failed to save HNSW index for {}: {}", collection_id, e);
+    }
+}
+
+/// Run WAL checkpoint to free disk space and reduce memory pressure.
+pub fn wal_checkpoint() {
+    match get_conn() {
+        Ok(conn) => {
+            match conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE)") {
+                Ok(_) => tracing::info!("WAL checkpoint completed"),
+                Err(e) => tracing::warn!("WAL checkpoint failed: {}", e),
+            }
+        }
+        Err(e) => tracing::warn!("WAL checkpoint: cannot get DB connection: {}", e),
     }
 }

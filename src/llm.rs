@@ -173,13 +173,13 @@ impl LlmProvider {
              Here is the chunk we want to situate within the whole document:\n\
              <chunk>\n{}\n</chunk>\n\n\
              Assess the relevance of this chunk for informative retrieval on a scale of 1 to 10, \
-             where 1 is noise (TOC, index, legal mentions, boilerplate) and 10 is highly informative content.\n\
+             where 1 is noise (TOC, index, legal mentions, boilerplate) and 10 is highly informative content.\
              Also give a short succinct context to situate this chunk within the overall document \
              for the purposes of improving search retrieval of the chunk.\n\n\
              Answer ONLY in this exact format:\n\
              SCORE: <number 1-10>\n\
              CONTEXT: <short succinct context, same language as document>\n\
-             TAGS: <2-3 short tags describing the topic, comma-separated>",
+             TAGS: <1-3 tags, noun phrases only, no adjectives alone, lowercase, hyphenated multi-word>",
             truncate_for_prompt(whole_document, self.max_document_prompt_chars),
             truncate_for_prompt(chunk_content, self.max_chunk_prompt_chars),
         );
@@ -245,11 +245,11 @@ impl LlmProvider {
              CHUNK 1:\n\
              SCORE: <number 1-10>\n\
              CONTEXT: <short succinct context, same language as document>\n\
-             TAGS: <2-3 short tags, comma-separated>\n\
+             TAGS: <1-3 tags, noun phrases only, no adjectives alone, lowercase, hyphenated multi-word>\n\
              CHUNK 2:\n\
              SCORE: <number 1-10>\n\
              CONTEXT: <short succinct context>\n\
-             TAGS: <2-3 short tags, comma-separated>\n\
+             TAGS: <1-3 tags, noun phrases only, no adjectives alone, lowercase, hyphenated multi-word>\n\
              (etc.)",
             truncate_for_prompt(whole_document, self.max_document_prompt_chars),
             child_chunks.len(),
@@ -750,6 +750,70 @@ fn parse_multi_chunk_response(response: &str, expected_count: usize) -> Vec<Resu
     results
 }
 
+/// Sanitize raw tags from LLM output: lowercase, strip special chars, remove noise.
+fn sanitize_tags(raw_tags: Vec<String>) -> Vec<String> {
+    // Adjectives/common words that are useless as tags
+    const STOP_WORDS: &[&str] = &[
+        "creative", "descriptive", "informative", "detailed", "general", "basic",
+        "advanced", "modern", "traditional", "practical", "theoretical", "important",
+        "useful", "specific", "relevant", "key", "main", "core", "common", "simple",
+        "complex", "new", "old", "good", "great", "high", "low", "big", "small",
+        "attention", "description", "technique", "concentration", "narrative",
+        "pleasure", "desire", "components", "position", "case study",
+    ];
+
+    raw_tags.into_iter()
+        .map(|t| {
+            // Strip markdown bold/italic markers, dollar signs, asterisks
+            let mut t = t.replace('*', "")
+                .replace('$', "")
+                .replace('`', "")
+                .replace('"', "");
+            // Lowercase
+            t = t.to_lowercase();
+            // Replace spaces with hyphens for multi-word tags
+            t = t.trim().to_string();
+            t
+        })
+        .filter(|t| {
+            // Not empty
+            if t.is_empty() { return false; }
+            // Min 3 chars
+            if t.len() < 3 { return false; }
+            // Max 3 words (avoid overly specific tags)
+            if t.split(|c: char| c == ' ' || c == '-' || c == '_').count() > 3 { return false; }
+            // Not a stop word
+            if STOP_WORDS.contains(&t.as_str()) { return false; }
+            // Not just an adjective (single word ending in common adjective suffixes)
+            if !t.contains(' ') && !t.contains('-') {
+                let suffixes = ["tion", "sion", "ment", "ness", "ity", "ance", "ence"];
+                // Allow these noun suffixes even as single words
+                if suffixes.iter().any(|s| t.ends_with(s)) {
+                    return true;
+                }
+                // Single word that's a stop word
+                if STOP_WORDS.contains(&t.as_str()) { return false; }
+            }
+            true
+        })
+        // Normalize: singular form for common plurals (simple heuristic)
+        .map(|mut t| {
+            // Remove trailing 's' if word ends in common plural patterns
+            // But keep it simple — only for single-word tags
+            if !t.contains(' ') && !t.contains('-') && t.len() > 4 && t.ends_with('s') && !t.ends_with("ss") && !t.ends_with("us") {
+                t = t[..t.len()-1].to_string();
+            }
+            t
+        })
+        // Deduplicate
+        .fold(Vec::new(), |mut acc, t| {
+            if !acc.contains(&t) {
+                acc.push(t);
+            }
+            acc
+        })
+}
+
 fn parse_context_response(response: &str) -> (Option<f32>, Option<String>, Option<serde_json::Value>, Vec<String>) {
     let mut score: Option<f32> = None;
     let mut context_lines: Vec<&str> = Vec::new();
@@ -770,11 +834,12 @@ fn parse_context_response(response: &str) -> (Option<f32>, Option<String>, Optio
         }
         if trimmed_line.starts_with("TAGS:") {
             let tags_str = trimmed_line["TAGS:".len()..].trim();
-            tags = tags_str
+            let raw_tags: Vec<String> = tags_str
                 .split(',')
                 .map(|t| t.trim().to_string())
                 .filter(|t| !t.is_empty())
                 .collect();
+            tags = sanitize_tags(raw_tags);
             continue;
         }
         if trimmed_line.starts_with("METADATA:") {

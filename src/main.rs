@@ -359,6 +359,8 @@ async fn main() -> Result<()> {
             child_overlap: config.chunking.child_overlap,
             auto_threshold: config.chunking.auto_threshold,
             child_min_chars: config.chunking.child_min_chars,
+            defer_index_rebuild: config.advanced.defer_index_rebuild,
+            wal_checkpoint_interval: config.advanced.wal_checkpoint_interval,
         };
 
     let reranker_for_fallback = reranker.clone();

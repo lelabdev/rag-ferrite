@@ -443,6 +443,10 @@ pub struct AdvancedConfig {
     #[serde(default = "default_db_pool_size")]
     pub db_pool_size: usize,
 
+    /// SQLite page cache size in MB
+    #[serde(default = "default_db_cache_size_mb")]
+    pub db_cache_size_mb: usize,
+
     /// SQLite busy timeout in milliseconds
     #[serde(default = "default_db_busy_timeout_ms")]
     pub db_busy_timeout_ms: usize,
@@ -458,6 +462,14 @@ pub struct AdvancedConfig {
     /// HTTP bind address
     #[serde(default = "default_http_bind_address")]
     pub http_bind_address: String,
+
+    /// Defer HNSW + BM25 index rebuild to explicit flush (saves RAM during batch ingestion)
+    #[serde(default = "default_defer_index_rebuild")]
+    pub defer_index_rebuild: bool,
+
+    /// WAL checkpoint every N parents committed (0 = disabled)
+    #[serde(default = "default_wal_checkpoint_interval")]
+    pub wal_checkpoint_interval: usize,
 }
 
 fn default_chunk_size() -> usize { 800 }
@@ -472,10 +484,13 @@ fn default_max_retries() -> usize { 1 }
 fn default_high_confidence_threshold() -> f64 { 0.7 }
 fn default_embedding_batch_size() -> usize { 20 }
 fn default_db_pool_size() -> usize { 4 }
+fn default_db_cache_size_mb() -> usize { 256 }
 fn default_db_busy_timeout_ms() -> usize { 5000 }
 fn default_log_file() -> String { "rag-ferrite.log".into() }
 fn default_log_filter() -> String { "rag_ferrite=debug,rag_engine=debug".into() }
 fn default_http_bind_address() -> String { "0.0.0.0".into() }
+fn default_defer_index_rebuild() -> bool { true }
+fn default_wal_checkpoint_interval() -> usize { 50 }
 
 impl Default for AdvancedConfig {
     fn default() -> Self {
@@ -492,10 +507,13 @@ impl Default for AdvancedConfig {
             high_confidence_threshold: default_high_confidence_threshold(),
             embedding_batch_size: default_embedding_batch_size(),
             db_pool_size: default_db_pool_size(),
+            db_cache_size_mb: default_db_cache_size_mb(),
             db_busy_timeout_ms: default_db_busy_timeout_ms(),
             log_file: default_log_file(),
             log_filter: default_log_filter(),
             http_bind_address: default_http_bind_address(),
+            defer_index_rebuild: default_defer_index_rebuild(),
+            wal_checkpoint_interval: default_wal_checkpoint_interval(),
         }
     }
 }

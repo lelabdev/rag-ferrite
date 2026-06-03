@@ -21,6 +21,8 @@ pub struct IngestConfig {
     pub child_overlap: usize,
     pub auto_threshold: usize,
     pub child_min_chars: usize,
+    pub defer_index_rebuild: bool,
+    pub wal_checkpoint_interval: usize,
 }
 
 impl IngestConfig {
@@ -40,6 +42,8 @@ impl IngestConfig {
             child_overlap: self.child_overlap,
             auto_threshold: self.auto_threshold,
             child_min_chars: self.child_min_chars,
+            defer_index_rebuild: self.defer_index_rebuild,
+            wal_checkpoint_interval: self.wal_checkpoint_interval,
         }
     }
 }

@@ -28,6 +28,9 @@ enum IngestJob {
         content: String,
         source: String,
     },
+    /// Flush indexes: rebuild HNSW + BM25 + WAL checkpoint.
+    /// Sent at the end of a batch ingestion to defer expensive index operations.
+    FlushIndexes,
 }
 
 // ── Progress tracking ──────────────────────────────────────────────────
@@ -125,6 +128,18 @@ impl IngestionManager {
     pub fn get_progress(&self) -> IngestProgress {
         self.progress.lock().unwrap().clone()
     }
+
+    /// Queue a flush: rebuild HNSW + BM25 indexes + WAL checkpoint.
+    /// Call after a batch of ingestion jobs to finalize indexes.
+    pub fn flush_indexes(&self) -> serde_json::Value {
+        match self.sender.send(IngestJob::FlushIndexes) {
+            Ok(()) => serde_json::json!({
+                "status": "queued",
+                "message": "Index rebuild + WAL checkpoint queued."
+            }),
+            Err(_) => serde_json::json!({ "error": "Failed to queue flush" }),
+        }
+    }
 }
 
 // ── Background worker ──────────────────────────────────────────────────
@@ -143,6 +158,12 @@ async fn background_worker(
             }
             IngestJob::Data { content, source } => {
                 process_data_job(&pipeline, &ingest_config, &progress, &ingestion_llm, &content, &source).await;
+            }
+            IngestJob::FlushIndexes => {
+                tracing::info!("FlushIndexes: rebuilding indexes + WAL checkpoint...");
+                engine::rebuild_and_save_indexes("general");
+                engine::wal_checkpoint();
+                tracing::info!("FlushIndexes complete.");
             }
         }
     }

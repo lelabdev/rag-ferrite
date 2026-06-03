@@ -177,8 +177,16 @@ async fn rebuild_indexes(
 ) -> impl IntoResponse {
     tokio::task::spawn_blocking(|| {
         engine::rebuild_and_save_indexes("general");
+        engine::wal_checkpoint();
     });
-    (StatusCode::OK, Json(serde_json::json!({"status": "rebuilding"})))
+    (StatusCode::OK, Json(serde_json::json!({"status": "rebuilding + WAL checkpoint"})))
+}
+
+async fn flush_indexes(
+    State(server): State<Arc<RagFerriteServer>>,
+) -> impl IntoResponse {
+    let val = server.ingestion_manager.flush_indexes();
+    json_response(val)
 }
 
 // --- Server startup ---
@@ -223,6 +231,7 @@ pub async fn serve(server: Arc<RagFerriteServer>, port: u16, bind_address: Strin
         .route("/api/documents/{source_id}", delete(delete_document))
         .route("/api/graph", get(get_graph))
         .route("/api/rebuild-indexes", post(rebuild_indexes))
+        .route("/api/flush-indexes", post(flush_indexes))
         .layer(CorsLayer::permissive())
         .with_state(server);
 
