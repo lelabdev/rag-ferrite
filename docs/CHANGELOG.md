@@ -5,14 +5,17 @@ All notable changes to rag-ferrite are documented here.
 ## [4.6.0] - 2025-06-03
 
 ### Added
-- **Deferred index rebuild** (`defer_index_rebuild = true`) — Skip HNSW rebuild after each file during ingestion. Rebuild once at end of batch via `POST /api/flush-indexes`. Reduces RAM from ~2 GB to ~78 MB during ingestion.
-- **WAL checkpoint** (`wal_checkpoint_interval = 50`) — Periodic SQLite WAL checkpoint during ingestion. Keeps WAL file from growing unbounded.
-- **Tag rules** (`tag-rules.toml`) — External, editable config file for tag normalization. Synonym mappings, stop words (5 categories), and filtering rules. No recompilation needed.
+- **Incremental HNSW buffer** — Chunks are immediately searchable after ingestion via dual-index strategy (in-memory buffer + HNSW). No flush needed to search new content. Uses `rag_engine::incremental_index` module.
+- **Deferred index rebuild** (`defer_index_rebuild = true`) — New chunks go to incremental buffer instead of triggering full HNSW rebuild. Reduces RAM from ~2 GB to ~30 MB during ingestion.
+- **WAL checkpoint** (`wal_checkpoint_interval = 50`) — Periodic SQLite WAL checkpoint during ingestion.
+- **Tag rules** (`tag-rules.toml`) — External config for tag normalization: synonym mappings, stop words, filtering rules. No recompilation needed.
 - **Tag sanitization pipeline** — Multi-stage: strip chars → lowercase → synonym lookup → stop word filter → length filter → singular normalization → dedup.
-- **`POST /api/flush-indexes`** — Trigger HNSW + BM25 rebuild + WAL checkpoint. Queued in ingestion pipeline (non-blocking).
-- **`tag_rules.rs` module** — Loads `tag-rules.toml` at startup, uses `OnceLock` for zero-cost access during ingestion.
+- **`POST /api/flush-indexes`** — Trigger HNSW + BM25 rebuild + WAL checkpoint. Merges incremental buffer into persistent index.
+- `add_embeddings_to_buffer()` — Adds new embeddings to buffer at ingestion time.
 
 ### Changed
+- `defer_index_rebuild = true` now means "use incremental buffer" instead of "skip entirely". Chunks are searchable immediately.
+- `rebuild_and_save_indexes()` merges incremental buffer before rebuild and clears it after.
 - Tag generation prompt improved: "noun phrases only, no adjectives alone, lowercase, hyphenated multi-word"
 - `ingest-library.sh` calls `/api/flush-indexes` at end of batch
 

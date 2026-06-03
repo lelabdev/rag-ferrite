@@ -316,7 +316,9 @@ embedding_batch_size = 20                    # embeddings per API call
 log_file = "rag-ferrite.log"
 log_filter = "rag_ferrite=debug,rag_engine=debug"
 http_bind_address = "0.0.0.0"               # for REST API (if http_port > 0)
-# RAM optimization: defer HNSW rebuild to explicit flush (saves ~1 GB RAM during ingestion)
+# RAM optimization: incremental buffer for instant searchability (defer_index_rebuild = true)
+# When true: new chunks go to an in-memory buffer, searchable immediately.
+# When false: full HNSW rebuild after each file (high RAM, slow).
 defer_index_rebuild = true
 # WAL checkpoint every N children committed (keeps WAL size under control)
 wal_checkpoint_interval = 50
