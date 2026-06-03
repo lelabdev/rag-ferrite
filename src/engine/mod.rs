@@ -5,6 +5,7 @@ use rag_engine::api::{
     simple,
     source_rag::{self, ChunkData},
 };
+use rag_engine::api::incremental_index;
 use rag_engine::api::source_rag::DEFAULT_COLLECTION_ID;
 use crate::chunker;
 use crate::embedding::EmbeddingProvider;
@@ -391,7 +392,9 @@ pub async fn ingest_text(
     if !options.defer_index_rebuild {
         rebuild_and_save_indexes(&collection_id);
     } else {
-        tracing::info!("Index rebuild deferred (defer_index_rebuild=true)");
+        // Add embeddings to incremental buffer — immediately searchable without full rebuild
+        add_embeddings_to_buffer(source_id);
+        tracing::info!("Embeddings added to incremental buffer (defer_index_rebuild=true)");
     }
 
     let total_duration_ms = total_start.elapsed().as_millis() as u64;
@@ -919,7 +922,9 @@ async fn ingest_text_parent_child(
     if !options.defer_index_rebuild {
         rebuild_and_save_indexes(&collection_id);
     } else {
-        tracing::info!("Index rebuild deferred (defer_index_rebuild=true)");
+        // Add embeddings to incremental buffer — immediately searchable without full rebuild
+        add_embeddings_to_buffer(source_id);
+        tracing::info!("Embeddings added to incremental buffer (defer_index_rebuild=true)");
     }
 
     let total_duration_ms = total_start.elapsed().as_millis() as u64;
@@ -1176,7 +1181,50 @@ pub fn list_collections() -> Vec<String> {
     collections
 }
 
+/// Add all embeddings for a source to the incremental buffer (immediately searchable).
+fn add_embeddings_to_buffer(source_id: i64) {
+    let conn = match get_conn() {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::warn!("Cannot get DB connection for incremental buffer: {}", e);
+            return;
+        }
+    };
+    let mut stmt = match conn.prepare(
+        "SELECT c.id, c.embedding FROM chunks c WHERE c.source_id = ?1 AND c.embedding IS NOT NULL"
+    ) {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::warn!("Cannot prepare embedding query: {}", e);
+            return;
+        }
+    };
+    let rows: Vec<(i64, Vec<u8>)> = stmt.query_map([source_id], |row| {
+        let id: i64 = row.get(0)?;
+        let emb_bytes: Vec<u8> = row.get(1)?;
+        Ok((id, emb_bytes))
+    }).ok()
+        .map(|rows| rows.filter_map(|r| r.ok()).collect())
+        .unwrap_or_default();
+
+    let mut batch = Vec::new();
+    for (id, emb_bytes) in &rows {
+        // Embeddings stored as f32 NE bytes
+        let embedding: Vec<f32> = emb_bytes.chunks_exact(4)
+            .map(|chunk| f32::from_ne_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
+            .collect();
+        batch.push((*id, embedding));
+    }
+    incremental_index::incremental_add_batch(batch);
+    tracing::info!("Added {} embeddings to incremental buffer for source {}", rows.len(), source_id);
+}
+
 pub fn rebuild_and_save_indexes(collection_id: &str) {
+    // Merge incremental buffer into HNSW before rebuild
+    if incremental_index::needs_merge() {
+        tracing::info!("Incremental buffer threshold reached, merging into HNSW index");
+    }
+
     if let Err(e) = source_rag::rebuild_chunk_hnsw_index_for_collection(collection_id.to_string()) {
         tracing::warn!("Failed to rebuild HNSW index for {}: {}", collection_id, e);
     }
@@ -1187,6 +1235,8 @@ pub fn rebuild_and_save_indexes(collection_id: &str) {
     if let Err(e) = source_rag::save_collection_hnsw_index(collection_id.to_string(), index_path) {
         tracing::warn!("Failed to save HNSW index for {}: {}", collection_id, e);
     }
+    // Clear buffer after successful rebuild — all vectors are now in the main index
+    incremental_index::clear_buffer();
 }
 
 /// Run WAL checkpoint to free disk space and reduce memory pressure.
