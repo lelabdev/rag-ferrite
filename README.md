@@ -316,7 +316,42 @@ embedding_batch_size = 20                    # embeddings per API call
 log_file = "rag-ferrite.log"
 log_filter = "rag_ferrite=debug,rag_engine=debug"
 http_bind_address = "0.0.0.0"               # for REST API (if http_port > 0)
+# RAM optimization: defer HNSW rebuild to explicit flush (saves ~1 GB RAM during ingestion)
+defer_index_rebuild = true
+# WAL checkpoint every N children committed (keeps WAL size under control)
+wal_checkpoint_interval = 50
 ```
+
+### Tag rules (`tag-rules.toml`)
+
+Auto-generated tags are cleaned through a configurable pipeline. Create `tag-rules.toml` alongside `config.toml`:
+
+```toml
+# Synonym normalization — merge variants to canonical form
+[synonyms]
+"advertising" = "copywriting"
+"social media" = "social media strategy"
+"props" = "svelte"
+"tensorflow lite" = "tensorflow"
+
+# Stop words — tags matching exactly are discarded
+[stop_words]
+words = ["creative", "general", "basic", "success", "example"]
+meta = ["introduction", "conclusion", "references", "glossary"]
+technical = ["syntax", "configuration", "installation", "deployment"]
+emotional = ["fear", "stress", "passion", "ambition"]
+noise = ["anecdote", "humor", "placeholder", "guide", "tutorial"]
+
+# Rules
+[rules]
+min_length = 3           # minimum tag length in characters
+max_words = 3            # maximum words per tag
+strip_chars = "*$`\"<>|={}[]/"  # characters removed before processing
+```
+
+**Pipeline:** strip chars → lowercase → synonym lookup → stop word filter → length filter → singular normalization → dedup.
+
+No recompilation needed — edit the file and restart the service.
 
 ---
 

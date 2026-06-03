@@ -2,6 +2,20 @@
 
 All notable changes to rag-ferrite are documented here.
 
+## [4.6.0] - 2025-06-03
+
+### Added
+- **Deferred index rebuild** (`defer_index_rebuild = true`) — Skip HNSW rebuild after each file during ingestion. Rebuild once at end of batch via `POST /api/flush-indexes`. Reduces RAM from ~2 GB to ~78 MB during ingestion.
+- **WAL checkpoint** (`wal_checkpoint_interval = 50`) — Periodic SQLite WAL checkpoint during ingestion. Keeps WAL file from growing unbounded.
+- **Tag rules** (`tag-rules.toml`) — External, editable config file for tag normalization. Synonym mappings, stop words (5 categories), and filtering rules. No recompilation needed.
+- **Tag sanitization pipeline** — Multi-stage: strip chars → lowercase → synonym lookup → stop word filter → length filter → singular normalization → dedup.
+- **`POST /api/flush-indexes`** — Trigger HNSW + BM25 rebuild + WAL checkpoint. Queued in ingestion pipeline (non-blocking).
+- **`tag_rules.rs` module** — Loads `tag-rules.toml` at startup, uses `OnceLock` for zero-cost access during ingestion.
+
+### Changed
+- Tag generation prompt improved: "noun phrases only, no adjectives alone, lowercase, hyphenated multi-word"
+- `ingest-library.sh` calls `/api/flush-indexes` at end of batch
+
 ## [4.5.0] - 2025-06-01
 
 ### Changed

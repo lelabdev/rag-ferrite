@@ -151,6 +151,7 @@ src/
 │   ├── benchmark.rs — quality evaluation
 │   └── tags.rs    — chunk tagging
 ├── llm.rs         — LLM provider (Ollama + OpenAI), scoring, tagging, context
+├── tag_rules.rs   — Tag normalization rules loaded from tag-rules.toml
 ├── reranker.rs    — reranker (LLM, Cohere, passthrough)
 ├── embedding.rs   — embedding provider (OpenAI-compatible)
 ├── config.rs      — TOML config parsing
@@ -212,7 +213,37 @@ query_limit = 10                  # default result count
 db_pool_size = 4                  # SQLite connection pool
 db_busy_timeout_ms = 5000
 embedding_batch_size = 20         # embeddings per API call
+# RAM optimization
+defer_index_rebuild = true        # skip HNSW rebuild after each file, flush once at end
+wal_checkpoint_interval = 50      # WAL checkpoint every N children committed
 ```
+
+### Tag rules (`tag-rules.toml`)
+
+Auto-generated tags are cleaned through a configurable pipeline. Create `tag-rules.toml` alongside `config.toml`:
+
+```toml
+[synonyms]
+"advertising" = "copywriting"
+"social media" = "social media strategy"
+"props" = "svelte"
+
+[stop_words]
+words = ["creative", "general", "basic", "success", "example"]
+meta = ["introduction", "conclusion", "references", "glossary"]
+technical = ["syntax", "configuration", "installation", "deployment"]
+emotional = ["fear", "stress", "passion", "ambition"]
+noise = ["anecdote", "humor", "placeholder", "guide", "tutorial"]
+
+[rules]
+min_length = 3           # minimum tag length in characters
+max_words = 3            # maximum words per tag
+strip_chars = "*$`\"<>|={}[]/"  # characters removed before processing
+```
+
+**Pipeline:** strip chars → lowercase → synonym lookup → stop word filter → length filter → singular normalization → dedup.
+
+No recompilation needed — edit the file and restart the service.
 
 ### Reranker (Cohere)
 
