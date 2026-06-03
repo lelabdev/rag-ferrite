@@ -2,6 +2,7 @@ use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Duration;
+use crate::tag_rules;
 
 /// Result of contextual retrieval: optional context prefix, optional relevance score (1-10),
 /// optional extracted metadata, and auto-generated tags.
@@ -750,147 +751,33 @@ fn parse_multi_chunk_response(response: &str, expected_count: usize) -> Vec<Resu
     results
 }
 
-/// Sanitize raw tags from LLM output: normalize, deduplicate, remove noise.
+/// Global tag rules — set once at startup, read by sanitize_tags()
+static TAG_RULES: std::sync::OnceLock<tag_rules::TagRules> = std::sync::OnceLock::new();
+
+/// Initialize tag rules. Call once at startup.
+pub fn init_tag_rules(rules: tag_rules::TagRules) {
+    let _ = TAG_RULES.set(rules);
+}
+
+/// Sanitize raw tags from LLM output using tag-rules.toml.
 /// Multi-stage pipeline: strip → lowercase → synonyms → stop words → length → dedup.
 fn sanitize_tags(raw_tags: Vec<String>) -> Vec<String> {
-    use std::collections::HashMap;
-
-    // Stage 1: Synonym/normalization map — merge variants to canonical form
-    static TAG_SYNONYMS: &[(&str, &str)] = &[
-        // Advertising/copywriting
-        ("advertising", "copywriting"), ("ad strategy", "copywriting"), ("advertising strategy", "copywriting"),
-        ("advertising techniques", "copywriting"), ("advertising examples", "copywriting"),
-        ("advertising psychology", "copywriting"), ("digital advertising", "copywriting"),
-        ("creative strategy", "copywriting"), ("creative execution", "copywriting"),
-        ("direct response", "copywriting"), ("headline psychology", "copywriting"),
-        ("visual persuasion", "copywriting"), ("ad copy", "copywriting"),
-        // Social media
-        ("social media", "social media strategy"), ("social media marketing", "social media strategy"),
-        ("facebook marketing", "social media strategy"), ("twitter strategy", "social media strategy"),
-        ("content marketing", "social media strategy"), ("branding", "social media strategy"),
-        // Svelte parasites
-        ("props", "svelte"), ("$effect", "svelte"), ("$derived", "svelte"),
-        ("$bindable", "svelte"), ("slots", "svelte"), ("state management", "svelte"),
-        ("reactive state", "svelte"), ("ssr", "svelte"), ("prerendering", "svelte"),
-        ("styling", "svelte"), ("css", "svelte"), ("transitions", "svelte"),
-        ("svelte components", "svelte"), ("svelte 5", "svelte"),
-        // TensorFlow
-        ("tensorflow lite", "tensorflow"), ("tensorflow.js", "tensorflow"), ("keras", "tensorflow"),
-        // Privacy
-        ("anonymity", "privacy"), ("encryption", "privacy"), ("digital anonymity", "privacy"),
-        ("financial privacy", "privacy"), ("digital footprint", "privacy"),
-        // Agentic
-        ("agentic ai", "agentic systems"), ("agentic patterns", "agentic systems"),
-        ("agentic governance", "agentic systems"), ("agentic reasoning", "agentic systems"),
-        ("agent coordination", "multi-agent systems"), ("agent orchestration", "multi-agent systems"),
-        ("multi-agent coordination", "multi-agent systems"), ("multi-agent workflows", "multi-agent systems"),
-        // ML
-        ("neural networks", "machine learning"), ("deep-learning", "deep learning"),
-        ("nlp", "machine learning"), ("rag", "machine learning"), ("embeddings", "machine learning"),
-        // Erotic
-        ("sensual", "eroticism"), ("seduction", "eroticism"), ("arousal", "eroticism"),
-        ("fantasy", "eroticism"), ("stimulation", "eroticism"), ("orgasm", "eroticism"),
-        ("climax", "eroticism"), ("intimacy", "eroticism"),
-        ("sexual positions", "sexual position"), ("erotic positions", "sexual position"),
-        ("intercourse", "sexual position"), ("oral sex", "sexual position"),
-        // Taoism
-        ("tao", "taoism"), ("lao-tseu", "taoism"), ("tao-te king", "taoism"),
-        // Business
-        ("business strategy", "business"), ("business model", "business"),
-        ("business scaling", "business"), ("business growth", "business"),
-        // Persuasion
-        ("consumer psychology", "persuasion"), ("consumer behavior", "persuasion"),
-        ("influence", "persuasion"), ("psychological triggers", "persuasion"),
-        ("sales psychology", "persuasion"), ("persuasion techniques", "persuasion"),
-        // Security
-        ("offensive-security", "offensive security"), ("web hacking", "offensive security"),
-        ("kali-linux", "kali linux"), ("hacking tools", "kali linux"),
-        ("penetration testing", "offensive security"),
-        // Architecture
-        ("clean-architecture", "clean architecture"), ("architectural patterns", "clean architecture"),
-        // Distributed
-        ("distributed-systems", "distributed systems"), ("concurrency", "distributed systems"),
-        ("scaling", "distributed systems"), ("replication", "distributed systems"),
-        // Database
-        ("acid", "database"), ("data consistency", "database"), ("data integrity", "database"),
-        ("data storage", "database"), ("storage engines", "database"), ("partitioning", "database"),
-        // Love
-        ("love", "amour"), ("romance", "amour"), ("affection", "amour"), ("relationships", "amour"),
-        // Health
-        ("naturopathy", "naturopathie"), ("bien-être", "health"),
-        // Python
-        ("python programming", "python"), ("python networking", "python"), ("bash scripting", "python"),
-        // Marketing
-        ("digital marketing", "marketing"), ("marketing strategy", "marketing"),
-        ("content strategy", "marketing"),
-        // Nature/philosophy
-        ("nature", "nature"),
-        // Misc normalizations
-        ("typescript", "typescript"), ("sveltekit", "sveltekit"),
-        ("supabase", "supabase"), ("metasploit", "metasploit"),
-    ];
-
-    // Build lookup for performance (once per call, could be lazy_static)
-    let synonym_map: HashMap<&str, &str> = TAG_SYNONYMS.iter().cloned().collect();
-
-    // Stage 2: Stop words — vague, generic, meta, parasite tags
-    const STOP_WORDS: &[&str] = &[
-        // Vague/generic
-        "creative", "descriptive", "informative", "detailed", "general", "basic",
-        "advanced", "modern", "traditional", "practical", "theoretical", "important",
-        "useful", "specific", "relevant", "key", "main", "core", "common", "simple",
-        "complex", "new", "old", "good", "great", "high", "low", "big", "small",
-        "attention", "description", "technique", "concentration", "narrative",
-        "pleasure", "desire", "components", "position", "case study",
-        "action", "growth", "example", "examples", "detail", "source", "noise",
-        "control", "success", "potential", "experience", "preparation", "adaptation",
-        "movement", "observation", "reaction", "behavior", "continuation", "completion",
-        "success", "efficiency", "execution", "potential",
-        // Meta/doc structure
-        "introduction", "conclusion", "definition", "references", "bibliography",
-        "glossary", "dictionary", "dictionnaire", "terminology", "etymology",
-        "translation", "citation", "index", "reading",
-        // Technical parasites
-        "syntax", "configuration", "installation", "deployment", "migration",
-        "implementation", "debugging", "testing", "error handling", "optimization",
-        "performance optimization", "environment variables", "lifecycle",
-        "code", "code example", "snippets", "instructions", "directives",
-        // Emotionnels vagues
-        "fear", "stress", "passion", "ambition", "commitment", "effort",
-        "perseverance", "risk-taking", "motivation", "mindset",
-        // Misc noise
-        "anecdote", "humor", "humorisme", "art", "poetry", "mythology",
-        "history", "historical context", "criticism", "unrelated", "placeholder",
-        "editing", "editing process", "process monitoring",
-        // Tutorial/guide noise
-        "guide", "tutorial", "how-to", "how", "what", "why", "when",
-        "version", "updated", "best", "top", "project", "app", "application",
-        "system", "tool", "util", "lib",
-    ];
+    let rules = TAG_RULES.get().cloned().unwrap_or_default();
+    let all_stops = rules.stop_words.all();
 
     raw_tags.into_iter()
         // Stage 1: Strip special chars
         .map(|t| {
-            t.replace('*', "")
-                .replace('$', "")
-                .replace('`', "")
-                .replace('"', "")
-                .replace('<', "")
-                .replace('>', "")
-                .replace('|', "")
-                .replace('=', "")
-                .replace('{', "")
-                .replace('}', "")
-                .replace('[', "")
-                .replace(']', "")
-                .replace('/', " ")
-                .trim()
-                .to_lowercase()
+            let mut cleaned = t;
+            for c in rules.rules.strip_chars.chars() {
+                cleaned = cleaned.replace(c, "");
+            }
+            cleaned.replace('/', " ").trim().to_lowercase()
         })
         // Stage 2: Synonym normalization
         .map(|t| {
-            if let Some(&canonical) = synonym_map.get(t.as_str()) {
-                canonical.to_string()
+            if let Some(canonical) = rules.synonyms.get(&t) {
+                canonical.clone()
             } else {
                 t
             }
@@ -898,16 +785,13 @@ fn sanitize_tags(raw_tags: Vec<String>) -> Vec<String> {
         // Stage 3: Filter
         .filter(|t| {
             if t.is_empty() { return false; }
-            if t.len() < 3 { return false; }
-            // Max 3 words
-            if t.split(|c: char| c == ' ' || c == '-' || c == '_').count() > 3 { return false; }
-            // Stop word
-            if STOP_WORDS.contains(&t.as_str()) { return false; }
-            // Pure numeric
+            if t.len() < rules.rules.min_length { return false; }
+            if t.split(|c: char| c == ' ' || c == '-' || c == '_').count() > rules.rules.max_words { return false; }
+            if all_stops.contains(&t.as_str()) { return false; }
             if t.chars().all(|c| c.is_numeric()) { return false; }
             true
         })
-        // Stage 4: Simple singular normalization for single words
+        // Stage 4: Simple singular normalization
         .map(|mut t| {
             if !t.contains(' ') && !t.contains('-') && t.len() > 4
                 && t.ends_with('s')
@@ -918,7 +802,7 @@ fn sanitize_tags(raw_tags: Vec<String>) -> Vec<String> {
             }
             t
         })
-        // Stage 5: Deduplicate preserving order
+        // Stage 5: Deduplicate
         .fold(Vec::new(), |mut acc, t| {
             if !acc.contains(&t) {
                 acc.push(t);

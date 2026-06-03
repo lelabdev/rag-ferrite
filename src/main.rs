@@ -27,6 +27,7 @@ mod ingestion;
 mod llm;
 mod params;
 mod pipeline;
+mod tag_rules;
 mod reranker;
 mod service;
 mod types;
@@ -181,6 +182,8 @@ async fn main() -> Result<()> {
         }
 
     let config = config::Config::load()?;
+    let tag_rules = tag_rules::TagRules::load()?;
+    llm::init_tag_rules(tag_rules);
 
     // Log to file for debugging MCP issues
     let log_file = std::fs::OpenOptions::new()
