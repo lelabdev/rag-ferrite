@@ -750,62 +750,175 @@ fn parse_multi_chunk_response(response: &str, expected_count: usize) -> Vec<Resu
     results
 }
 
-/// Sanitize raw tags from LLM output: lowercase, strip special chars, remove noise.
+/// Sanitize raw tags from LLM output: normalize, deduplicate, remove noise.
+/// Multi-stage pipeline: strip → lowercase → synonyms → stop words → length → dedup.
 fn sanitize_tags(raw_tags: Vec<String>) -> Vec<String> {
-    // Adjectives/common words that are useless as tags
+    use std::collections::HashMap;
+
+    // Stage 1: Synonym/normalization map — merge variants to canonical form
+    static TAG_SYNONYMS: &[(&str, &str)] = &[
+        // Advertising/copywriting
+        ("advertising", "copywriting"), ("ad strategy", "copywriting"), ("advertising strategy", "copywriting"),
+        ("advertising techniques", "copywriting"), ("advertising examples", "copywriting"),
+        ("advertising psychology", "copywriting"), ("digital advertising", "copywriting"),
+        ("creative strategy", "copywriting"), ("creative execution", "copywriting"),
+        ("direct response", "copywriting"), ("headline psychology", "copywriting"),
+        ("visual persuasion", "copywriting"), ("ad copy", "copywriting"),
+        // Social media
+        ("social media", "social media strategy"), ("social media marketing", "social media strategy"),
+        ("facebook marketing", "social media strategy"), ("twitter strategy", "social media strategy"),
+        ("content marketing", "social media strategy"), ("branding", "social media strategy"),
+        // Svelte parasites
+        ("props", "svelte"), ("$effect", "svelte"), ("$derived", "svelte"),
+        ("$bindable", "svelte"), ("slots", "svelte"), ("state management", "svelte"),
+        ("reactive state", "svelte"), ("ssr", "svelte"), ("prerendering", "svelte"),
+        ("styling", "svelte"), ("css", "svelte"), ("transitions", "svelte"),
+        ("svelte components", "svelte"), ("svelte 5", "svelte"),
+        // TensorFlow
+        ("tensorflow lite", "tensorflow"), ("tensorflow.js", "tensorflow"), ("keras", "tensorflow"),
+        // Privacy
+        ("anonymity", "privacy"), ("encryption", "privacy"), ("digital anonymity", "privacy"),
+        ("financial privacy", "privacy"), ("digital footprint", "privacy"),
+        // Agentic
+        ("agentic ai", "agentic systems"), ("agentic patterns", "agentic systems"),
+        ("agentic governance", "agentic systems"), ("agentic reasoning", "agentic systems"),
+        ("agent coordination", "multi-agent systems"), ("agent orchestration", "multi-agent systems"),
+        ("multi-agent coordination", "multi-agent systems"), ("multi-agent workflows", "multi-agent systems"),
+        // ML
+        ("neural networks", "machine learning"), ("deep-learning", "deep learning"),
+        ("nlp", "machine learning"), ("rag", "machine learning"), ("embeddings", "machine learning"),
+        // Erotic
+        ("sensual", "eroticism"), ("seduction", "eroticism"), ("arousal", "eroticism"),
+        ("fantasy", "eroticism"), ("stimulation", "eroticism"), ("orgasm", "eroticism"),
+        ("climax", "eroticism"), ("intimacy", "eroticism"),
+        ("sexual positions", "sexual position"), ("erotic positions", "sexual position"),
+        ("intercourse", "sexual position"), ("oral sex", "sexual position"),
+        // Taoism
+        ("tao", "taoism"), ("lao-tseu", "taoism"), ("tao-te king", "taoism"),
+        // Business
+        ("business strategy", "business"), ("business model", "business"),
+        ("business scaling", "business"), ("business growth", "business"),
+        // Persuasion
+        ("consumer psychology", "persuasion"), ("consumer behavior", "persuasion"),
+        ("influence", "persuasion"), ("psychological triggers", "persuasion"),
+        ("sales psychology", "persuasion"), ("persuasion techniques", "persuasion"),
+        // Security
+        ("offensive-security", "offensive security"), ("web hacking", "offensive security"),
+        ("kali-linux", "kali linux"), ("hacking tools", "kali linux"),
+        ("penetration testing", "offensive security"),
+        // Architecture
+        ("clean-architecture", "clean architecture"), ("architectural patterns", "clean architecture"),
+        // Distributed
+        ("distributed-systems", "distributed systems"), ("concurrency", "distributed systems"),
+        ("scaling", "distributed systems"), ("replication", "distributed systems"),
+        // Database
+        ("acid", "database"), ("data consistency", "database"), ("data integrity", "database"),
+        ("data storage", "database"), ("storage engines", "database"), ("partitioning", "database"),
+        // Love
+        ("love", "amour"), ("romance", "amour"), ("affection", "amour"), ("relationships", "amour"),
+        // Health
+        ("naturopathy", "naturopathie"), ("bien-être", "health"),
+        // Python
+        ("python programming", "python"), ("python networking", "python"), ("bash scripting", "python"),
+        // Marketing
+        ("digital marketing", "marketing"), ("marketing strategy", "marketing"),
+        ("content strategy", "marketing"),
+        // Nature/philosophy
+        ("nature", "nature"),
+        // Misc normalizations
+        ("typescript", "typescript"), ("sveltekit", "sveltekit"),
+        ("supabase", "supabase"), ("metasploit", "metasploit"),
+    ];
+
+    // Build lookup for performance (once per call, could be lazy_static)
+    let synonym_map: HashMap<&str, &str> = TAG_SYNONYMS.iter().cloned().collect();
+
+    // Stage 2: Stop words — vague, generic, meta, parasite tags
     const STOP_WORDS: &[&str] = &[
+        // Vague/generic
         "creative", "descriptive", "informative", "detailed", "general", "basic",
         "advanced", "modern", "traditional", "practical", "theoretical", "important",
         "useful", "specific", "relevant", "key", "main", "core", "common", "simple",
         "complex", "new", "old", "good", "great", "high", "low", "big", "small",
         "attention", "description", "technique", "concentration", "narrative",
         "pleasure", "desire", "components", "position", "case study",
+        "action", "growth", "example", "examples", "detail", "source", "noise",
+        "control", "success", "potential", "experience", "preparation", "adaptation",
+        "movement", "observation", "reaction", "behavior", "continuation", "completion",
+        "success", "efficiency", "execution", "potential",
+        // Meta/doc structure
+        "introduction", "conclusion", "definition", "references", "bibliography",
+        "glossary", "dictionary", "dictionnaire", "terminology", "etymology",
+        "translation", "citation", "index", "reading",
+        // Technical parasites
+        "syntax", "configuration", "installation", "deployment", "migration",
+        "implementation", "debugging", "testing", "error handling", "optimization",
+        "performance optimization", "environment variables", "lifecycle",
+        "code", "code example", "snippets", "instructions", "directives",
+        // Emotionnels vagues
+        "fear", "stress", "passion", "ambition", "commitment", "effort",
+        "perseverance", "risk-taking", "motivation", "mindset",
+        // Misc noise
+        "anecdote", "humor", "humorisme", "art", "poetry", "mythology",
+        "history", "historical context", "criticism", "unrelated", "placeholder",
+        "editing", "editing process", "process monitoring",
+        // Tutorial/guide noise
+        "guide", "tutorial", "how-to", "how", "what", "why", "when",
+        "version", "updated", "best", "top", "project", "app", "application",
+        "system", "tool", "util", "lib",
     ];
 
     raw_tags.into_iter()
+        // Stage 1: Strip special chars
         .map(|t| {
-            // Strip markdown bold/italic markers, dollar signs, asterisks
-            let mut t = t.replace('*', "")
+            t.replace('*', "")
                 .replace('$', "")
                 .replace('`', "")
-                .replace('"', "");
-            // Lowercase
-            t = t.to_lowercase();
-            // Replace spaces with hyphens for multi-word tags
-            t = t.trim().to_string();
-            t
+                .replace('"', "")
+                .replace('<', "")
+                .replace('>', "")
+                .replace('|', "")
+                .replace('=', "")
+                .replace('{', "")
+                .replace('}', "")
+                .replace('[', "")
+                .replace(']', "")
+                .replace('/', " ")
+                .trim()
+                .to_lowercase()
         })
-        .filter(|t| {
-            // Not empty
-            if t.is_empty() { return false; }
-            // Min 3 chars
-            if t.len() < 3 { return false; }
-            // Max 3 words (avoid overly specific tags)
-            if t.split(|c: char| c == ' ' || c == '-' || c == '_').count() > 3 { return false; }
-            // Not a stop word
-            if STOP_WORDS.contains(&t.as_str()) { return false; }
-            // Not just an adjective (single word ending in common adjective suffixes)
-            if !t.contains(' ') && !t.contains('-') {
-                let suffixes = ["tion", "sion", "ment", "ness", "ity", "ance", "ence"];
-                // Allow these noun suffixes even as single words
-                if suffixes.iter().any(|s| t.ends_with(s)) {
-                    return true;
-                }
-                // Single word that's a stop word
-                if STOP_WORDS.contains(&t.as_str()) { return false; }
+        // Stage 2: Synonym normalization
+        .map(|t| {
+            if let Some(&canonical) = synonym_map.get(t.as_str()) {
+                canonical.to_string()
+            } else {
+                t
             }
+        })
+        // Stage 3: Filter
+        .filter(|t| {
+            if t.is_empty() { return false; }
+            if t.len() < 3 { return false; }
+            // Max 3 words
+            if t.split(|c: char| c == ' ' || c == '-' || c == '_').count() > 3 { return false; }
+            // Stop word
+            if STOP_WORDS.contains(&t.as_str()) { return false; }
+            // Pure numeric
+            if t.chars().all(|c| c.is_numeric()) { return false; }
             true
         })
-        // Normalize: singular form for common plurals (simple heuristic)
+        // Stage 4: Simple singular normalization for single words
         .map(|mut t| {
-            // Remove trailing 's' if word ends in common plural patterns
-            // But keep it simple — only for single-word tags
-            if !t.contains(' ') && !t.contains('-') && t.len() > 4 && t.ends_with('s') && !t.ends_with("ss") && !t.ends_with("us") {
+            if !t.contains(' ') && !t.contains('-') && t.len() > 4
+                && t.ends_with('s')
+                && !t.ends_with("ss") && !t.ends_with("us") && !t.ends_with("is")
+                && !t.ends_with("as") && !t.ends_with("os")
+            {
                 t = t[..t.len()-1].to_string();
             }
             t
         })
-        // Deduplicate
+        // Stage 5: Deduplicate preserving order
         .fold(Vec::new(), |mut acc, t| {
             if !acc.contains(&t) {
                 acc.push(t);
