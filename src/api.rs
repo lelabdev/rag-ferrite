@@ -145,28 +145,29 @@ async fn ingest_data(
     json_response(val)
 }
 
-async fn ingest_file(
-    State(server): State<Arc<RagFerriteServer>>,
-    Json(req): Json<IngestFileParams>,
-) -> impl IntoResponse {
-    let val = server.ingestion_manager.ingest_file(
-        req.file_path,
-    );
-    json_response(val)
-}
-
 #[derive(serde::Deserialize)]
-struct IngestBatchParams {
-    paths: Vec<String>,
+struct IngestParams {
+    /// Single file path (legacy, convenience)
+    file_path: Option<String>,
+    /// Multiple file paths (batch)
+    paths: Option<Vec<String>>,
     #[serde(default)]
     move_after_ingest: bool,
 }
 
-async fn ingest_batch(
+async fn ingest(
     State(server): State<Arc<RagFerriteServer>>,
-    Json(req): Json<IngestBatchParams>,
+    Json(req): Json<IngestParams>,
 ) -> impl IntoResponse {
-    let val = server.ingestion_manager.ingest_batch(req.paths, req.move_after_ingest);
+    // Merge file_path into paths — unified single/batch endpoint
+    let mut all_paths: Vec<String> = req.paths.unwrap_or_default();
+    if let Some(fp) = req.file_path {
+        all_paths.insert(0, fp);
+    }
+    if all_paths.is_empty() {
+        return json_response(serde_json::json!({ "error": "No files provided. Use 'file_path' or 'paths'." }));
+    }
+    let val = server.ingestion_manager.ingest_batch(all_paths, req.move_after_ingest);
     json_response(val)
 }
 
@@ -242,8 +243,9 @@ pub async fn serve(server: Arc<RagFerriteServer>, port: u16, bind_address: Strin
         )
         .route("/api/query", post(query_documents))
         .route("/api/ingest/data", post(ingest_data))
-        .route("/api/ingest/file", post(ingest_file))
-        .route("/api/ingest/batch", post(ingest_batch))
+        .route("/api/ingest", post(ingest))
+        .route("/api/ingest/file", post(ingest))  // alias — same endpoint
+        .route("/api/ingest/batch", post(ingest))  // alias — same endpoint
         .route("/api/documents/{source_id}", delete(delete_document))
         .route("/api/graph", get(get_graph))
         .route("/api/rebuild-indexes", post(rebuild_indexes))
