@@ -1,311 +1,593 @@
-//! rag-ferrite batch monitor — TUI subcommand
+//! rag-ferrite batch monitor — TUI with ratatui
 //! Usage: rag-ferrite monitor [refresh_seconds] [url]
 
-use std::io::{self, Write};
+use std::io;
 use std::time::{Duration, Instant};
-use std::thread;
+
+use crossterm::{
+    event::{self, Event, KeyCode, KeyEventKind},
+    execute,
+    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+};
+use ratatui::{
+    backend::CrosstermBackend,
+    layout::{Constraint, Direction, Layout, Rect},
+    style::{Color, Modifier, Style},
+    text::{Line, Span},
+    widgets::{Block, Borders, List, ListItem, Paragraph},
+    Terminal, Frame,
+};
+
+// ── ANSI colors (reused in progress bar) ──
+const RESET: &str = "\x1b[0m";
+const DIM: &str = "\x1b[2m";
+const YELLOW: &str = "\x1b[33m";
+const GREEN: &str = "\x1b[32m";
+const RED: &str = "\x1b[31m";
+const CYAN: &str = "\x1b[36m";
+
+// ── Braille spinner (10 frames) ──
+const SPINNER: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+
+// ── Data structs (serde from API JSON) ──
 
 #[derive(serde::Deserialize, Default)]
 struct ProgressResponse {
     status: Option<String>,
     batch: Option<BatchProgress>,
+    current_source: Option<String>,
+    last_error: Option<String>,
 }
 
 #[derive(serde::Deserialize, Default)]
 struct BatchProgress {
-    #[serde(rename = "batch_id")]
-    _batch_id: Option<String>,
+    batch_id: Option<String>,
     status: Option<String>,
     total_files: usize,
     completed_files: usize,
     failed_files: usize,
-    current_file: Option<CurrentFile>,
-    completed_chunks: usize,
     total_chunks: usize,
-    total_size_mb: f64,
-    speed_chunks_per_min: f64,
-    eta_seconds: u64,
-    elapsed_seconds: u64,
-    avg_time_per_file_seconds: f64,
-    error_rate: f64,
+    completed_chunks: usize,
+    total_size_mb: Option<f64>,
+    speed_chunks_per_min: Option<f64>,
+    avg_time_per_file_seconds: Option<f64>,
+    elapsed_seconds: Option<f64>,
+    eta_seconds: Option<f64>,
+    error_rate: Option<f64>,
     #[serde(default)]
-    errors: Vec<BatchError>,
+    errors: Vec<String>,
+    current_file: Option<CurrentFile>,
     #[serde(default)]
     files: Vec<FileResult>,
 }
 
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, Default)]
 struct CurrentFile {
-    name: String,
-    #[allow(dead_code)]
-    chunks_done: usize,
-    #[allow(dead_code)]
-    chunks_total: usize,
+    name: Option<String>,
     phase: Option<String>,
+    chunks_done: Option<usize>,
+    chunks_total: Option<usize>,
 }
 
-#[derive(serde::Deserialize)]
-struct BatchError {
-    file: String,
-    error: String,
-}
-
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, Default)]
 struct FileResult {
-    name: String,
-    chunks: usize,
-    size_mb: f64,
-    duration_seconds: f64,
-    status: String,
+    name: Option<String>,
+    chunks: Option<usize>,
+    size_mb: Option<f64>,
+    duration_seconds: Option<f64>,
+    status: Option<String>,
 }
 
-// ANSI
-const HIDE_CURSOR: &str = "\x1b[?25l";
-const SHOW_CURSOR: &str = "\x1b[?25h";
-const CURSOR_HOME: &str = "\x1b[H";
-const CLEAR_BELOW: &str = "\x1b[J";
-const BOLD: &str = "\x1b[1m";
-const DIM: &str = "\x1b[2m";
-const RESET: &str = "\x1b[0m";
-const GREEN: &str = "\x1b[32m";
-const RED: &str = "\x1b[31m";
-const YELLOW: &str = "\x1b[33m";
-const CYAN: &str = "\x1b[36m";
+// ── App state ──
 
-const SPINNER: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-const BRAILLE: &[&str] = &["⣷", "⣯", "⣟", "⡿", "⢿", "⣻", "⣽", "⣾"];
+#[derive(Clone, Copy, PartialEq)]
+enum Panel {
+    Stats,
+    Completed,
+}
 
-fn truncate(s: &str, n: usize) -> String {
-    if s.len() <= n {
+impl Panel {
+    fn next(self) -> Self {
+        match self {
+            Panel::Stats => Panel::Completed,
+            Panel::Completed => Panel::Stats,
+        }
+    }
+}
+
+struct App {
+    data: Option<ProgressResponse>,
+    error: Option<String>,
+    focus: Panel,
+    scroll: usize,
+    spinner_idx: usize,
+}
+
+impl App {
+    fn new() -> Self {
+        Self {
+            data: None,
+            error: None,
+            focus: Panel::Stats,
+            scroll: 0,
+            spinner_idx: 0,
+        }
+    }
+
+    fn scroll_up(&mut self) {
+        if self.scroll > 0 {
+            self.scroll -= 1;
+        }
+    }
+
+    fn scroll_down(&mut self, max: usize) {
+        if self.scroll < max {
+            self.scroll += 1;
+        }
+    }
+}
+
+// ── HTTP fetch ──
+
+fn fetch_progress(url: &str) -> Result<ProgressResponse, String> {
+    let endpoint = format!("{}/api/ingest/progress", url.trim_end_matches('/'));
+    match ureq::get(&endpoint).timeout(Duration::from_secs(5)).call() {
+        Ok(resp) => {
+            resp.into_json::<ProgressResponse>().map_err(|e| e.to_string())
+        }
+        Err(e) => Err(format!("HTTP error: {}", e)),
+    }
+}
+
+// ── Helpers ──
+
+fn fmt_duration(secs: Option<f64>) -> String {
+    match secs {
+        Some(s) if s > 0.0 => {
+            let h = (s / 3600.0) as u64;
+            let m = ((s % 3600.0) / 60.0) as u64;
+            let sec = (s % 60.0) as u64;
+            if h > 0 {
+                format!("{}h{:02}m", h, m)
+            } else if m > 0 {
+                format!("{}m{:02}s", m, sec)
+            } else {
+                format!("{}s", sec)
+            }
+        }
+        _ => "—".to_string(),
+    }
+}
+
+fn truncate(s: &str, max: usize) -> String {
+    if s.len() <= max {
         s.to_string()
     } else {
-        format!("{}...", &s[..n - 3])
+        format!("{}…", &s[..max.saturating_sub(1)])
     }
 }
 
-fn fmt_duration(s: u64) -> String {
-    if s < 60 {
-        format!("{}s", s)
-    } else if s < 3600 {
-        let (m, sec) = (s / 60, s % 60);
-        format!("{}m{:02}s", m, sec)
-    } else {
-        let (h, m) = (s / 3600, (s % 3600) / 60);
-        format!("{}h{:02}m", h, m)
-    }
-}
+// ── Progress bar renderer (kept from v1) ──
 
-fn fetch_progress(url: &str) -> Option<ProgressResponse> {
-    ureq::get(&format!("{}/api/ingest/progress", url))
-        .timeout(Duration::from_secs(5))
-        .call()
-        .ok()
-        .and_then(|r| r.into_json::<ProgressResponse>().ok())
-}
+fn render_progress_bar(pct: f64, spinner_idx: usize, bar_len: usize) -> String {
+    let fill_chars: [&str; 8] = ["⡀", "⡄", "⡆", "⡇", "⣇", "⣧", "⣷", "⣿"];
+    let fade_chars: [&str; 5] = ["░", "░", "▒", "▓", "▓"];
+    let num_fill = fill_chars.len();
+    let num_fade = fade_chars.len();
+    let states_per_cell = num_fill + num_fade; // 13
+    let total_states = bar_len * states_per_cell;
+    let current_state = (pct / 100.0 * total_states as f64).round() as usize;
+    let front_cell = current_state / states_per_cell;
+    let cell_remainder = current_state % states_per_cell;
 
-fn render(data: &ProgressResponse, spinner_idx: usize) -> Vec<String> {
-    let mut lines: Vec<String> = Vec::new();
+    let empty_start = front_cell + 1;
+    let empty_len = bar_len.saturating_sub(empty_start);
 
-    match &data.batch {
-        None => {
-            lines.push(String::new());
-            lines.push(format!("  {}─ No active batch ─{}", DIM, RESET));
-            lines.push(String::new());
-            lines.push(format!("  {}Refreshing... Ctrl+C to quit{}", DIM, RESET));
-        }
-        Some(batch) => {
-            let status = batch.status.as_deref().unwrap_or("?");
-            let total = batch.total_files;
-            let done = batch.completed_files;
-            let pct = if total > 0 { done as f64 / total as f64 * 100.0 } else { 0.0 };
+    let mut bar = String::with_capacity(bar_len * 4);
 
-            // Badge
-            let badge = match status {
-                "running" => format!("{}{} RUNNING{}", YELLOW, SPINNER[spinner_idx % SPINNER.len()], RESET),
-                "completed" => format!("{}✓ DONE{}", GREEN, RESET),
-                _ => status.to_uppercase(),
-            };
-
-            // Bar — █ full cells, ▓▒░ fade on last 3 cells before frontier,
-            // ⡀→⣿ braille transition, empty + wave
-            let bar_len = 50usize;
-            let fill_chars: [&str; 8] = ["⡀", "⡄", "⡆", "⡇", "⣇", "⣧", "⣷", "⣿"];
-            let num_fill = fill_chars.len(); // 8
-            let total_states = bar_len * num_fill;
-            let current_state = if total > 0 {
-                (pct / 100.0 * total_states as f64) as usize
+    for i in 0..bar_len {
+        if i < front_cell {
+            // Full — but fade last 5 cells before frontier
+            let dist_to_front = front_cell.saturating_sub(i);
+            if dist_to_front <= num_fade {
+                let fade_idx = num_fade - dist_to_front;
+                bar.push_str(fade_chars[fade_idx]);
             } else {
-                0
-            };
-
-            let front_cell = current_state / num_fill;
-            let empty_start = front_cell + 1;
-            let empty_len = (bar_len - empty_start) as f64;
-            let fade_chars: [&str; 5] = ["░", "░", "▒", "▓", "▓"]; // 5 cellules, du + clair au + foncé
-
-            // Wave — demi-blocs, doux et sinusoïdal
-            let height_chars: [&str; 8] = [" ", "▁", "▂", "▃", "▄", "▅", "▆", "▇"];
-
-            let mut bar = String::new();
-            for i in 0..bar_len {
-                let cell_state = current_state.saturating_sub(i * num_fill);
-                if cell_state >= num_fill {
-                    // Full — fade last 5 cells before frontier
-                    let dist_to_front = front_cell.saturating_sub(i);
-                    if dist_to_front < 5 && front_cell >= 5 {
-                        bar.push_str(fade_chars[dist_to_front]);
-                    } else {
-                        bar.push('█');
-                    }
-                } else if cell_state > 0 {
-                    // Braille 1→8
-                    bar.push_str(fill_chars[cell_state - 1]);
-                } else {
-                    // Empty — spinner grisé (DIM), décalé par cellule
-                    let rel = i - empty_start;
-                    let idx = (spinner_idx + rel) % SPINNER.len();
-                    bar.push_str(DIM);
-                    bar.push_str(SPINNER[idx]);
-                    bar.push_str(RESET);
-                }
+                bar.push('█');
             }
-
-            let bid = match &data.batch {
-                Some(b) => match b._batch_id.as_deref() {
-                    Some(id) if id.len() >= 8 => &id[id.len()-8..],
-                    _ => "????????",
-                },
-                None => "????????",
-            };
-
-            lines.push(String::new());
-            lines.push(format!("  {} {}— batch {}{}", badge, DIM, bid, RESET));
-            lines.push(format!("  {}[{}]{}", CYAN, bar, RESET));
-            lines.push(format!("  {}{}/{} files — {:.0}%{}", DIM, done, total, pct, RESET));
-            lines.push(String::new());
-
-            // Stats
-            let err_color = if batch.error_rate > 0.0 { RED } else { DIM };
-            lines.push(format!(
-                "  Chunks   {:>6} / {:<6}    Size      {:>8.1} MB",
-                batch.completed_chunks, batch.total_chunks, batch.total_size_mb
-            ));
-            lines.push(format!(
-                "  Speed    {:>5.0} chunks/min      Avg/file  {:>7.1}s",
-                batch.speed_chunks_per_min, batch.avg_time_per_file_seconds
-            ));
-            lines.push(format!(
-                "  Elapsed  {:>6}          ETA       {:>8}",
-                fmt_duration(batch.elapsed_seconds), fmt_duration(batch.eta_seconds)
-            ));
-            lines.push(format!(
-                "  Errors   {:>6} ({}{:.1}%{})",
-                batch.failed_files, err_color, batch.error_rate, RESET
-            ));
-            lines.push(String::new());
-
-            // Current file
-            if let Some(cf) = &batch.current_file {
-                let name = truncate(&cf.name, 55);
-                let phase = cf.phase.as_deref().unwrap_or("?");
-                lines.push(format!("  {}▶{} {}{}{}", CYAN, RESET, BOLD, name, RESET));
-                lines.push(format!("    {}phase: {}{}", DIM, phase, RESET));
-                lines.push(String::new());
+        } else if i == front_cell && cell_remainder > 0 {
+            if cell_remainder <= num_fill {
+                bar.push_str(fill_chars[cell_remainder - 1]);
+            } else {
+                let fade_idx = cell_remainder - num_fill - 1;
+                bar.push_str(fade_chars[fade_idx]);
             }
-
-            // Recent files
-            if !batch.files.is_empty() {
-                lines.push(format!("  {}Recent files:{}", DIM, RESET));
-                for f in batch.files.iter().rev().take(5) {
-                    let fname = truncate(&f.name, 45);
-                    let mark = if f.status == "ok" {
-                        format!("{}✓{}", GREEN, RESET)
-                    } else {
-                        format!("{}✗{}", RED, RESET)
-                    };
-                    lines.push(format!(
-                        "    {} {:<45} {:>4} ch  {:>5.1}MB  {:>5.1}s",
-                        mark, fname, f.chunks, f.size_mb, f.duration_seconds
-                    ));
-                }
-                lines.push(String::new());
-            }
-
-            // Errors
-            if !batch.errors.is_empty() {
-                let count = batch.errors.len();
-                lines.push(format!("  {}Errors ({}):{}", RED, count, RESET));
-                for e in batch.errors.iter().rev().take(3) {
-                    let ef = truncate(&e.file, 40);
-                    let er = truncate(&e.error, 60);
-                    lines.push(format!("    {}{}: {}{}", DIM, ef, er, RESET));
-                }
-                lines.push(String::new());
-            }
-
-            lines.push(format!("  {}Ctrl+C to quit{}", DIM, RESET));
+        } else if i >= empty_start && empty_len > 0 {
+            // Empty — spinner braille, staggered per cell
+            let rel = i - empty_start;
+            let idx = (spinner_idx + rel) % SPINNER.len();
+            bar.push_str(&format!("{}{}{}", DIM, SPINNER[idx], RESET));
+        } else {
+            bar.push(' ');
         }
     }
 
-    lines
+    bar
 }
+
+// ── UI ──
+
+fn ui(f: &mut Frame, app: &mut App) {
+    let size = f.area();
+    let data = app.data.as_ref();
+
+    // Layout: header (bar+stats) | lists
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Min(12),  // header
+            Constraint::Min(10),  // lists
+            Constraint::Length(1), // footer
+        ])
+        .split(size);
+
+    // ── Header ──
+    let header = Block::default().borders(Borders::TOP).title(Span::styled(
+        " rag-ferrite monitor ",
+        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+    ));
+    f.render_widget(header, chunks[0]);
+
+    let inner = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(2),  // status + bar
+            Constraint::Length(1),  // pct
+            Constraint::Length(1),  // blank
+            Constraint::Length(4),  // stats
+        ])
+        .margin(1)
+        .split(chunks[0]);
+
+    // Status line
+    let batch = data.and_then(|d| d.batch.as_ref());
+    let status_str = batch
+        .map(|b| b.status.as_deref().unwrap_or("?"))
+        .unwrap_or("connecting...");
+    let total = batch.map(|b| b.total_files).unwrap_or(0);
+    let done = batch.map(|b| b.completed_files).unwrap_or(0);
+    let pct = if total > 0 { done as f64 / total as f64 * 100.0 } else { 0.0 };
+    let bid = batch
+        .and_then(|b| b.batch_id.as_deref())
+        .map(|id| &id[id.len().saturating_sub(8)..])
+        .unwrap_or("????????");
+
+    let spinner_char = SPINNER[app.spinner_idx % SPINNER.len()];
+    let badge = match status_str {
+        "running" => format!("{}{} RUNNING{}", YELLOW, spinner_char, RESET),
+        "completed" => format!("{}✓ DONE{}", GREEN, RESET),
+        "failed" => format!("{}✗ FAILED{}", RED, RESET),
+        _ => status_str.to_uppercase(),
+    };
+
+    let status_line = Line::from(vec![
+        Span::raw("  "),
+        Span::raw(badge),
+        Span::raw(" "),
+        Span::styled(
+            format!("— batch {}", bid),
+            Style::default().fg(Color::DarkGray),
+        ),
+        Span::raw(format!("    {:.0}% ({}/{})", pct, done, total)),
+    ]);
+    f.render_widget(Paragraph::new(status_line), inner[0]);
+
+    // Progress bar
+    let bar = render_progress_bar(pct, app.spinner_idx, 50);
+    let bar_line = Line::from(vec![
+        Span::raw("  ["),
+        Span::styled(bar, Style::default().fg(Color::Cyan)),
+        Span::raw("]"),
+    ]);
+    f.render_widget(Paragraph::new(bar_line), inner[1]);
+
+    // Stats
+    if let Some(b) = batch {
+        let speed = b.speed_chunks_per_min.unwrap_or(0.0);
+        let avg_file = b.avg_time_per_file_seconds.unwrap_or(0.0);
+        let elapsed = fmt_duration(b.elapsed_seconds);
+        let eta = fmt_duration(b.eta_seconds);
+        let err_count = b.failed_files;
+        let err_rate = b.error_rate.unwrap_or(0.0);
+        let size_mb = b.total_size_mb.unwrap_or(0.0);
+        let chunks_done = b.completed_chunks;
+        let chunks_total = b.total_chunks;
+
+        let stats_lines = vec![
+            Line::from(vec![
+                Span::styled(
+                    format!("  Chunks   {:>6}", chunks_done),
+                    Style::default().fg(Color::Gray),
+                ),
+                Span::styled(
+                    format!(" / {:<6}", chunks_total),
+                    Style::default().fg(Color::DarkGray),
+                ),
+                Span::raw("     "),
+                Span::styled(
+                    format!("Size      {:>8.1} MB", size_mb),
+                    Style::default().fg(Color::Gray),
+                ),
+            ]),
+            Line::from(vec![
+                Span::styled(
+                    format!("  Speed    {:>6.0} chunks/min", speed),
+                    Style::default().fg(Color::Gray),
+                ),
+                Span::raw("     "),
+                Span::styled(
+                    format!("Avg/file  {:>8.1}s", avg_file),
+                    Style::default().fg(Color::Gray),
+                ),
+            ]),
+            Line::from(vec![
+                Span::styled(
+                    format!("  Elapsed  {:>6}", elapsed),
+                    Style::default().fg(Color::Gray),
+                ),
+                Span::raw("       "),
+                Span::styled(
+                    format!("ETA       {:>8}", eta),
+                    Style::default().fg(Color::Gray),
+                ),
+            ]),
+            Line::from(vec![
+                Span::styled(
+                    format!("  Errors   {:>6} ({:.1}%)", err_count, err_rate),
+                    Style::default().fg(if err_count > 0 { Color::Red } else { Color::DarkGray }),
+                ),
+            ]),
+        ];
+        f.render_widget(Paragraph::new(stats_lines), inner[3]);
+    } else if let Some(e) = &app.error {
+        let err_line = Line::from(vec![
+            Span::styled(
+                format!("  ⚠ Connection error: {}", e),
+                Style::default().fg(Color::Red),
+            ),
+        ]);
+        f.render_widget(Paragraph::new(err_line), inner[3]);
+    }
+
+    // ── Lists ──
+    let list_area = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(55), Constraint::Percentage(45)])
+        .split(chunks[1]);
+
+    // Completed files
+    let completed_items: Vec<ListItem> = batch
+        .map(|b| {
+            b.files
+                .iter()
+                .rev()
+                .map(|f| {
+                    let name = f.name.as_deref().unwrap_or("?");
+                    let chunks = f.chunks.unwrap_or(0);
+                    let dur = f.duration_seconds.unwrap_or(0.0);
+                    let status_icon = match f.status.as_deref() {
+                        Some("ok") | Some("completed") => "✓",
+                        Some("error") | Some("failed") => "✗",
+                        _ => "?",
+                    };
+                    let color = match f.status.as_deref() {
+                        Some("ok") | Some("completed") => Color::Green,
+                        Some("error") | Some("failed") => Color::Red,
+                        _ => Color::Yellow,
+                    };
+                    let text = format!(
+                        " {} {:<48} {:>4}ch {:>6.1}s",
+                        status_icon,
+                        truncate(name, 48),
+                        chunks,
+                        dur
+                    );
+                    ListItem::new(Line::from(vec![Span::styled(
+                        text,
+                        Style::default().fg(color),
+                    )]))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let completed_title = format!(
+        " Completed ({}) ",
+        batch.map(|b| b.completed_files).unwrap_or(0)
+    );
+    let completed_block = Block::default()
+        .borders(Borders::ALL)
+        .title(Span::styled(
+            completed_title,
+            Style::default()
+                .fg(if app.focus == Panel::Completed { Color::Cyan } else { Color::DarkGray })
+                .add_modifier(if app.focus == Panel::Completed { Modifier::BOLD } else { Modifier::empty() }),
+        ));
+    let completed_list = List::new(completed_items).block(completed_block);
+    f.render_widget(completed_list, list_area[0]);
+
+    // Right panel: current file + pending info
+    let right_chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(5), Constraint::Min(5)])
+        .split(list_area[1]);
+
+    // Current file
+    let current_lines = batch
+        .and_then(|b| b.current_file.as_ref())
+        .map(|cf| {
+            let name = cf.name.as_deref().unwrap_or("?");
+            let phase = cf.phase.as_deref().unwrap_or("?");
+            let chunks_done = cf.chunks_done.unwrap_or(0);
+            let chunks_total = cf.chunks_total.unwrap_or(0);
+            vec![
+                Line::from(vec![
+                    Span::styled(" ▶ ", Style::default().fg(Color::Yellow)),
+                    Span::styled(truncate(name, 38), Style::default().fg(Color::White)),
+                ]),
+                Line::from(vec![
+                    Span::styled(
+                        format!("   phase: {}", phase),
+                        Style::default().fg(Color::DarkGray),
+                    ),
+                ]),
+                Line::from(vec![
+                    Span::styled(
+                        format!("   chunks: {}/{}", chunks_done, chunks_total),
+                        Style::default().fg(Color::DarkGray),
+                    ),
+                ]),
+            ]
+        })
+        .unwrap_or_else(|| vec![Line::from(Span::styled("  idle", Style::default().fg(Color::DarkGray)))]);
+
+    let current_block = Block::default()
+        .borders(Borders::ALL)
+        .title(Span::styled(" Current ", Style::default().fg(Color::Yellow)));
+    f.render_widget(Paragraph::new(current_lines).block(current_block), right_chunks[0]);
+
+    // Pending count + errors
+    let pending_count = batch
+        .map(|b| b.total_files.saturating_sub(b.completed_files + b.failed_files))
+        .unwrap_or(0);
+    let pending_lines = vec![
+        Line::from(vec![
+            Span::styled(
+                format!(" {} files pending", pending_count),
+                Style::default().fg(Color::DarkGray),
+            ),
+        ]),
+        Line::from(""),
+    ];
+
+    let mut all_lines = pending_lines;
+
+    // Show errors if any
+    if let Some(b) = batch {
+        if !b.errors.is_empty() {
+            all_lines.push(Line::from(Span::styled(
+                " Errors:",
+                Style::default().fg(Color::Red),
+            )));
+            for err in b.errors.iter().take(5) {
+                all_lines.push(Line::from(Span::styled(
+                    format!(" • {}", truncate(err, 40)),
+                    Style::default().fg(Color::Red),
+                )));
+            }
+        }
+    }
+
+    let pending_block = Block::default()
+        .borders(Borders::ALL)
+        .title(Span::styled(" Queue ", Style::default().fg(Color::DarkGray)));
+    f.render_widget(Paragraph::new(all_lines).block(pending_block), right_chunks[1]);
+
+    // ── Footer ──
+    let footer = Line::from(vec![
+        Span::styled(
+            " TAB",
+            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(" switch  ", Style::default().fg(Color::DarkGray)),
+        Span::styled(
+            "↑↓",
+            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(" scroll  ", Style::default().fg(Color::DarkGray)),
+        Span::styled(
+            "q",
+            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(" quit", Style::default().fg(Color::DarkGray)),
+    ]);
+    f.render_widget(Paragraph::new(footer), chunks[2]);
+}
+
+// ── Entry point ──
 
 pub fn run(args: &[String]) {
-    let url = args.get(1).cloned().unwrap_or_else(|| "http://localhost:4242".to_string());
-    let refresh: f64 = args.get(0).and_then(|s| s.parse().ok()).unwrap_or(2.0);
+    let url = args
+        .get(1)
+        .cloned()
+        .unwrap_or_else(|| "http://localhost:4242".to_string());
+    let refresh: f64 = args
+        .get(0)
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(2.0);
 
+    // Setup terminal
     let mut stdout = io::stdout();
-    let _ = stdout.write_all(format!("{}{}{}", CURSOR_HOME, CLEAR_BELOW, HIDE_CURSOR).as_bytes());
-    let _ = stdout.flush();
+    if enable_raw_mode().is_err() {
+        eprintln!("Error: monitor requires a real terminal (TTY).");
+        eprintln!("Usage: rag-ferrite monitor [refresh_seconds] [url]");
+        return;
+    }
+    execute!(stdout, EnterAlternateScreen).unwrap_or(());
+    let backend = CrosstermBackend::new(stdout);
+    let mut terminal = Terminal::new(backend).unwrap();
 
+    let mut app = App::new();
     let fetch_dur = Duration::from_secs_f64(refresh);
-    let anim_dur = Duration::from_millis(150);
     let mut last_fetch = Instant::now() - fetch_dur; // fetch immediately
-    let mut last_data: Option<ProgressResponse> = None;
-    let mut spinner_idx: usize = 0;
-    let mut prev_lines: usize = 0;
-
-    // Handle Ctrl+C cleanly
-    let _ = ctrlc_handler();
 
     loop {
+        // Fetch API if needed
         if last_fetch.elapsed() >= fetch_dur {
-            last_data = fetch_progress(&url);
+            match fetch_progress(&url) {
+                Ok(data) => {
+                    app.data = Some(data);
+                    app.error = None;
+                }
+                Err(e) => {
+                    app.error = Some(e);
+                }
+            }
             last_fetch = Instant::now();
         }
 
-        let lines = match &last_data {
-            Some(data) => render(data, spinner_idx),
-            None => {
-                vec![
-                    String::new(),
-                    format!("  {}Cannot reach rag-ferrite on {}{}", RED, url, RESET),
-                    String::new(),
-                    format!("  {}Retrying...{}", DIM, RESET),
-                ]
+        app.spinner_idx += 1;
+
+        // Render
+        terminal.draw(|f| ui(f, &mut app)).unwrap();
+
+        // Poll input (150ms for smooth animation)
+        if event::poll(Duration::from_millis(150)).unwrap_or(false) {
+            if let Ok(Event::Key(key)) = event::read() {
+                if key.kind != KeyEventKind::Press {
+                    continue;
+                }
+                match key.code {
+                    KeyCode::Char('q') | KeyCode::Esc => break,
+                    KeyCode::Tab => app.focus = app.focus.next(),
+                    KeyCode::Down => {
+                        let max = app
+                            .data
+                            .as_ref()
+                            .and_then(|d| d.batch.as_ref())
+                            .map(|b| b.files.len().saturating_sub(1))
+                            .unwrap_or(0);
+                        app.scroll_down(max);
+                    }
+                    KeyCode::Up => app.scroll_up(),
+                    _ => {}
+                }
             }
-        };
-
-        // Pad
-        let mut output = format!("{}{}", CURSOR_HOME, CLEAR_BELOW);
-        for line in &lines {
-            output.push_str(line);
-            output.push('\n');
         }
-        // Pad with empty lines to cover previous
-        while lines.len() < prev_lines {
-            output.push('\n');
-        }
-        prev_lines = lines.len();
-
-        let _ = stdout.write_all(output.as_bytes());
-        let _ = stdout.flush();
-
-        spinner_idx = spinner_idx.wrapping_add(1);
-        thread::sleep(anim_dur);
     }
-}
 
-fn ctrlc_handler() -> Result<(), ()> {
-    Ok(())
+    // Restore terminal
+    disable_raw_mode().unwrap_or(());
+    execute!(terminal.backend_mut(), LeaveAlternateScreen).unwrap_or(());
+    terminal.show_cursor().unwrap_or(());
 }
