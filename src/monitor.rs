@@ -14,7 +14,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, List, ListItem, Paragraph},
+    widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph},
     Terminal, Frame,
 };
 
@@ -59,6 +59,8 @@ struct BatchProgress {
     current_file: Option<CurrentFile>,
     #[serde(default)]
     files: Vec<FileResult>,
+    #[serde(default)]
+    pending_files: Vec<String>,
 }
 
 #[derive(serde::Deserialize, Default)]
@@ -82,15 +84,17 @@ struct FileResult {
 
 #[derive(Clone, Copy, PartialEq)]
 enum Panel {
-    Stats,
     Completed,
+    Current,
+    Queue,
 }
 
 impl Panel {
     fn next(self) -> Self {
         match self {
-            Panel::Stats => Panel::Completed,
-            Panel::Completed => Panel::Stats,
+            Panel::Completed => Panel::Current,
+            Panel::Current => Panel::Queue,
+            Panel::Queue => Panel::Completed,
         }
     }
 }
@@ -106,7 +110,8 @@ struct App {
     data: Option<ProgressResponse>,
     error: Option<String>,
     focus: Panel,
-    scroll: usize,
+    scroll_completed: usize,
+    scroll_pending: usize,
     spinner_idx: usize,
     show_lists: bool,
     show_stats: bool,
@@ -119,25 +124,14 @@ impl App {
         Self {
             data: None,
             error: None,
-            focus: Panel::Stats,
-            scroll: 0,
+            focus: Panel::Completed,
+            scroll_completed: 0,
+            scroll_pending: 0,
             spinner_idx: 0,
             show_lists: true,
             show_stats: true,
             show_help: false,
             color_mode: ColorMode::Full,
-        }
-    }
-
-    fn scroll_up(&mut self) {
-        if self.scroll > 0 {
-            self.scroll -= 1;
-        }
-    }
-
-    fn scroll_down(&mut self, max: usize) {
-        if self.scroll < max {
-            self.scroll += 1;
         }
     }
 }
@@ -507,16 +501,21 @@ fn ui(f: &mut Frame, app: &mut App) {
                         _ => Color::Yellow,
                     };
                     let text = format!(
-                        " {} {:<48} {:>4}ch {:>6.1}s",
-                        status_icon,
+                        " {:<48} {:>4}ch {:>6.1}s",
                         truncate(name, 48),
                         chunks,
                         dur
                     );
-                    ListItem::new(Line::from(vec![Span::styled(
-                        text,
-                        Style::default().fg(color_for(cm, color_raw)),
-                    )]))
+                    ListItem::new(Line::from(vec![
+                        Span::styled(
+                            format!("{} ", status_icon),
+                            Style::default().fg(color_for(cm, color_raw)),
+                        ),
+                        Span::styled(
+                            text,
+                            Style::default().fg(color_for(cm, color_raw)),
+                        ),
+                    ]))
                 })
                 .collect()
         })
@@ -543,8 +542,20 @@ fn ui(f: &mut Frame, app: &mut App) {
                 Modifier::empty()
             }),
     ));
-    let completed_list = List::new(completed_items).block(completed_block);
-    f.render_widget(completed_list, list_area[0]);
+    let mut completed_state = ListState::default();
+    if app.focus == Panel::Completed && !completed_items.is_empty() {
+        completed_state.select(Some(app.scroll_completed));
+    }
+    let completed_list = List::new(completed_items)
+        .block(completed_block)
+        .highlight_style(
+            Style::default()
+                .fg(Color::Black)
+                .bg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )
+        .highlight_symbol("▶ ");
+    f.render_stateful_widget(completed_list, list_area[0], &mut completed_state);
 
     // Right panel: current file + pending info
     let right_chunks = Layout::default()
@@ -587,54 +598,74 @@ fn ui(f: &mut Frame, app: &mut App) {
 
     let current_block = Block::default().borders(Borders::ALL).title(Span::styled(
         " Current ",
-        Style::default().fg(color_for(cm, Color::Yellow)),
+        Style::default()
+            .fg(color_for(
+                cm,
+                if app.focus == Panel::Current {
+                    Color::Cyan
+                } else {
+                    Color::Yellow
+                },
+            ))
+            .add_modifier(if app.focus == Panel::Current {
+                Modifier::BOLD
+            } else {
+                Modifier::empty()
+            }),
     ));
     f.render_widget(
         Paragraph::new(current_lines).block(current_block),
         right_chunks[0],
     );
 
-    // Pending count + errors
-    let pending_count = batch
-        .map(|b| {
-            b.total_files
-                .saturating_sub(b.completed_files + b.failed_files)
-        })
-        .unwrap_or(0);
-    let pending_lines = vec![
-        Line::from(vec![Span::styled(
-            format!(" {} files pending", pending_count),
-            Style::default().fg(color_for(cm, Color::DarkGray)),
-        )]),
-        Line::from(""),
-    ];
-
-    let mut all_lines = pending_lines;
-
-    // Show errors if any
-    if let Some(b) = batch {
-        if !b.errors.is_empty() {
-            all_lines.push(Line::from(Span::styled(
-                " Errors:",
-                Style::default().fg(color_for(cm, Color::Red)),
-            )));
-            for err in b.errors.iter().take(5) {
-                all_lines.push(Line::from(Span::styled(
-                    format!(" • {}", truncate(err, 40)),
-                    Style::default().fg(color_for(cm, Color::Red)),
-                )));
-            }
-        }
-    }
-
-    let pending_block = Block::default().borders(Borders::ALL).title(Span::styled(
-        " Queue ",
-        Style::default().fg(color_for(cm, Color::DarkGray)),
+    // Queue — scrollable list of pending files
+    let pending_files: Vec<&String> = batch
+        .map(|b| b.pending_files.iter().collect())
+        .unwrap_or_default();
+    let pending_count = pending_files.len();
+    let queue_title = format!(" Queue ({}) ", pending_count);
+    let queue_block = Block::default().borders(Borders::ALL).title(Span::styled(
+        queue_title,
+        Style::default()
+            .fg(color_for(
+                cm,
+                if app.focus == Panel::Queue {
+                    Color::Cyan
+                } else {
+                    Color::DarkGray
+                },
+            ))
+            .add_modifier(if app.focus == Panel::Queue {
+                Modifier::BOLD
+            } else {
+                Modifier::empty()
+            }),
     ));
-    f.render_widget(
-        Paragraph::new(all_lines).block(pending_block),
-        right_chunks[1],
-    );
+
+    let queue_items: Vec<ListItem> = pending_files
+        .iter()
+        .map(|name| {
+            ListItem::new(Line::from(vec![Span::styled(
+                format!(" {}", truncate(name, 42)),
+                Style::default().fg(color_for(cm, Color::Gray)),
+            )]))
+        })
+        .collect();
+
+    let mut queue_state = ListState::default();
+    if app.focus == Panel::Queue && !queue_items.is_empty() {
+        queue_state.select(Some(app.scroll_pending));
+    }
+    let queue_list = List::new(queue_items)
+        .block(queue_block)
+        .highlight_style(
+            Style::default()
+                .fg(Color::Black)
+                .bg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )
+        .highlight_symbol("▶ ");
+    f.render_stateful_widget(queue_list, right_chunks[1], &mut queue_state);
 
     // ── Footer ──
     let key_style = Style::default()
@@ -698,7 +729,7 @@ fn ui(f: &mut Frame, app: &mut App) {
             Line::from(vec![Span::styled("  s      ", hk), Span::styled("Toggle stats", hd)]),
             Line::from(vec![
                 Span::styled("  o      ", hk),
-                Span::styled("Open selected file in less  (Completed panel)", hd),
+                Span::styled("Open selected file in less (Completed/Queue)", hd),
             ]),
             Line::from(vec![
                 Span::styled("  ?      ", hk),
@@ -732,38 +763,54 @@ fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
         .split(popup_layout[1])[1]
 }
 
-/// Open the currently-selected Completed file in `less`. Suspends the TUI
+/// Open the currently-selected file in `less`. Suspends the TUI
 /// (leaves alternate screen + disables raw mode) while less runs, then
 /// restores it and forces a full redraw.
+///
+/// Behaviour depends on the focused panel:
+/// - `Completed`: opens `~/library/youtube/ingested/{name}`
+/// - `Queue`:     opens `~/library/youtube/inbox/{name}`
 fn open_selected_file(app: &mut App, terminal: &mut Terminal<CrosstermBackend<Stdout>>) {
-    let files = app
-        .data
-        .as_ref()
-        .and_then(|d| d.batch.as_ref())
-        .map(|b| &b.files);
-    let files = match files {
-        Some(f) => f,
-        None => return,
-    };
-    if files.is_empty() {
-        return;
-    }
-
-    // Mirror the reversed order used in the Completed list display.
-    let idx = files.len().saturating_sub(1).saturating_sub(app.scroll);
-    if idx >= files.len() {
-        return;
-    }
-    let name = match files[idx].name.as_deref() {
-        Some(n) => n,
+    let batch = match app.data.as_ref().and_then(|d| d.batch.as_ref()) {
+        Some(b) => b,
         None => return,
     };
 
     let home = std::env::var("HOME").unwrap_or_default();
-    let path = format!("{}/library/youtube/ingested/{}", home, name);
+    let (path, name) = match app.focus {
+        Panel::Completed => {
+            let files = &batch.files;
+            if files.is_empty() {
+                return;
+            }
+            // Mirror the reversed order used in the Completed list display.
+            let idx = files.len().saturating_sub(1).saturating_sub(app.scroll_completed);
+            if idx >= files.len() {
+                return;
+            }
+            let name = match files[idx].name.as_deref() {
+                Some(n) => n.to_string(),
+                None => return,
+            };
+            (format!("{}/library/youtube/ingested/{}", home, name), name)
+        }
+        Panel::Queue => {
+            let pending = &batch.pending_files;
+            if pending.is_empty() {
+                return;
+            }
+            let idx = app.scroll_pending;
+            if idx >= pending.len() {
+                return;
+            }
+            let name = pending[idx].clone();
+            (format!("{}/library/youtube/inbox/{}", home, name), name)
+        }
+        Panel::Current => return,
+    };
 
     if !std::path::Path::new(&path).exists() {
-        app.error = Some(format!("File not found: {}", path));
+        app.error = Some(format!("File not found: {} ({})", name, path));
         return;
     }
 
@@ -843,16 +890,44 @@ pub fn run(args: &[String]) {
                 match key.code {
                     KeyCode::Char('q') | KeyCode::Esc => break,
                     KeyCode::Tab => app.focus = app.focus.next(),
-                    KeyCode::Down => {
-                        let max = app
-                            .data
-                            .as_ref()
-                            .and_then(|d| d.batch.as_ref())
-                            .map(|b| b.files.len().saturating_sub(1))
-                            .unwrap_or(0);
-                        app.scroll_down(max);
-                    }
-                    KeyCode::Up => app.scroll_up(),
+                    KeyCode::Down => match app.focus {
+                        Panel::Completed => {
+                            let max = app
+                                .data
+                                .as_ref()
+                                .and_then(|d| d.batch.as_ref())
+                                .map(|b| b.files.len().saturating_sub(1))
+                                .unwrap_or(0);
+                            if app.scroll_completed < max {
+                                app.scroll_completed += 1;
+                            }
+                        }
+                        Panel::Queue => {
+                            let max = app
+                                .data
+                                .as_ref()
+                                .and_then(|d| d.batch.as_ref())
+                                .map(|b| b.pending_files.len().saturating_sub(1))
+                                .unwrap_or(0);
+                            if app.scroll_pending < max {
+                                app.scroll_pending += 1;
+                            }
+                        }
+                        Panel::Current => {}
+                    },
+                    KeyCode::Up => match app.focus {
+                        Panel::Completed => {
+                            if app.scroll_completed > 0 {
+                                app.scroll_completed -= 1;
+                            }
+                        }
+                        Panel::Queue => {
+                            if app.scroll_pending > 0 {
+                                app.scroll_pending -= 1;
+                            }
+                        }
+                        Panel::Current => {}
+                    },
                     KeyCode::Char('l') => app.show_lists = !app.show_lists,
                     KeyCode::Char('s') => app.show_stats = !app.show_stats,
                     KeyCode::Char('c') => {
@@ -864,7 +939,7 @@ pub fn run(args: &[String]) {
                     }
                     KeyCode::Char('?') => app.show_help = true,
                     KeyCode::Char('o') | KeyCode::Enter => {
-                        if app.focus == Panel::Completed {
+                        if app.focus == Panel::Completed || app.focus == Panel::Queue {
                             open_selected_file(&mut app, &mut terminal);
                         }
                     }

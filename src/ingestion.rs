@@ -91,6 +91,9 @@ pub struct BatchProgress {
     pub error_rate: f64,
     /// Completed files with details
     pub files: Vec<FileResult>,
+    /// Pending files (not yet processed)
+    #[serde(default)]
+    pub pending_files: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Default)]
@@ -408,6 +411,12 @@ async fn process_batch_job(
             avg_time_per_file_seconds: 0.0,
             error_rate: 0.0,
             files: Vec::new(),
+            pending_files: files.iter().map(|f| {
+                std::path::Path::new(f)
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_else(|| f.clone())
+            }).collect(),
         });
     }
 
@@ -489,6 +498,7 @@ async fn process_batch_job(
                             duration_seconds: file_duration,
                             status: "ok".to_string(),
                         });
+                        b.pending_files.retain(|f| f != &file_name);
                         let total_done = b.completed_files + b.failed_files;
                         if total_done > 0 {
                             b.avg_time_per_file_seconds = b.elapsed_seconds as f64 / total_done as f64;
@@ -517,6 +527,7 @@ async fn process_batch_job(
                             duration_seconds: file_duration,
                             status: format!("error: {}", e),
                         });
+                        b.pending_files.retain(|f| f != &file_name);
                         let total_done = b.completed_files + b.failed_files;
                         if total_done > 0 {
                             b.avg_time_per_file_seconds = b.elapsed_seconds as f64 / total_done as f64;
