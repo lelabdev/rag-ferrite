@@ -190,6 +190,16 @@ POST /api/ingest
 
 Progress response includes: total/completed files, current file + phase, chunks/min, ETA, error rate, per-file results array.
 
+### Monitor (TUI)
+
+```bash
+rag-ferrite monitor [refresh_seconds] [url]
+```
+
+Real-time TUI with ratatui: colored progress bar (█ green → ▓▒░ fade → ⡀→⣿ yellow braille → spinner wave), stats panel, file lists.
+
+Keyboard: `TAB` switch • `↑↓` scroll • `l` toggle lists • `c` cycle colors • `s` toggle stats • `o` open in less • `?` help • `q` quit.
+
 ## Advanced Configuration
 
 ### LLM tuning
