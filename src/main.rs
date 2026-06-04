@@ -25,6 +25,7 @@ mod engine;
 mod extractor;
 mod ingestion;
 mod llm;
+mod monitor;
 mod params;
 mod pipeline;
 mod tag_rules;
@@ -172,6 +173,13 @@ impl RagFerriteServer {
 
 #[tokio::main(worker_threads = 12)]
 async fn main() -> Result<()> {
+    // Check for monitor subcommand
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() > 1 && args[1] == "monitor" {
+        monitor::run(&args[2..]);
+        return Ok(());
+    }
+
     // Load .env from executable directory (automatic — no manual source needed)
     if let Ok(exe) = std::env::current_exe()
         && let Some(dir) = exe.parent() {

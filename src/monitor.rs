@@ -1,6 +1,5 @@
-//! rag-ferrite batch monitor — standalone TUI
-//! Usage: cargo run --bin monitor --release
-//!        rag-ferrite-monitor [refresh_seconds] [url]
+//! rag-ferrite batch monitor — TUI subcommand
+//! Usage: rag-ferrite monitor [refresh_seconds] [url]
 
 use std::io::{self, Write};
 use std::time::{Duration, Instant};
@@ -251,10 +250,9 @@ fn render(data: &ProgressResponse, spinner_idx: usize) -> Vec<String> {
     lines
 }
 
-fn main() {
-    let args: Vec<String> = std::env::args().collect();
-    let url = args.get(2).cloned().unwrap_or_else(|| "http://localhost:4242".to_string());
-    let refresh: f64 = args.get(1).and_then(|s| s.parse().ok()).unwrap_or(2.0);
+pub fn run(args: &[String]) {
+    let url = args.get(1).cloned().unwrap_or_else(|| "http://localhost:4242".to_string());
+    let refresh: f64 = args.get(0).and_then(|s| s.parse().ok()).unwrap_or(2.0);
 
     let mut stdout = io::stdout();
     let _ = stdout.write_all(format!("{}{}{}", CURSOR_HOME, CLEAR_BELOW, HIDE_CURSOR).as_bytes());
