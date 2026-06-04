@@ -49,3 +49,20 @@ tower-http = { version = "0.6", features = ["cors"] }
 regex = "1"
 dirs = "6"
 chrono = "0.4.44"
+once_cell = "1"
+
+# Monitor binary only
+ureq = { version = "2", optional = true }
+
+[features]
+default = []
+monitor = ["ureq"]
+
+[[bin]]
+name = "rag-ferrite"
+path = "src/main.rs"
+
+[[bin]]
+name = "rag-ferrite-monitor"
+path = "src/bin/monitor.rs"
+required-features = ["monitor"]
