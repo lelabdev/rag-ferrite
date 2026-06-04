@@ -2,6 +2,19 @@
 
 All notable changes to rag-ferrite are documented here.
 
+## [4.7.0] - 2025-06-04
+
+### Added
+- **Unified ingest endpoint** — `POST /api/ingest` accepts `file_path` (string) or `paths` (array). Single + batch in one endpoint. `/api/ingest/file` and `/api/ingest/batch` kept as aliases.
+- **Batch progress monitoring** — Real-time stats: per-file chunks/size/duration, batch-level speed (chunks/min), ETA, error rate, avg time per file, total size MB.
+- **`move_after_ingest`** — Optional flag to move files from `inbox/` to `ingested/` after successful ingestion.
+- **Per-file results** — `files[]` array in BatchProgress with status, chunks, size, duration for each file.
+- **Non-blocking errors** — Batch continues on file failure, errors collected in `errors[]`.
+
+### Changed
+- `POST /api/ingest/file` and `/api/ingest/batch` are now aliases for `POST /api/ingest`.
+- Batch of 1 file uses same code path as multi-file batch (consistent progress).
+
 ## [4.6.0] - 2025-06-03
 
 ### Added

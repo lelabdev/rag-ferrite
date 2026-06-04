@@ -133,6 +133,7 @@ rag-ferrite (single binary, 15 MB)
 ├── Reranker — LLM-based or Cohere
 ├── Chunker — recursive + parent-child, section-aware, markdown-aware
 ├── Extractor — PDF (pdftotext), DOCX (docx-lite), TXT, MD
+├── Incremental index — dual-buffer (HNSW + in-memory) for instant searchability
 └── Storage — SQLite + HNSW (persistent to disk) + BM25
 ```
 
@@ -144,8 +145,9 @@ src/
 ├── service.rs     — shared service layer (MCP + HTTP)
 ├── api.rs         — HTTP REST endpoints (axum)
 ├── pipeline.rs    — query orchestration, classification, cache
+├── ingestion.rs   — background ingestion queue + batch progress monitoring
 ├── engine/
-│   ├── mod.rs     — engine init, ingest_text, ingest_file
+│   ├── mod.rs     — engine init, ingest_text, ingest_file, incremental buffer
 │   ├── search.rs  — hybrid search with RRF fusion
 │   ├── query.rs   — list, delete, neighbors, sources
 │   ├── benchmark.rs — quality evaluation
@@ -159,6 +161,34 @@ src/
 ├── extractor.rs   — PDF/DOCX/text extraction
 └── types.rs       — shared structs
 ```
+
+## HTTP API Endpoints
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/status` | Engine status, version, document count |
+| POST | `/api/ingest` | Unified ingest — `file_path` (single) or `paths` (batch), `move_after_ingest` |
+| POST | `/api/ingest/data` | Ingest raw text content |
+| GET | `/api/ingest/progress` | Batch progress: files, chunks, speed, ETA, errors, per-file results |
+| POST | `/api/query` | Hybrid search with reranking |
+| GET | `/api/documents` | List all sources |
+| GET | `/api/documents/{id}` | Get document details |
+| DELETE | `/api/documents/{id}` | Delete document |
+| GET | `/api/graph` | Source relationship graph |
+| POST | `/api/flush-indexes` | Rebuild HNSW + BM25 + WAL checkpoint |
+| POST | `/api/rebuild-indexes` | Full index rebuild |
+
+### Batch Ingest
+
+```json
+POST /api/ingest
+{
+  "paths": ["/path/file1.txt", "/path/file2.txt"],
+  "move_after_ingest": true
+}
+```
+
+Progress response includes: total/completed files, current file + phase, chunks/min, ETA, error rate, per-file results array.
 
 ## Advanced Configuration
 
