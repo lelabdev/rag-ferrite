@@ -2025,6 +2025,7 @@ dependencies = [
  "chrono",
  "dirs",
  "dotenvy",
+ "once_cell",
  "rag_engine",
  "regex",
  "reqwest",
@@ -2040,6 +2041,7 @@ dependencies = [
  "tower-http",
  "tracing",
  "tracing-subscriber",
+ "ureq",
 ]
 
 [[package]]
