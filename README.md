@@ -250,6 +250,70 @@ mcp_servers:
 
 ---
 
+## Batch ingestion & monitoring
+
+### Batch ingest via HTTP API
+
+```bash
+# Single file
+curl -X POST http://localhost:4242/api/ingest \
+  -H "Content-Type: application/json" \
+  -d '{"file_path": "/path/to/file.txt"}'
+
+# Multiple files (batch) with auto-move to ingested/
+curl -X POST http://localhost:4242/api/ingest \
+  -H "Content-Type: application/json" \
+  -d '{"paths": ["file1.txt", "file2.txt", "file3.txt"], "move_after_ingest": true}'
+```
+
+The batch runs in the background — the API returns immediately with a `batch_id`.
+
+### Real-time monitor
+
+```bash
+# Default (2s refresh, localhost)
+rag-ferrite monitor
+
+# Custom refresh + remote server
+rag-ferrite monitor 1 http://100.x.x.x:4242
+```
+
+The monitor displays:
+
+```
+  ⠹ RUNNING — batch 82446255
+  [██████████▓▓▒░⡀⠹⠸⠼⠴⠦⠧⠇⠏⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏⠋⠙]
+  70/247 files — 28%
+
+  Chunks    12439 / 12439     Size           1.7 MB
+  Speed      115 chunks/min      Avg/file     92.5s
+  Elapsed   1h47m          ETA          4h32m
+  Errors        0 (0.0%)
+
+  ▶ prompt-engineering-and-ai-red-teaming...
+    phase: embedding+llm
+```
+
+The progress bar uses three visual zones:
+- **Solid blocks** `█` — completed files (with `▓▒░` fade near the frontier)
+- **Braille** `⡀→⣿` — current file being processed (1-8 dots = progress within the file)
+- **Spinner** `⠋⠙⠹...` — pending files (animated, staggered per cell)
+
+### Ingestion speed benchmarks
+
+With embedding + contextual retrieval + auto-tagging + relevance scoring (3-4 LLM calls per chunk):
+
+| Speed | Level |
+|-------|-------|
+| < 200 chunks/min | Slow (embedding-only pipelines) |
+| 200–1,000 chunks/min | Good for enriched pipelines |
+| 1,000–3,000 chunks/min | Fast |
+| 3,000+ | Very fast (minimal per-chunk LLM work) |
+
+A typical rag-ferrite setup with a small LLM (e.g. `ministral-3b`) runs at **100–150 chunks/min**, which translates to **400–600 LLM calls/min** — solid throughput for an enriched pipeline.
+
+---
+
 ## Advanced configuration
 
 Everything below has sensible defaults. Only change these to fine-tune for your models or hardware.
