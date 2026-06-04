@@ -167,9 +167,9 @@ fn truncate(s: &str, max: usize) -> String {
     }
 }
 
-// ── Progress bar renderer (kept from v1) ──
+// ── Progress bar renderer — returns colored Spans ──
 
-fn render_progress_bar(pct: f64, spinner_idx: usize, bar_len: usize) -> String {
+fn render_progress_bar<'a>(pct: f64, spinner_idx: usize, bar_len: usize) -> Vec<Span<'a>> {
     let fill_chars: [&str; 8] = ["⡀", "⡄", "⡆", "⡇", "⣇", "⣧", "⣷", "⣿"];
     let fade_chars: [&str; 5] = ["░", "░", "▒", "▓", "▓"];
     let num_fill = fill_chars.len();
@@ -181,9 +181,22 @@ fn render_progress_bar(pct: f64, spinner_idx: usize, bar_len: usize) -> String {
     let cell_remainder = current_state % states_per_cell;
 
     let empty_start = front_cell + 1;
-    let empty_len = bar_len.saturating_sub(empty_start);
 
-    let mut bar = String::with_capacity(bar_len * 4);
+    // Color palette for spinner wave — travels through cells
+    let wave = [
+        Color::DarkGray,
+        Color::DarkGray,
+        Color::Blue,
+        Color::Cyan,
+        Color::LightCyan,
+        Color::White,
+        Color::LightCyan,
+        Color::Cyan,
+        Color::Blue,
+        Color::DarkGray,
+    ];
+
+    let mut spans: Vec<Span<'a>> = Vec::with_capacity(bar_len);
 
     for i in 0..bar_len {
         if i < front_cell {
@@ -191,28 +204,50 @@ fn render_progress_bar(pct: f64, spinner_idx: usize, bar_len: usize) -> String {
             let dist_to_front = front_cell.saturating_sub(i);
             if dist_to_front <= num_fade {
                 let fade_idx = num_fade - dist_to_front;
-                bar.push_str(fade_chars[fade_idx]);
+                // Fade: closer to front = more cyan/blue, closer to full = green
+                let color = match fade_idx {
+                    0 => Color::Cyan,
+                    1 => Color::Cyan,
+                    2 => Color::LightBlue,
+                    3 => Color::Green,
+                    _ => Color::Green,
+                };
+                spans.push(Span::styled(fade_chars[fade_idx], Style::default().fg(color)));
             } else {
-                bar.push('█');
+                spans.push(Span::styled("█", Style::default().fg(Color::Green)));
             }
         } else if i == front_cell && cell_remainder > 0 {
             if cell_remainder <= num_fill {
-                bar.push_str(fill_chars[cell_remainder - 1]);
+                // Braille transition — yellow
+                spans.push(Span::styled(
+                    fill_chars[cell_remainder - 1],
+                    Style::default().fg(Color::Yellow),
+                ));
             } else {
+                // Fade part of transition cell
                 let fade_idx = cell_remainder - num_fill - 1;
-                bar.push_str(fade_chars[fade_idx]);
+                let color = match fade_idx {
+                    0 => Color::Cyan,
+                    1 => Color::LightBlue,
+                    _ => Color::Green,
+                };
+                spans.push(Span::styled(fade_chars[fade_idx], Style::default().fg(color)));
             }
-        } else if i >= empty_start && empty_len > 0 {
-            // Empty — spinner braille, staggered per cell
+        } else if i >= empty_start {
+            // Spinner — color wave traveling
             let rel = i - empty_start;
-            let idx = (spinner_idx + rel) % SPINNER.len();
-            bar.push_str(&format!("{}{}{}", DIM, SPINNER[idx], RESET));
+            let char_idx = (spinner_idx + rel) % SPINNER.len();
+            let color_idx = (spinner_idx + rel) % wave.len();
+            spans.push(Span::styled(
+                SPINNER[char_idx],
+                Style::default().fg(wave[color_idx]),
+            ));
         } else {
-            bar.push(' ');
+            spans.push(Span::raw(" "));
         }
     }
 
-    bar
+    spans
 }
 
 // ── UI ──
@@ -264,32 +299,36 @@ fn ui(f: &mut Frame, app: &mut App) {
 
     let spinner_char = SPINNER[app.spinner_idx % SPINNER.len()];
     let badge = match status_str {
-        "running" => format!("{}{} RUNNING{}", YELLOW, spinner_char, RESET),
-        "completed" => format!("{}✓ DONE{}", GREEN, RESET),
-        "failed" => format!("{}✗ FAILED{}", RED, RESET),
-        _ => status_str.to_uppercase(),
+        "running" => Span::styled(
+            format!("{} RUNNING", spinner_char),
+            Style::default().fg(Color::Yellow),
+        ),
+        "completed" => Span::styled("✓ DONE", Style::default().fg(Color::Green)),
+        "failed" => Span::styled("✗ FAILED", Style::default().fg(Color::Red)),
+        _ => Span::styled(status_str.to_uppercase(), Style::default().fg(Color::DarkGray)),
     };
 
     let status_line = Line::from(vec![
         Span::raw("  "),
-        Span::raw(badge),
+        badge,
         Span::raw(" "),
         Span::styled(
             format!("— batch {}", bid),
             Style::default().fg(Color::DarkGray),
         ),
-        Span::raw(format!("    {:.0}% ({}/{})", pct, done, total)),
+        Span::styled(
+            format!("    {:.0}% ({}/{})", pct, done, total),
+            Style::default().fg(Color::White),
+        ),
     ]);
     f.render_widget(Paragraph::new(status_line), inner[0]);
 
-    // Progress bar
-    let bar = render_progress_bar(pct, app.spinner_idx, 50);
-    let bar_line = Line::from(vec![
-        Span::raw("  ["),
-        Span::styled(bar, Style::default().fg(Color::Cyan)),
-        Span::raw("]"),
-    ]);
-    f.render_widget(Paragraph::new(bar_line), inner[1]);
+    // Progress bar — colored spans
+    let bar_spans = render_progress_bar(pct, app.spinner_idx, 50);
+    let mut bar_line_spans = vec![Span::raw("  [")];
+    bar_line_spans.extend(bar_spans);
+    bar_line_spans.push(Span::raw("]"));
+    f.render_widget(Paragraph::new(Line::from(bar_line_spans)), inner[1]);
 
     // Stats
     if let Some(b) = batch {
@@ -303,11 +342,12 @@ fn ui(f: &mut Frame, app: &mut App) {
         let chunks_done = b.completed_chunks;
         let chunks_total = b.total_chunks;
 
+        let speed_color = if speed >= 100.0 { Color::Green } else { Color::Yellow };
         let stats_lines = vec![
             Line::from(vec![
                 Span::styled(
                     format!("  Chunks   {:>6}", chunks_done),
-                    Style::default().fg(Color::Gray),
+                    Style::default().fg(Color::Cyan),
                 ),
                 Span::styled(
                     format!(" / {:<6}", chunks_total),
@@ -322,7 +362,7 @@ fn ui(f: &mut Frame, app: &mut App) {
             Line::from(vec![
                 Span::styled(
                     format!("  Speed    {:>6.0} chunks/min", speed),
-                    Style::default().fg(Color::Gray),
+                    Style::default().fg(speed_color),
                 ),
                 Span::raw("     "),
                 Span::styled(
@@ -338,24 +378,24 @@ fn ui(f: &mut Frame, app: &mut App) {
                 Span::raw("       "),
                 Span::styled(
                     format!("ETA       {:>8}", eta),
-                    Style::default().fg(Color::Gray),
+                    Style::default().fg(Color::Magenta),
                 ),
             ]),
-            Line::from(vec![
-                Span::styled(
-                    format!("  Errors   {:>6} ({:.1}%)", err_count, err_rate),
-                    Style::default().fg(if err_count > 0 { Color::Red } else { Color::DarkGray }),
-                ),
-            ]),
+            Line::from(vec![Span::styled(
+                format!("  Errors   {:>6} ({:.1}%)", err_count, err_rate),
+                Style::default().fg(if err_count > 0 {
+                    Color::Red
+                } else {
+                    Color::DarkGray
+                }),
+            )]),
         ];
         f.render_widget(Paragraph::new(stats_lines), inner[3]);
     } else if let Some(e) = &app.error {
-        let err_line = Line::from(vec![
-            Span::styled(
-                format!("  ⚠ Connection error: {}", e),
-                Style::default().fg(Color::Red),
-            ),
-        ]);
+        let err_line = Line::from(vec![Span::styled(
+            format!("  ⚠ Connection error: {}", e),
+            Style::default().fg(Color::Red),
+        )]);
         f.render_widget(Paragraph::new(err_line), inner[3]);
     }
 
