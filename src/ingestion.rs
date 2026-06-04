@@ -83,6 +83,23 @@ pub struct BatchProgress {
     pub elapsed_seconds: u64,
     pub speed_chunks_per_min: f64,
     pub eta_seconds: u64,
+    /// Total bytes of files processed
+    pub total_size_mb: f64,
+    /// Average time per file in seconds
+    pub avg_time_per_file_seconds: f64,
+    /// Error rate percentage
+    pub error_rate: f64,
+    /// Completed files with details
+    pub files: Vec<FileResult>,
+}
+
+#[derive(Debug, Clone, Serialize, Default)]
+pub struct FileResult {
+    pub name: String,
+    pub chunks: usize,
+    pub size_mb: f64,
+    pub duration_seconds: f64,
+    pub status: String,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -362,6 +379,7 @@ async fn process_batch_job(
     move_after_ingest: bool,
 ) {
     let total_files = files.len();
+    let batch_start = std::time::Instant::now();
     let started_at = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
@@ -386,6 +404,10 @@ async fn process_batch_job(
             elapsed_seconds: 0,
             speed_chunks_per_min: 0.0,
             eta_seconds: 0,
+            total_size_mb: 0.0,
+            avg_time_per_file_seconds: 0.0,
+            error_rate: 0.0,
+            files: Vec::new(),
         });
     }
 
@@ -397,6 +419,13 @@ async fn process_batch_job(
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_else(|| file_path.clone());
 
+        // Get file size
+        let file_size_mb = std::fs::metadata(file_path)
+            .map(|m| m.len() as f64 / 1_048_576.0)
+            .unwrap_or(0.0);
+
+        let file_start = std::time::Instant::now();
+
         {
             let mut p = progress.lock().unwrap();
             if let Some(ref mut b) = p.batch {
@@ -404,15 +433,16 @@ async fn process_batch_job(
                     name: file_name.clone(),
                     chunks_done: 0,
                     chunks_total: 0,
-                    phase: "starting".to_string(),
+                    phase: "parsing".to_string(),
                 });
             }
             p.current_source = Some(file_path.clone());
             p.last_error = None;
         }
 
-        tracing::info!("Batch {} file {}/{}: {}", batch_id, i + 1, total_files, file_name);
+        tracing::info!("Batch {} file {}/{}: {} ({:.1} MB)", batch_id, i + 1, total_files, file_name, file_size_mb);
 
+        // Phase update: embedding
         {
             let mut p = progress.lock().unwrap();
             if let Some(ref mut b) = p.batch {
@@ -431,6 +461,10 @@ async fn process_batch_job(
         )
         .await;
 
+        let file_duration = file_start.elapsed().as_secs_f64();
+        let done = result.is_ok();
+        let chunks = result.as_ref().map(|(_, r)| r.total_chunks).unwrap_or(0);
+
         {
             let now_secs = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -439,20 +473,31 @@ async fn process_batch_job(
             let mut p = progress.lock().unwrap();
             if let Some(ref mut b) = p.batch {
                 b.elapsed_seconds = now_secs.saturating_sub(started_at);
+                b.total_size_mb += file_size_mb;
             }
             match result {
                 Ok((_id, report)) => {
-                    tracing::info!("Batch {} file {}/{} done: {} — {} chunks", batch_id, i + 1, total_files, file_name, report.total_chunks);
+                    tracing::info!("Batch {} file {}/{} done: {} — {} chunks in {:.1}s", batch_id, i + 1, total_files, file_name, report.total_chunks, file_duration);
                     if let Some(ref mut b) = p.batch {
                         b.completed_files += 1;
                         b.completed_chunks += report.total_chunks;
                         b.total_chunks += report.total_chunks;
+                        b.files.push(FileResult {
+                            name: file_name.clone(),
+                            chunks: report.total_chunks,
+                            size_mb: file_size_mb,
+                            duration_seconds: file_duration,
+                            status: "ok".to_string(),
+                        });
+                        let total_done = b.completed_files + b.failed_files;
+                        if total_done > 0 {
+                            b.avg_time_per_file_seconds = b.elapsed_seconds as f64 / total_done as f64;
+                            b.error_rate = (b.failed_files as f64 / total_done as f64) * 100.0;
+                        }
                         if b.elapsed_seconds > 0 {
                             b.speed_chunks_per_min = (b.completed_chunks as f64 / b.elapsed_seconds as f64) * 60.0;
-                            let remaining = b.total_chunks.saturating_sub(b.completed_chunks);
-                            if b.speed_chunks_per_min > 0.0 {
-                                b.eta_seconds = ((remaining as f64 / b.speed_chunks_per_min) * 60.0) as u64;
-                            }
+                            let remaining_files = b.total_files.saturating_sub(total_done);
+                            b.eta_seconds = (b.avg_time_per_file_seconds * remaining_files as f64) as u64;
                         }
                     }
                     p.last_completed = Some(file_path.clone());
@@ -465,13 +510,25 @@ async fn process_batch_job(
                             file: file_name.clone(),
                             error: e.to_string(),
                         });
+                        b.files.push(FileResult {
+                            name: file_name.clone(),
+                            chunks: 0,
+                            size_mb: file_size_mb,
+                            duration_seconds: file_duration,
+                            status: format!("error: {}", e),
+                        });
+                        let total_done = b.completed_files + b.failed_files;
+                        if total_done > 0 {
+                            b.avg_time_per_file_seconds = b.elapsed_seconds as f64 / total_done as f64;
+                            b.error_rate = (b.failed_files as f64 / total_done as f64) * 100.0;
+                        }
                     }
                     p.last_error = Some(e.to_string());
                 }
             }
         }
 
-        if move_after_ingest {
+        if done && move_after_ingest {
             if let Err(e) = move_file_after_ingest(file_path) {
                 tracing::warn!("Failed to move {}: {}", file_path, e);
             }
@@ -483,13 +540,10 @@ async fn process_batch_job(
         if let Some(ref mut b) = p.batch {
             b.status = BatchStatus::Completed;
             b.current_file = None;
-            let now_secs = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs();
-            b.elapsed_seconds = now_secs.saturating_sub(started_at);
-            tracing::info!("Batch {} complete: {}/{} files, {} chunks, {} errors, {}s",
-                batch_id, b.completed_files, b.total_files, b.completed_chunks, b.errors.len(), b.elapsed_seconds);
+            b.elapsed_seconds = batch_start.elapsed().as_secs();
+            tracing::info!("Batch {} complete: {}/{} files, {} chunks, {:.1} MB, {} errors ({:.1}%), {}s",
+                batch_id, b.completed_files, b.total_files, b.completed_chunks,
+                b.total_size_mb, b.errors.len(), b.error_rate, b.elapsed_seconds);
         }
         p.status = IngestStatus::Idle;
         p.current_source = None;
