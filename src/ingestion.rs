@@ -28,6 +28,12 @@ enum IngestJob {
         content: String,
         source: String,
     },
+    /// Batch: multiple files with a shared batch_id
+    Batch {
+        batch_id: String,
+        files: Vec<String>,
+        move_after_ingest: bool,
+    },
     /// Flush indexes: rebuild HNSW + BM25 + WAL checkpoint.
     /// Sent at the end of a batch ingestion to defer expensive index operations.
     FlushIndexes,
@@ -48,6 +54,9 @@ pub struct IngestProgress {
     pub last_completed: Option<String>,
     /// Last error
     pub last_error: Option<String>,
+    /// Active batch info (if running a batch)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub batch: Option<BatchProgress>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -57,6 +66,48 @@ pub enum IngestStatus {
     #[default]
     Idle,
     Running,
+}
+
+#[derive(Debug, Clone, Serialize, Default)]
+pub struct BatchProgress {
+    pub batch_id: String,
+    pub status: BatchStatus,
+    pub total_files: usize,
+    pub completed_files: usize,
+    pub failed_files: usize,
+    pub current_file: Option<CurrentFileProgress>,
+    pub total_chunks: usize,
+    pub completed_chunks: usize,
+    pub errors: Vec<BatchError>,
+    pub started_at: u64,
+    pub elapsed_seconds: u64,
+    pub speed_chunks_per_min: f64,
+    pub eta_seconds: u64,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+#[derive(Default)]
+pub enum BatchStatus {
+    #[default]
+    Queued,
+    Running,
+    Completed,
+    Failed,
+}
+
+#[derive(Debug, Clone, Serialize, Default)]
+pub struct CurrentFileProgress {
+    pub name: String,
+    pub chunks_done: usize,
+    pub chunks_total: usize,
+    pub phase: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct BatchError {
+    pub file: String,
+    pub error: String,
 }
 
 
@@ -124,6 +175,28 @@ impl IngestionManager {
         }
     }
 
+    /// Queue a batch of files. Returns immediately with batch_id.
+    pub fn ingest_batch(&self, files: Vec<String>, move_after_ingest: bool) -> serde_json::Value {
+        let batch_id = format!("batch-{}", std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis());
+        let total = files.len();
+        match self.sender.send(IngestJob::Batch {
+            batch_id: batch_id.clone(),
+            files,
+            move_after_ingest,
+        }) {
+            Ok(()) => serde_json::json!({
+                "status": "queued",
+                "batch_id": batch_id,
+                "total_files": total,
+                "message": "Batch queued. Check GET /api/ingest/batch/{batch_id}/progress for status."
+            }),
+            Err(_) => serde_json::json!({ "error": "Failed to queue batch" }),
+        }
+    }
+
     /// Get current progress.
     pub fn get_progress(&self) -> IngestProgress {
         self.progress.lock().unwrap().clone()
@@ -158,6 +231,9 @@ async fn background_worker(
             }
             IngestJob::Data { content, source } => {
                 process_data_job(&pipeline, &ingest_config, &progress, &ingestion_llm, &content, &source).await;
+            }
+            IngestJob::Batch { batch_id, files, move_after_ingest } => {
+                process_batch_job(&pipeline, &ingest_config, &progress, &ingestion_llm, &batch_id, &files, move_after_ingest).await;
             }
             IngestJob::FlushIndexes => {
                 tracing::info!("FlushIndexes: rebuilding indexes + WAL checkpoint...");
@@ -274,4 +350,168 @@ async fn process_data_job(
     }
     p.status = IngestStatus::Idle;
     p.current_source = None;
+}
+
+async fn process_batch_job(
+    pipeline: &QueryPipeline,
+    cfg: &IngestConfig,
+    progress: &Arc<Mutex<IngestProgress>>,
+    ingestion_llm: &Option<LlmProvider>,
+    batch_id: &str,
+    files: &[String],
+    move_after_ingest: bool,
+) {
+    let total_files = files.len();
+    let started_at = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
+    tracing::info!("Batch {} started: {} files", batch_id, total_files);
+
+    {
+        let mut p = progress.lock().unwrap();
+        p.status = IngestStatus::Running;
+        p.batch = Some(BatchProgress {
+            batch_id: batch_id.to_string(),
+            status: BatchStatus::Running,
+            total_files,
+            completed_files: 0,
+            failed_files: 0,
+            current_file: None,
+            total_chunks: 0,
+            completed_chunks: 0,
+            errors: Vec::new(),
+            started_at,
+            elapsed_seconds: 0,
+            speed_chunks_per_min: 0.0,
+            eta_seconds: 0,
+        });
+    }
+
+    let llm = ingestion_llm.as_ref().or(pipeline.llm.as_ref());
+
+    for (i, file_path) in files.iter().enumerate() {
+        let file_name = std::path::Path::new(file_path)
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| file_path.clone());
+
+        {
+            let mut p = progress.lock().unwrap();
+            if let Some(ref mut b) = p.batch {
+                b.current_file = Some(CurrentFileProgress {
+                    name: file_name.clone(),
+                    chunks_done: 0,
+                    chunks_total: 0,
+                    phase: "starting".to_string(),
+                });
+            }
+            p.current_source = Some(file_path.clone());
+            p.last_error = None;
+        }
+
+        tracing::info!("Batch {} file {}/{}: {}", batch_id, i + 1, total_files, file_name);
+
+        {
+            let mut p = progress.lock().unwrap();
+            if let Some(ref mut b) = p.batch {
+                if let Some(ref mut cf) = b.current_file {
+                    cf.phase = "embedding+llm".to_string();
+                }
+            }
+        }
+
+        let result = engine::ingest_file(
+            &pipeline.embedder,
+            llm,
+            file_path,
+            Some("general"),
+            cfg.to_engine_options(),
+        )
+        .await;
+
+        {
+            let now_secs = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+            let mut p = progress.lock().unwrap();
+            if let Some(ref mut b) = p.batch {
+                b.elapsed_seconds = now_secs.saturating_sub(started_at);
+            }
+            match result {
+                Ok((_id, report)) => {
+                    tracing::info!("Batch {} file {}/{} done: {} — {} chunks", batch_id, i + 1, total_files, file_name, report.total_chunks);
+                    if let Some(ref mut b) = p.batch {
+                        b.completed_files += 1;
+                        b.completed_chunks += report.total_chunks;
+                        b.total_chunks += report.total_chunks;
+                        if b.elapsed_seconds > 0 {
+                            b.speed_chunks_per_min = (b.completed_chunks as f64 / b.elapsed_seconds as f64) * 60.0;
+                            let remaining = b.total_chunks.saturating_sub(b.completed_chunks);
+                            if b.speed_chunks_per_min > 0.0 {
+                                b.eta_seconds = ((remaining as f64 / b.speed_chunks_per_min) * 60.0) as u64;
+                            }
+                        }
+                    }
+                    p.last_completed = Some(file_path.clone());
+                }
+                Err(e) => {
+                    tracing::error!("Batch {} file {}/{} FAILED: {} — {}", batch_id, i + 1, total_files, file_name, e);
+                    if let Some(ref mut b) = p.batch {
+                        b.failed_files += 1;
+                        b.errors.push(BatchError {
+                            file: file_name.clone(),
+                            error: e.to_string(),
+                        });
+                    }
+                    p.last_error = Some(e.to_string());
+                }
+            }
+        }
+
+        if move_after_ingest {
+            if let Err(e) = move_file_after_ingest(file_path) {
+                tracing::warn!("Failed to move {}: {}", file_path, e);
+            }
+        }
+    }
+
+    {
+        let mut p = progress.lock().unwrap();
+        if let Some(ref mut b) = p.batch {
+            b.status = BatchStatus::Completed;
+            b.current_file = None;
+            let now_secs = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+            b.elapsed_seconds = now_secs.saturating_sub(started_at);
+            tracing::info!("Batch {} complete: {}/{} files, {} chunks, {} errors, {}s",
+                batch_id, b.completed_files, b.total_files, b.completed_chunks, b.errors.len(), b.elapsed_seconds);
+        }
+        p.status = IngestStatus::Idle;
+        p.current_source = None;
+    }
+}
+
+/// Move a file from inbox/ to ingested/ after successful ingestion.
+fn move_file_after_ingest(file_path: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let path = std::path::Path::new(file_path);
+    if !path.exists() {
+        return Err("File does not exist".into());
+    }
+    let parent = path.parent().ok_or("No parent dir")?;
+    let parent_str = parent.to_string_lossy();
+    let dest_dir = if parent_str.contains("/inbox/") {
+        parent_str.replace("/inbox/", "/ingested/")
+    } else {
+        format!("{}/ingested", parent_str)
+    };
+    std::fs::create_dir_all(&dest_dir)?;
+    let dest = format!("{}/{}", dest_dir, path.file_name().unwrap().to_string_lossy());
+    std::fs::rename(file_path, &dest)?;
+    tracing::info!("Moved {} to {}", file_path, dest);
+    Ok(())
 }
