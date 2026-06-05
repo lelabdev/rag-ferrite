@@ -429,14 +429,10 @@ fn ui(f: &mut Frame, app: &mut App) {
                         format!("  Chunks   {:>6}", chunks_done),
                         Style::default().fg(color_for(cm, Color::Cyan)),
                     ),
-                    Span::styled(
-                        format!(" / {:<6}", chunks_total),
-                        Style::default().fg(color_for(cm, Color::DarkGray)),
-                    ),
-                    Span::raw("     "),
+                    Span::raw("          "),
                     Span::styled(
                         format!("Size      {:>8.1} MB", size_mb),
-                        Style::default().fg(color_for(cm, Color::Gray)),
+                        Style::default().fg(color_for(cm, Color::White)),
                     ),
                 ]),
                 Line::from(vec![
@@ -447,13 +443,13 @@ fn ui(f: &mut Frame, app: &mut App) {
                     Span::raw("     "),
                     Span::styled(
                         format!("Avg/file  {:>8.1}s", avg_file),
-                        Style::default().fg(color_for(cm, Color::Gray)),
+                        Style::default().fg(color_for(cm, Color::White)),
                     ),
                 ]),
                 Line::from(vec![
                     Span::styled(
                         format!("  Elapsed  {:>6}", elapsed),
-                        Style::default().fg(color_for(cm, Color::Gray)),
+                        Style::default().fg(color_for(cm, Color::White)),
                     ),
                     Span::raw("       "),
                     Span::styled(
@@ -466,7 +462,7 @@ fn ui(f: &mut Frame, app: &mut App) {
                     Style::default().fg(color_for(cm, if err_count > 0 {
                         Color::Red
                     } else {
-                        Color::DarkGray
+                        Color::White
                     })),
                 )]),
             ];
@@ -783,13 +779,12 @@ fn open_selected_file(app: &mut App, terminal: &mut Terminal<CrosstermBackend<St
     };
 
     let home = std::env::var("HOME").unwrap_or_default();
-    let (path, name) = match app.focus {
+    let (base_dir, name) = match app.focus {
         Panel::Completed => {
             let files = &batch.files;
             if files.is_empty() {
                 return;
             }
-            // Mirror the reversed order used in the Completed list display.
             let idx = files.len().saturating_sub(1).saturating_sub(app.scroll_completed);
             if idx >= files.len() {
                 return;
@@ -798,7 +793,7 @@ fn open_selected_file(app: &mut App, terminal: &mut Terminal<CrosstermBackend<St
                 Some(n) => n.to_string(),
                 None => return,
             };
-            (format!("{}/library/youtube/ingested/{}", home, name), name)
+            (format!("{}/library/youtube/ingested", home), name)
         }
         Panel::Queue => {
             let pending = &batch.pending_files;
@@ -810,15 +805,37 @@ fn open_selected_file(app: &mut App, terminal: &mut Terminal<CrosstermBackend<St
                 return;
             }
             let name = pending[idx].clone();
-            (format!("{}/library/youtube/inbox/{}", home, name), name)
+            (format!("{}/library/youtube/inbox", home), name)
         }
         Panel::Current => return,
     };
 
-    if !std::path::Path::new(&path).exists() {
-        app.error = Some(format!("File not found: {} ({})", name, path));
-        return;
-    }
+    // Search for the file recursively in subdirectories
+    let find_output = std::process::Command::new("find")
+        .arg(&base_dir)
+        .arg("-name")
+        .arg(&name)
+        .arg("-type")
+        .arg("f")
+        .output();
+
+    let path = match find_output {
+        Ok(out) if out.status.success() => {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            let found = stdout.lines().next();
+            match found {
+                Some(p) if !p.is_empty() => p.to_string(),
+                _ => {
+                    app.error = Some(format!("File not found: {}", name));
+                    return;
+                }
+            }
+        }
+        _ => {
+            app.error = Some(format!("Search failed: {}", name));
+            return;
+        }
+    };
 
     // Suspend TUI
     disable_raw_mode().ok();
