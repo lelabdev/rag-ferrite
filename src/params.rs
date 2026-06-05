@@ -23,6 +23,7 @@ pub struct IngestConfig {
     pub child_min_chars: usize,
     pub defer_index_rebuild: bool,
     pub wal_checkpoint_interval: usize,
+    pub ingested_dir: String,
 }
 
 impl IngestConfig {

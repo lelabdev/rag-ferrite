@@ -372,6 +372,7 @@ async fn main() -> Result<()> {
             child_min_chars: config.chunking.child_min_chars,
             defer_index_rebuild: config.advanced.defer_index_rebuild,
             wal_checkpoint_interval: config.advanced.wal_checkpoint_interval,
+            ingested_dir: config.advanced.ingested_dir.clone(),
         };
 
     let reranker_for_fallback = reranker.clone();

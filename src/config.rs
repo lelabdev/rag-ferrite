@@ -470,6 +470,14 @@ pub struct AdvancedConfig {
     /// WAL checkpoint every N parents committed (0 = disabled)
     #[serde(default = "default_wal_checkpoint_interval")]
     pub wal_checkpoint_interval: usize,
+
+    /// Move files to ingested_dir after successful ingestion (default: true)
+    #[serde(default = "default_move_after_ingest")]
+    pub move_after_ingest: bool,
+
+    /// Directory name for ingested files (default: "ingested")
+    #[serde(default = "default_ingested_dir")]
+    pub ingested_dir: String,
 }
 
 fn default_chunk_size() -> usize { 800 }
@@ -491,6 +499,8 @@ fn default_log_filter() -> String { "rag_ferrite=debug,rag_engine=debug".into() 
 fn default_http_bind_address() -> String { "0.0.0.0".into() }
 fn default_defer_index_rebuild() -> bool { true }
 fn default_wal_checkpoint_interval() -> usize { 50 }
+fn default_move_after_ingest() -> bool { true }
+fn default_ingested_dir() -> String { "ingested".into() }
 
 impl Default for AdvancedConfig {
     fn default() -> Self {
@@ -514,6 +524,8 @@ impl Default for AdvancedConfig {
             http_bind_address: default_http_bind_address(),
             defer_index_rebuild: default_defer_index_rebuild(),
             wal_checkpoint_interval: default_wal_checkpoint_interval(),
+            move_after_ingest: default_move_after_ingest(),
+            ingested_dir: default_ingested_dir(),
         }
     }
 }

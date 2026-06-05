@@ -160,11 +160,29 @@ curl -X POST http://localhost:4242/api/ingest \
   -H "Content-Type: application/json" \
   -d '{"file_path": "/path/to/file.txt"}'
 
-# Multiple files (batch) with auto-move to ingested/
+# Multiple files (batch)
 curl -X POST http://localhost:4242/api/ingest \
   -H "Content-Type: application/json" \
-  -d '{"paths": ["file1.txt", "file2.txt"], "move_after_ingest": true}'
+  -d '{"paths": ["file1.txt", "file2.txt"]}'
+
+# Disable auto-move for this batch only
+curl -X POST http://localhost:4242/api/ingest \
+  -H "Content-Type: application/json" \
+  -d '{"paths": ["file1.txt"], "move_after_ingest": false}'
 ```
+
+**Auto-move after ingestion:** By default, files are moved from `inbox/` to `ingested/` after successful ingestion. This prevents accidental re-ingestion of the same files.
+
+- `inbox/@channel/video.txt` → `ingested/@channel/video.txt`
+- Configurable via `[advanced]` section in `config.toml`:
+
+```toml
+[advanced]
+move_after_ingest = true    # default: true
+ingested_dir = "ingested"   # default: "ingested"
+```
+
+- Override per-request with `"move_after_ingest": false` in the API call.
 
 The batch runs in the background — the API returns immediately with a `batch_id`.
 

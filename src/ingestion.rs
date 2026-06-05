@@ -540,7 +540,7 @@ async fn process_batch_job(
         }
 
         if done && move_after_ingest {
-            if let Err(e) = move_file_after_ingest(file_path) {
+            if let Err(e) = move_file_after_ingest(file_path, &cfg.ingested_dir) {
                 tracing::warn!("Failed to move {}: {}", file_path, e);
             }
         }
@@ -562,17 +562,18 @@ async fn process_batch_job(
 }
 
 /// Move a file from inbox/ to ingested/ after successful ingestion.
-fn move_file_after_ingest(file_path: &str) -> Result<(), Box<dyn std::error::Error>> {
+fn move_file_after_ingest(file_path: &str, ingested_dir: &str) -> Result<(), Box<dyn std::error::Error>> {
     let path = std::path::Path::new(file_path);
     if !path.exists() {
         return Err("File does not exist".into());
     }
     let parent = path.parent().ok_or("No parent dir")?;
     let parent_str = parent.to_string_lossy();
+    // Try to replace the last segment matching "inbox" with the configured ingested_dir
     let dest_dir = if parent_str.contains("/inbox/") {
-        parent_str.replace("/inbox/", "/ingested/")
+        parent_str.replace("/inbox/", &format!("/{}/", ingested_dir))
     } else {
-        format!("{}/ingested", parent_str)
+        format!("{}/{}", parent_str, ingested_dir)
     };
     std::fs::create_dir_all(&dest_dir)?;
     let dest = format!("{}/{}", dest_dir, path.file_name().unwrap().to_string_lossy());

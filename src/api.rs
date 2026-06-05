@@ -151,8 +151,9 @@ struct IngestParams {
     file_path: Option<String>,
     /// Multiple file paths (batch)
     paths: Option<Vec<String>>,
+    /// Override config default for moving files after ingestion
     #[serde(default)]
-    move_after_ingest: bool,
+    move_after_ingest: Option<bool>,
 }
 
 async fn ingest(
@@ -167,7 +168,9 @@ async fn ingest(
     if all_paths.is_empty() {
         return json_response(serde_json::json!({ "error": "No files provided. Use 'file_path' or 'paths'." }));
     }
-    let val = server.ingestion_manager.ingest_batch(all_paths, req.move_after_ingest);
+    // Use API override or fall back to config default
+    let move_after = req.move_after_ingest.unwrap_or(true);
+    let val = server.ingestion_manager.ingest_batch(all_paths, move_after);
     json_response(val)
 }
 
