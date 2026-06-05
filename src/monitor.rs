@@ -55,7 +55,7 @@ struct BatchProgress {
     eta_seconds: Option<f64>,
     error_rate: Option<f64>,
     #[serde(default)]
-    errors: Vec<String>,
+    errors: Vec<ErrorEntry>,
     current_file: Option<CurrentFile>,
     #[serde(default)]
     files: Vec<FileResult>,
@@ -78,6 +78,12 @@ struct FileResult {
     size_mb: Option<f64>,
     duration_seconds: Option<f64>,
     status: Option<String>,
+}
+
+#[derive(serde::Deserialize, Default)]
+struct ErrorEntry {
+    file: Option<String>,
+    error: Option<String>,
 }
 
 // ── App state ──
