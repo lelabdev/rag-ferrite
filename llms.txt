@@ -48,6 +48,18 @@ preview_chars = 300
 
 API keys via environment: `LLM_API_KEY`, `EMBEDDING_API_KEY`, or `.env` file.
 
+### API Authentication (Streamable HTTP mode)
+
+When running with `http_port > 0`, rag-ferrite supports multi-tier API authentication:
+
+| Env var | Access level |
+|---------|-------------|
+| `RAG_API_KEY` | Admin — full access (read + write + manage) |
+| `RAG_GUEST_API_KEY` | Guest — read-only (query, list, status) |
+| (neither set) | Local dev — everything open, no auth |
+
+Clients pass the key via `Authorization: Bearer <key>` header.
+
 ## MCP Tools (9)
 
 | Tool | Description |
@@ -107,7 +119,15 @@ Query → Classify (simple / standard / complex)
 - **Standard**: needs expansion + reranking (e.g. "compare X and Y")
 - **Complex**: multi-step reasoning (e.g. "how does X relate to Y given Z?")
 
-Classification is automatic. Each level activates more pipeline stages.
+Classification is automatic. Keywords and thresholds are configurable via `[query_classification]` in config.toml.
+
+```toml
+[query_classification]
+question_markers = ["what", "how", "why", "comment", "pourquoi", ...]
+boolean_operators = ["AND", "OR", "et", "ou"]
+complex_word_threshold = 8   # >8 words → complex
+simple_word_threshold = 2    # ≤2 words → simple
+```
 
 ### Reranking options
 
@@ -119,6 +139,20 @@ Classification is automatic. Each level activates more pipeline stages.
 
 Multi-collection in the same SQLite database. Each MCP tool accepts an optional `collection` parameter.
 Collections are created on-the-fly — no setup needed.
+
+### Tag Routing (v5)
+
+The `collection_tags` table maps each tag to the collections where it appears, with chunk counts:
+
+```sql
+-- Auto-populated during ingestion
+SELECT tag, collection, chunk_count FROM collection_tags
+WHERE tag = 'rust';
+-- → rust | code | 120
+-- → rust | general | 8
+```
+
+Heat tracking columns on `chunks` table: `query_count` (incremented on query hit) and `last_queried_at` (timestamp). Used for future lazy loading and cold storage decisions.
 
 Use cases: separate work docs from personal notes, per-project knowledge bases, language-based splits.
 
@@ -190,15 +224,43 @@ POST /api/ingest
 
 Progress response includes: total/completed files, current file + phase, chunks/min, ETA, error rate, per-file results array.
 
+### Batch Dedup
+
+Files already ingested (matched by filename) are automatically skipped. Combined with `move_after_ingest` (inbox → ingested), batches are naturally resumable:
+
+```
+# If batch crashes at 140/220:
+# 1. Already-ingested files are in ingested/ folder
+# 2. Remaining files stay in inbox/
+# 3. Relaunch the same batch → skips 140 done → continues 80 remaining
+```
+
 ### Monitor (TUI)
 
 ```bash
-rag-ferrite monitor [refresh_seconds] [url]
+rag-ferrite monitor [refresh_seconds] [url] [--demo] [--fade N]
 ```
 
-Real-time TUI with ratatui: colored progress bar (█ green → ▓▒░ fade → ⡀→⣿ yellow braille → spinner wave), stats panel, file lists.
+Real-time TUI with ratatui: cyan progress bar (█ fill → ▓▒░ fade → ⡀→⣿ braille transition → pendulum braille wave), stats panel, file lists.
+
+Modes:
+- `--demo`: simulate a batch without ingestion (for testing animations)
+- `--fade N`: fade length (0 = no fade, default 5)
 
 Keyboard: `TAB` switch • `↑↓` scroll • `l` toggle lists • `c` cycle colors • `s` toggle stats • `o` open in less • `?` help • `q` quit.
+
+### Update (deployment)
+
+```bash
+# On dev machine:
+cargo build --release
+gh release create vX.Y.Z target/release/rag-ferrite
+
+# On target (aether, Nova, etc.):
+rag-ferrite update
+```
+
+Downloads latest binary from GitHub Releases, stops service, replaces binary, restarts.
 
 ## Advanced Configuration
 

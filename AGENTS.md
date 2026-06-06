@@ -63,7 +63,7 @@ src/
     search.rs    — search_hybrid(), search_hybrid_with_expansion()
     query.rs     — get_section_paths, get_neighbors, delete_source, list_sources
     benchmark.rs — run_benchmark(), get_graph_data()
-    tags.rs      — create_chunk_tags_table, insert_chunk_tags, get_tags_for_chunk_ids
+    tags.rs      — chunk_tags + collection_tags tables, insert/update/get tags
   llm.rs         — LlmProvider (ollama + openai), contextual retrieval, scoring, tagging, profile builder
   reranker.rs    — Reranker (LLM + passthrough), rerank_hybrid()
   embedding.rs   — EmbeddingProvider (openai-compatible)
@@ -206,7 +206,17 @@ Progress: GET /api/ingest/progress
 
 ## Tests
 
-  cargo test    # 34 tests unitaires (chunker, extractor, config, llm, tags)
+  cargo test    # 49 tests unitaires (chunker, extractor, config, llm, tags, pipeline)
+
+## ⚠️ Mise à jour des docs — OBLIGATOIRE
+
+Après chaque changement de fonctionnalité, mettre à jour CES 3 FICHIERS :
+
+1. **llms.txt** — doc publique (API, config, features)
+2. **AGENTS.md** — conventions, architecture, structure du code (ce fichier)
+3. **README.md** — si changements visibles pour l'utilisateur final
+
+Pas d'exception. Si on ajoute/supprime/modifie une feature → on update les docs dans le même commit.
 
 ## Rôles
 
