@@ -16,27 +16,52 @@ use crate::RagFerriteServer;
 
 // --- API Key authentication middleware ---
 
-/// Check the Authorization header against the configured API key.
-/// Returns Ok(()) if authorized, Err((StatusCode, &str)) otherwise.
-/// If no api_key is configured, all requests are allowed.
+/// Check the Authorization header against configured API keys.
+///
+/// Access tiers:
+/// - Admin key (RAG_API_KEY) → full access (read + write)
+/// - Guest key (RAG_GUEST_API_KEY) → read-only (GET + query)
+/// - No keys configured → no auth (local dev)
 pub fn check_api_key(
     headers: &HeaderMap,
-    expected_key: &Option<String>,
+    admin_key: &Option<String>,
+    guest_key: &Option<String>,
+    method: &axum::http::Method,
+    path: &str,
 ) -> Result<(), (StatusCode, &'static str)> {
-    let Some(expected) = expected_key else {
-        return Ok(()); // No auth configured
-    };
+    // No keys configured → local dev, everything open
+    if admin_key.is_none() && guest_key.is_none() {
+        return Ok(());
+    }
+
+    // Extract Bearer token
     let Some(auth_header) = headers.get("authorization") else {
         return Err((StatusCode::UNAUTHORIZED, "Missing Authorization header"));
     };
     let auth_str = auth_header.to_str().map_err(|_| {
         (StatusCode::BAD_REQUEST, "Invalid Authorization header")
     })?;
-    if let Some(token) = auth_str.strip_prefix("Bearer ") {
-        if token == expected {
+    let token = auth_str.strip_prefix("Bearer ").unwrap_or("");
+
+    // Admin key → full access
+    if let Some(admin) = admin_key {
+        if token == admin {
             return Ok(());
         }
     }
+
+    // Guest key → read-only
+    if let Some(guest) = guest_key {
+        if token == guest {
+            let is_read = method == axum::http::Method::GET
+                || path == "/api/query"; // POST query is read-only
+            if is_read {
+                return Ok(());
+            }
+            return Err((StatusCode::FORBIDDEN, "Guest key: read-only access"));
+        }
+    }
+
     Err((StatusCode::UNAUTHORIZED, "Invalid API key"))
 }
 
@@ -236,7 +261,7 @@ async fn flush_indexes(
 
 // --- Server startup ---
 
-pub async fn serve(server: Arc<RagFerriteServer>, port: u16, bind_address: String, api_key: Option<String>) -> anyhow::Result<()> {
+pub async fn serve(server: Arc<RagFerriteServer>, port: u16, bind_address: String, admin_key: Option<String>, guest_key: Option<String>) -> anyhow::Result<()> {
     use rmcp::transport::streamable_http_server::{
         StreamableHttpService,
         session::local::LocalSessionManager,
@@ -287,21 +312,30 @@ pub async fn serve(server: Arc<RagFerriteServer>, port: u16, bind_address: Strin
         .with_state(server);
 
     // Apply API key auth on all routes if configured
-    let app = if let Some(ref key) = api_key {
-        tracing::info!("API key authentication enabled");
-        let key = key.clone();
+    let app = if admin_key.is_some() || guest_key.is_some() {
+        let admin = admin_key.clone();
+        let guest = guest_key.clone();
+        if admin.is_some() {
+            tracing::info!("Admin API key authentication enabled");
+        }
+        if guest.is_some() {
+            tracing::info!("Guest API key enabled (read-only access)");
+        }
         app.layer(axum::middleware::from_fn(move |req: axum::extract::Request, next: axum::middleware::Next| {
-            let key = key.clone();
+            let admin = admin.clone();
+            let guest = guest.clone();
             async move {
+                let method = req.method().clone();
+                let path = req.uri().path().to_string();
                 let headers = req.headers().clone();
-                if let Err((status, msg)) = check_api_key(&headers, &Some(key)) {
+                if let Err((status, msg)) = check_api_key(&headers, &admin, &guest, &method, &path) {
                     return (status, msg).into_response();
                 }
                 next.run(req).await
             }
         }))
     } else {
-        tracing::info!("API key authentication disabled (no key configured)");
+        tracing::info!("API key authentication disabled (no keys configured — local dev)");
         app
     };
 
