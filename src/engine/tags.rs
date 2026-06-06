@@ -19,6 +19,57 @@ pub fn create_chunk_tags_table(db_path: &str) -> Result<()> {
     Ok(())
 }
 
+/// Create the collection_tags table for tag routing (v5 design).
+/// Maps each tag to the collections where it appears, with chunk counts.
+pub fn create_collection_tags_table(db_path: &str) -> Result<()> {
+    let conn = Connection::open(db_path)?;
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS collection_tags (
+            tag TEXT NOT NULL,
+            collection TEXT NOT NULL,
+            chunk_count INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (tag, collection)
+         );
+         CREATE INDEX IF NOT EXISTS idx_collection_tags_tag ON collection_tags(tag);"
+    )?;
+    tracing::info!("collection_tags table ready");
+    Ok(())
+}
+
+/// Update collection_tags after inserting tags for a source.
+/// For each (tag, collection) pair, increment chunk_count.
+pub fn update_collection_tags(
+    source_id: i64,
+    tags_per_chunk: &[(i32, Vec<String>)],
+    collection_id: &str,
+    conn: &Connection,
+) -> Result<()> {
+    // Count unique tags across all chunks of this source
+    let mut tag_counts: std::collections::HashMap<String, i32> = std::collections::HashMap::new();
+    for (_, tags) in tags_per_chunk {
+        for tag in tags {
+            *tag_counts.entry(tag.clone()).or_insert(0) += 1;
+        }
+    }
+
+    for (tag, count) in &tag_counts {
+        conn.execute(
+            "INSERT INTO collection_tags (tag, collection, chunk_count)
+             VALUES (?1, ?2, ?3)
+             ON CONFLICT(tag, collection) DO UPDATE SET chunk_count = chunk_count + ?3",
+            rusqlite::params![tag, collection_id, count],
+        )?;
+    }
+
+    if !tag_counts.is_empty() {
+        tracing::debug!(
+            "Updated collection_tags: {} unique tags for source {} in collection '{}'",
+            tag_counts.len(), source_id, collection_id
+        );
+    }
+    Ok(())
+}
+
 /// Insert tags for all chunks of a source, matched by original chunk_index.
 /// tags_per_chunk contains (chunk_index, tags) pairs.
 /// If `conn` is provided, uses it (avoids deadlock when caller already holds get_conn lock).

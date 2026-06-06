@@ -1,4 +1,5 @@
 use anyhow::Result;
+use rusqlite::Connection;
 use std::time::Instant;
 use rag_engine::api::{
     db_pool,
@@ -22,7 +23,7 @@ pub mod tags;
 pub use search::{search_hybrid, search_hybrid_with_expansion};
 pub use query::{get_section_paths_for_chunk_ids, get_neighbors, delete_source, list_sources};
 pub use benchmark::{run_benchmark, get_graph_data};
-pub use tags::{create_chunk_tags_table, insert_chunk_tags, get_tags_for_chunk_ids};
+pub use tags::{create_chunk_tags_table, create_collection_tags_table, insert_chunk_tags, update_collection_tags, get_tags_for_chunk_ids};
 
 /// Stored DB path so list_sources/stats can query across all collections.
 static DB_PATH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
@@ -113,6 +114,23 @@ pub fn init(data_dir: &std::path::Path, config: &crate::config::Config) -> Resul
 
     // Create chunk_tags table for auto-tagging
     create_chunk_tags_table(&db_path_str)?;
+
+    // Create collection_tags table for tag routing (v5 design)
+    create_collection_tags_table(&db_path_str)?;
+
+    // Add heat tracking columns to chunks table (v5 design)
+    let conn = Connection::open(&db_path_str)?;
+    let has_query_count = conn
+        .query_row("SELECT COUNT(*) FROM pragma_table_info('chunks') WHERE name='query_count'", [], |row| row.get::<_, i64>(0))
+        .unwrap_or(0) > 0;
+    if !has_query_count {
+        conn.execute_batch(
+            "ALTER TABLE chunks ADD COLUMN query_count INTEGER NOT NULL DEFAULT 0;
+             ALTER TABLE chunks ADD COLUMN last_queried_at REAL;"
+        )?;
+        tracing::info!("Added heat tracking columns to chunks table");
+    }
+    drop(conn);
 
     let _ = DB_PATH.set(db_path_str.clone());
 
@@ -381,6 +399,10 @@ pub async fn ingest_text(
     // Store auto-generated tags for each chunk in chunk_tags table
     if tags_per_chunk.iter().any(|(_, t)| !t.is_empty()) {
         insert_chunk_tags(source_id, &tags_per_chunk, None)?;
+        // Update collection_tags for routing
+        if let Ok(conn) = get_conn() {
+            let _ = update_collection_tags(source_id, &tags_per_chunk, &collection_id, &conn);
+        }
     }
 
     // Mark source as completed
@@ -608,6 +630,7 @@ async fn process_parent(
     child_min_chars: usize,
     relevance_scoring: bool,
     min_relevance_score: f64,
+    collection_id: String,
 ) -> Result<ParentProcessResult> {
     if children.is_empty() {
         return Ok(ParentProcessResult {
@@ -696,6 +719,7 @@ fn commit_parent_to_db(
     source_id: i64,
     parent_chunk: &chunker::Chunk,
     kept_data: &[KeptChild],
+    collection_id: &str,
 ) -> Result<usize> {
     let conn = get_conn()?;
     let mut parent_tags: Vec<(i32, Vec<String>)> = Vec::new();
@@ -739,6 +763,7 @@ fn commit_parent_to_db(
 
     if parent_tags.iter().any(|(_, t)| !t.is_empty()) {
         insert_chunk_tags(source_id, &parent_tags, Some(&conn))?;
+        let _ = update_collection_tags(source_id, &parent_tags, &collection_id, &conn);
     }
 
     Ok(kept_data.len())
@@ -856,11 +881,12 @@ async fn ingest_text_parent_child(
                 let llm = llm_clone.clone();
                 let embedder = embedder_clone.clone();
                 let doc = content_owned.clone();
+                let col_id = collection_id.clone();
                 join_set.spawn(async move {
                     process_parent(
                         p_idx, total_parents, children, parent_chunk,
                         llm, embedder, doc, batch_size, max_retries, child_min_chars_val,
-                        relevance_scoring, min_relevance_score,
+                        relevance_scoring, min_relevance_score, col_id,
                     ).await
                 });
             }
@@ -875,11 +901,12 @@ async fn ingest_text_parent_child(
                 let llm = llm_clone.clone();
                 let embedder = embedder_clone.clone();
                 let doc = content_owned.clone();
+                let col_id = collection_id.clone();
                 join_set.spawn(async move {
                     process_parent(
                         p_idx, total_parents, children, parent_chunk,
                         llm, embedder, doc, batch_size, max_retries, child_min_chars_val,
-                        relevance_scoring, min_relevance_score,
+                        relevance_scoring, min_relevance_score, col_id,
                     ).await
                 });
             }
@@ -900,7 +927,7 @@ async fn ingest_text_parent_child(
 
             // Commit to DB (sequential — SQLite)
             if !processed.kept_data.is_empty() {
-                let kept_count = commit_parent_to_db(source_id, &processed.parent_chunk, &processed.kept_data)?;
+                let kept_count = commit_parent_to_db(source_id, &processed.parent_chunk, &processed.kept_data, &collection_id)?;
                 total_kept += kept_count;
                 tracing::info!("Parent {}/{} committed ({} children stored)", processed.p_idx + 1, total_parents, kept_count);
 
