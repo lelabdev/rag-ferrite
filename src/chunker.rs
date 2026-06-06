@@ -382,7 +382,7 @@ pub struct ParentChildGroup {
 /// Merge consecutive children below `min_chars` into a single chunk.
 /// Preserves context for tables, code snippets, and short fragments.
 /// Merged chunks keep the section_path and page of the first child in the group.
-fn merge_small_children(children: Vec<Chunk>, min_chars: usize) -> Vec<Chunk> {
+fn merge_small_children(children: Vec<Chunk>, min_chars: usize, max_chars: usize) -> Vec<Chunk> {
     if children.is_empty() || min_chars == 0 {
         return children;
     }
@@ -399,6 +399,21 @@ fn merge_small_children(children: Vec<Chunk>, min_chars: usize) -> Vec<Chunk> {
         let is_small = child.content.len() < min_chars;
 
         if is_small {
+            // Check if adding this child would exceed max_chars
+            let potential_size = buffer_content.len() + if buffer_content.is_empty() { 0 } else { 1 } + child.content.len();
+            if !buffer_content.is_empty() && potential_size > max_chars {
+                // Flush buffer before accumulating more
+                merged.push(Chunk {
+                    content: std::mem::take(&mut buffer_content),
+                    index: buffer_index,
+                    start_pos: buffer_start,
+                    end_pos: buffer_end,
+                    chunk_type: ChunkType::Text,
+                    section_path: buffer_section.take(),
+                    page: buffer_page.take(),
+                });
+            }
+
             // Accumulate small chunks
             if buffer_content.is_empty() {
                 buffer_start = child.start_pos;
@@ -484,7 +499,7 @@ pub fn chunk_text_parent_child(
         let children = merge_last_child(children, merge_threshold, &mut global_child_idx);
 
         // Merge consecutive small children (tables, code fragments)
-        let children = merge_small_children(children, child_min_chars);
+        let children = merge_small_children(children, child_min_chars, child_max_chars);
 
         if children.is_empty() {
             // Edge case: parent content too short for even one child
@@ -789,8 +804,7 @@ mod tests {
             assert!(!group.parent.content.is_empty(), "Parent should have content");
             assert!(!group.children.is_empty(), "Parent should have at least one child");
             for child in &group.children {
-                // Note: chunker may slightly exceed child_max_chars when splitting at word boundaries
-                assert!(child.content.len() <= 500, "Child should be roughly bounded, got {}", child.content.len());
+                assert!(child.content.len() <= 150, "Child should be <= child_max_chars + overlap, got {}", child.content.len());
             }
         }
     }
