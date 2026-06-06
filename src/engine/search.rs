@@ -25,15 +25,23 @@ pub async fn search_hybrid_with_expansion(
     limit: usize,
     filter: Option<hybrid_search::SearchFilter>,
 ) -> Result<Vec<hybrid_search::HybridSearchResult>> {
-    // Activate the correct collection's indexes before searching
-    if let Some(ref f) = filter
-        && let Some(ref coll) = f.collection_id {
-            let coll = super::sanitize_collection(coll)?;
+    // Activate ALL collection indexes before searching (fixes #154)
+    // Without this, HNSW was never activated unless a collection_id filter was passed
+    {
+        let conn = crate::engine::get_conn()?;
+        let collections: Vec<String> = conn
+            .prepare("SELECT DISTINCT collection_id FROM sources")?
+            .query_map([], |row| row.get(0))?
+            .filter_map(Result::ok)
+            .collect();
+        for coll_name in &collections {
+            let coll = super::sanitize_collection(coll_name)?;
             let index_path = format!("{}/hnsw_{}.index", data_dir(), coll);
             if let Err(e) = source_rag::activate_collection_for_hybrid_search(coll.clone(), index_path) {
                 tracing::warn!("Failed to activate collection '{}': {}", coll, e);
             }
         }
+    }
 
     // Expand short queries (< 5 words) if LLM is available
     let queries = if let Some(llm_provider) = llm {

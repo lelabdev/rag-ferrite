@@ -29,6 +29,45 @@ const CYAN: &str = "\x1b[36m";
 // ── Braille spinner (10 frames) ──
 const SPINNER: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
+// ── Pendulum frames (ported from unicode_animations Dart package) ──
+fn generate_pendulum_frames() -> Vec<String> {
+    // Width matches bar_len directly (1 frame char = 1 bar cell)
+    const WIDTH: usize = 50;
+    const MAX_SPREAD: f64 = 6.0;
+    const TOTAL_FRAMES: usize = 120;
+    const PIXEL_COLS: usize = WIDTH * 2;
+    const BRAILLE_BASE: u32 = 0x2800;
+    const DOT_BITS: [[u32; 2]; 4] = [[0x01, 0x08], [0x02, 0x10], [0x04, 0x20], [0x40, 0x80]];
+
+    let mut frames = Vec::with_capacity(TOTAL_FRAMES);
+
+    for t in 0..TOTAL_FRAMES {
+        let mut codes = vec![BRAILLE_BASE; WIDTH];
+        let progress = t as f64 / TOTAL_FRAMES as f64;
+        let spread = (std::f64::consts::PI * progress).sin() * MAX_SPREAD;
+        let base_phase = progress * std::f64::consts::PI * 8.0;
+
+        for pc in 0..PIXEL_COLS {
+            let swing = (base_phase + pc as f64 * spread).sin();
+            let center = (1.0 - swing) * 1.5;
+
+            for row in 0..4usize {
+                if (row as f64 - center).abs() < 0.7 {
+                    codes[pc / 2] |= DOT_BITS[row][pc % 2];
+                }
+            }
+        }
+
+        let frame: String = codes
+            .iter()
+            .map(|&c| char::from_u32(c).unwrap_or(' '))
+            .collect();
+        frames.push(frame);
+    }
+
+    frames
+}
+
 // ── Data structs (serde from API JSON) ──
 
 #[derive(serde::Deserialize, Default)]
@@ -119,6 +158,8 @@ struct App {
     scroll_completed: usize,
     scroll_pending: usize,
     spinner_idx: usize,
+    pendulum_frames: Vec<String>,
+    fade_len: usize,
     show_lists: bool,
     show_stats: bool,
     show_help: bool,
@@ -134,6 +175,8 @@ impl App {
             scroll_completed: 0,
             scroll_pending: 0,
             spinner_idx: 0,
+            pendulum_frames: generate_pendulum_frames(),
+            fade_len: 5,
             show_lists: true,
             show_stats: true,
             show_help: false,
@@ -199,6 +242,8 @@ fn render_progress_bar<'a>(
     spinner_idx: usize,
     bar_len: usize,
     color_mode: ColorMode,
+    pendulum_frames: &[String],
+    fade_len: usize,
 ) -> Vec<Span<'a>> {
     // In the bar specifically, StatsOnly collapses to monochrome cyan,
     // and Mono to gray.
@@ -211,7 +256,13 @@ fn render_progress_bar<'a>(
     };
 
     let fill_chars: [&str; 8] = ["⡀", "⡄", "⡆", "⡇", "⣇", "⣧", "⣷", "⣿"];
-    let fade_chars: [&str; 5] = ["░", "░", "▒", "▓", "▓"];
+    let fade_chars: Vec<&str> = match fade_len {
+        0 => vec![],
+        2 => vec!["▓", "░"],
+        3 => vec!["▓", "▒", "░"],
+        4 => vec!["▓", "▓", "░", "░"],
+        _ => vec!["▓", "▓", "▓", "░", "░"],
+    };
     let num_fill = fill_chars.len();
     let num_fade = fade_chars.len();
     let states_per_cell = num_fill + num_fade; // 13
@@ -222,20 +273,6 @@ fn render_progress_bar<'a>(
 
     let empty_start = front_cell + 1;
 
-    // Color palette for spinner wave — travels through cells
-    let wave = [
-        Color::DarkGray,
-        Color::DarkGray,
-        Color::Blue,
-        Color::Cyan,
-        Color::LightCyan,
-        Color::White,
-        Color::LightCyan,
-        Color::Cyan,
-        Color::Blue,
-        Color::DarkGray,
-    ];
-
     let mut spans: Vec<Span<'a>> = Vec::with_capacity(bar_len);
 
     for i in 0..bar_len {
@@ -244,52 +281,48 @@ fn render_progress_bar<'a>(
             let dist_to_front = front_cell.saturating_sub(i);
             if dist_to_front <= num_fade {
                 let fade_idx = num_fade - dist_to_front;
-                let color = match fade_idx {
-                    0 => Color::Cyan,
-                    1 => Color::Cyan,
-                    2 => Color::LightBlue,
-                    3 => Color::Green,
-                    _ => Color::Green,
-                };
                 spans.push(Span::styled(
                     fade_chars[fade_idx],
-                    Style::default().fg(bar_color(color)),
+                    Style::default().fg(bar_color(Color::Cyan)),
                 ));
             } else {
                 spans.push(Span::styled(
                     "█",
-                    Style::default().fg(bar_color(Color::Green)),
+                    Style::default().fg(bar_color(Color::Cyan)),
                 ));
             }
         } else if i == front_cell && cell_remainder > 0 {
             if cell_remainder <= num_fill {
-                // Braille transition — yellow
                 spans.push(Span::styled(
                     fill_chars[cell_remainder - 1],
-                    Style::default().fg(bar_color(Color::Yellow)),
+                    Style::default().fg(bar_color(Color::Cyan)),
                 ));
             } else {
-                // Fade part of transition cell
                 let fade_idx = cell_remainder - num_fill - 1;
-                let color = match fade_idx {
-                    0 => Color::Cyan,
-                    1 => Color::LightBlue,
-                    _ => Color::Green,
-                };
                 spans.push(Span::styled(
                     fade_chars[fade_idx],
-                    Style::default().fg(bar_color(color)),
+                    Style::default().fg(bar_color(Color::Cyan)),
                 ));
             }
         } else if i >= empty_start {
-            // Spinner — color wave traveling
-            let rel = i - empty_start;
-            let char_idx = (spinner_idx + rel) % SPINNER.len();
-            let color_idx = (spinner_idx + rel) % wave.len();
-            spans.push(Span::styled(
-                SPINNER[char_idx],
-                Style::default().fg(bar_color(wave[color_idx])),
-            ));
+            // Pendulum — braille wave from unicode_animations package
+            let empty_count = bar_len - empty_start;
+            if empty_count > 0 && !pendulum_frames.is_empty() {
+                let rel = i - empty_start;
+                let frame_idx = spinner_idx % pendulum_frames.len();
+                let frame = &pendulum_frames[frame_idx];
+                let frame_chars: Vec<char> = frame.chars().collect();
+                let ch = frame_chars.get(rel).copied().unwrap_or(' ');
+
+                // Color: all cyan
+                let color = Color::Cyan;
+                spans.push(Span::styled(
+                    ch.to_string(),
+                    Style::default().fg(bar_color(color)),
+                ));
+            } else {
+                spans.push(Span::raw(" "));
+            }
         } else {
             spans.push(Span::raw(" "));
         }
@@ -392,14 +425,21 @@ fn ui(f: &mut Frame, app: &mut App) {
             Style::default().fg(color_for(cm, Color::DarkGray)),
         ),
         Span::styled(
-            format!("    {:.0}% ({}/{})", pct, done, total),
+            if total > 0 {
+                format!("    {:.0}% ({}/{})", pct, done, total)
+            } else {
+                match status_str {
+                    "queued" => "    queued…".to_string(),
+                    _ => "    waiting…".to_string(),
+                }
+            },
             Style::default().fg(color_for(cm, Color::White)),
         ),
     ]);
     f.render_widget(Paragraph::new(status_line), inner[0]);
 
     // Progress bar — colored spans
-    let bar_spans = render_progress_bar(pct, app.spinner_idx, 50, cm);
+    let bar_spans = render_progress_bar(pct, app.spinner_idx, 50, cm, &app.pendulum_frames, app.fade_len);
     let mut bar_line_spans = vec![Span::raw("  [")];
     bar_line_spans.extend(bar_spans);
     bar_line_spans.push(Span::raw("]"));
@@ -853,11 +893,31 @@ fn open_selected_file(app: &mut App, terminal: &mut Terminal<CrosstermBackend<St
 // ── Entry point ──
 
 pub fn run(args: &[String]) {
-    let url = args
+    // Check for --demo flag
+    let demo_mode = args.iter().any(|a| a == "--demo" || a == "demo");
+
+    // Parse --fade N (default 5)
+    let fade_len: usize = {
+        let mut f = 5;
+        let mut iter = args.iter();
+        while let Some(a) = iter.next() {
+            if a == "--fade" {
+                if let Some(val) = iter.next() {
+                    if let Ok(n) = val.parse::<usize>() {
+                        f = n;
+                    }
+                }
+            }
+        }
+        f
+    };
+
+    let non_flag_args: Vec<&String> = args.iter().filter(|a| *a != "--demo" && *a != "demo" && *a != "--fade").collect();
+    let url = non_flag_args
         .get(1)
-        .cloned()
-        .unwrap_or_else(|| "http://localhost:4242".to_string());
-    let refresh: f64 = args
+        .map(|s| s.as_str())
+        .unwrap_or("http://localhost:4242");
+    let refresh: f64 = non_flag_args
         .get(0)
         .and_then(|s| s.parse().ok())
         .unwrap_or(2.0);
@@ -866,7 +926,7 @@ pub fn run(args: &[String]) {
     let mut stdout = io::stdout();
     if enable_raw_mode().is_err() {
         eprintln!("Error: monitor requires a real terminal (TTY).");
-        eprintln!("Usage: rag-ferrite monitor [refresh_seconds] [url]");
+        eprintln!("Usage: rag-ferrite monitor [refresh_seconds] [url] [--demo] [--fade N]");
         return;
     }
     execute!(stdout, EnterAlternateScreen).unwrap_or(());
@@ -874,13 +934,51 @@ pub fn run(args: &[String]) {
     let mut terminal = Terminal::new(backend).unwrap();
 
     let mut app = App::new();
+    app.fade_len = fade_len;
     let fetch_dur = Duration::from_secs_f64(refresh);
     let mut last_fetch = Instant::now() - fetch_dur; // fetch immediately
+    let mut demo_pct: f64 = 0.0;
 
     loop {
-        // Fetch API if needed
-        if last_fetch.elapsed() >= fetch_dur {
-            match fetch_progress(&url) {
+        if demo_mode {
+            // Fake progress: slowly fill from 0 to 100, then reset
+            demo_pct += 0.3;
+            if demo_pct > 100.0 {
+                demo_pct = 0.0;
+            }
+            let done = (demo_pct / 100.0 * 220.0).round() as usize;
+            app.data = Some(ProgressResponse {
+                status: Some("running".into()),
+                current_source: Some(format!("demo_file_{:03}.txt", done % 220)),
+                last_error: None,
+                batch: Some(BatchProgress {
+                    batch_id: Some("demo-batch".into()),
+                    status: Some("running".into()),
+                    total_files: 220,
+                    completed_files: done,
+                    failed_files: if done > 50 && done < 55 { 2 } else { 0 },
+                    total_chunks: done * 850,
+                    completed_chunks: done * 800,
+                    total_size_mb: Some(done as f64 * 1.5),
+                    speed_chunks_per_min: Some(847.3),
+                    avg_time_per_file_seconds: Some(4.2),
+                    elapsed_seconds: Some(done as f64 * 4.2),
+                    eta_seconds: Some((220 - done) as f64 * 4.2),
+                    error_rate: Some(if done > 50 && done < 55 { 3.6 } else { 0.0 }),
+                    errors: Vec::new(),
+                    current_file: Some(CurrentFile {
+                        name: Some(format!("video_{}.txt", done + 1)),
+                        phase: Some("embedding".into()),
+                        chunks_done: Some(3),
+                        chunks_total: Some(12),
+                    }),
+                    files: Vec::new(),
+                    pending_files: Vec::new(),
+                }),
+            });
+            app.error = None;
+        } else if last_fetch.elapsed() >= fetch_dur {
+            match fetch_progress(url) {
                 Ok(data) => {
                     app.data = Some(data);
                     app.error = None;

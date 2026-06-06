@@ -6,6 +6,7 @@ use anyhow::Result;
 use crate::embedding::EmbeddingProvider;
 use crate::llm::LlmProvider;
 use crate::reranker::{Reranker, RerankedResult};
+use crate::config::QueryClassificationConfig;
 
 /// Simple in-memory query result cache with TTL expiry.
 #[derive(Debug)]
@@ -70,43 +71,27 @@ pub enum QueryComplexity {
 /// - **Complex**: >8 words **OR** contains question markers **OR** contains
 ///   boolean operators (AND / OR / et / ou).
 /// - **Standard**: everything else (3–8 words, no question/boolean signals).
-pub fn classify_query(query: &str) -> QueryComplexity {
+pub fn classify_query(query: &str, cfg: &QueryClassificationConfig) -> QueryComplexity {
     let words: Vec<&str> = query.split_whitespace().collect();
     let word_count = words.len();
 
-    // Question markers in English and French
-    let question_markers = [
-        "what", "how", "why", "when", "where", "which", "who", "whom",
-        "whose", "whether",
-        "comment", "pourquoi", "quand", "où", "quel", "quelle", "quels",
-        "quelles", "qui",
-    ];
-
-    // Boolean operators
-    let boolean_operators = ["AND", "OR", "et", "ou"];
-
-
     let has_question_marker = words.iter().any(|w| {
-        // Strip trailing punctuation without allocating
         let trimmed = w.trim_end_matches(|c: char| c == '?' || c == ',' || c == '.' || c == '!' || c == ';');
-        question_markers.iter().any(|m| trimmed.eq_ignore_ascii_case(m))
+        cfg.question_markers.iter().any(|m| trimmed.eq_ignore_ascii_case(m))
     });
 
     let has_boolean_op = words.iter().any(|w| {
-        boolean_operators.iter().any(|op| w.eq(op))
+        cfg.boolean_operators.iter().any(|op| w.eq(op))
     });
 
-    // Complex: >8 words OR question markers OR boolean operators
-    if word_count > 8 || has_question_marker || has_boolean_op {
+    if word_count > cfg.complex_word_threshold || has_question_marker || has_boolean_op {
         return QueryComplexity::Complex;
     }
 
-    // Simple: 1–2 words, no signals
-    if word_count <= 2 {
+    if word_count <= cfg.simple_word_threshold {
         return QueryComplexity::Simple;
     }
 
-    // Standard: 3–8 words, no signals
     QueryComplexity::Standard
 }
 
@@ -122,6 +107,7 @@ pub struct QueryPipeline {
     pub quality_threshold: f64,
     pub max_retries: u32,
     pub high_confidence_threshold: f64,
+    pub classification: QueryClassificationConfig,
     cache: std::sync::Arc<Cache>,
 }
 
@@ -143,6 +129,7 @@ impl QueryPipeline {
             quality_threshold,
             max_retries,
             high_confidence_threshold,
+            classification: QueryClassificationConfig::default(),
             cache: std::sync::Arc::new(Cache::new(
                 std::time::Duration::from_secs(cache_ttl_secs),
                 cache_max_entries,
@@ -160,6 +147,7 @@ impl Clone for QueryPipeline {
             quality_threshold: self.quality_threshold,
             max_retries: self.max_retries,
             high_confidence_threshold: self.high_confidence_threshold,
+            classification: self.classification.clone(),
             cache: self.cache.clone(),
         }
     }
@@ -197,7 +185,7 @@ impl QueryPipeline {
             return Ok(cached);
         }
 
-        let complexity = classify_query(query);
+        let complexity = classify_query(query, &self.classification);
         tracing::info!(query = query, complexity = ?complexity, "Classified query");
 
         let result = match complexity {
@@ -374,75 +362,82 @@ fn classify_confidence(top_score: f64, threshold: f64, high_confidence: f64) -> 
 mod tests {
     use super::*;
 
+    fn default_cfg() -> QueryClassificationConfig {
+        QueryClassificationConfig::default()
+    }
+
     #[test]
     fn test_simple_queries() {
-        assert_eq!(classify_query("rust"), QueryComplexity::Simple);
-        assert_eq!(classify_query("hello world"), QueryComplexity::Simple);
-        assert_eq!(classify_query("API"), QueryComplexity::Simple);
+        let cfg = default_cfg();
+        assert_eq!(classify_query("rust", &cfg), QueryComplexity::Simple);
+        assert_eq!(classify_query("hello world", &cfg), QueryComplexity::Simple);
+        assert_eq!(classify_query("API", &cfg), QueryComplexity::Simple);
     }
 
     #[test]
     fn test_standard_queries() {
-        assert_eq!(classify_query("search my documents for rust"), QueryComplexity::Standard);
-        assert_eq!(classify_query("find relevant chunks about machine learning"), QueryComplexity::Standard);
-        assert_eq!(classify_query("three word query"), QueryComplexity::Standard);
+        let cfg = default_cfg();
+        assert_eq!(classify_query("search my documents for rust", &cfg), QueryComplexity::Standard);
+        assert_eq!(classify_query("find relevant chunks about machine learning", &cfg), QueryComplexity::Standard);
+        assert_eq!(classify_query("three word query", &cfg), QueryComplexity::Standard);
     }
 
     #[test]
     fn test_complex_by_word_count() {
-        // > 8 words
-        assert_eq!(classify_query("this is a very long query with many words in it"), QueryComplexity::Complex);
-        assert_eq!(classify_query("one two three four five six seven eight nine"), QueryComplexity::Complex);
+        let cfg = default_cfg();
+        assert_eq!(classify_query("this is a very long query with many words in it", &cfg), QueryComplexity::Complex);
+        assert_eq!(classify_query("one two three four five six seven eight nine", &cfg), QueryComplexity::Complex);
     }
 
     #[test]
     fn test_complex_by_question_markers() {
-        // English question markers
-        assert_eq!(classify_query("what is rust"), QueryComplexity::Complex);
-        assert_eq!(classify_query("how does this work"), QueryComplexity::Complex);
-        assert_eq!(classify_query("why is this happening"), QueryComplexity::Complex);
-        assert_eq!(classify_query("where are my documents"), QueryComplexity::Complex);
-
-        // French question markers
-        assert_eq!(classify_query("comment faire"), QueryComplexity::Complex);
-        assert_eq!(classify_query("pourquoi ça marche"), QueryComplexity::Complex);
-        assert_eq!(classify_query("quand partir"), QueryComplexity::Complex);
-        assert_eq!(classify_query("où suis-je"), QueryComplexity::Complex);
-        assert_eq!(classify_query("quel est le problème"), QueryComplexity::Complex);
-        assert_eq!(classify_query("quelle est la réponse"), QueryComplexity::Complex);
-        assert_eq!(classify_query("qui est là"), QueryComplexity::Complex);
+        let cfg = default_cfg();
+        assert_eq!(classify_query("what is rust", &cfg), QueryComplexity::Complex);
+        assert_eq!(classify_query("how does this work", &cfg), QueryComplexity::Complex);
+        assert_eq!(classify_query("why is this happening", &cfg), QueryComplexity::Complex);
+        assert_eq!(classify_query("where are my documents", &cfg), QueryComplexity::Complex);
+        assert_eq!(classify_query("comment faire", &cfg), QueryComplexity::Complex);
+        assert_eq!(classify_query("pourquoi ça marche", &cfg), QueryComplexity::Complex);
+        assert_eq!(classify_query("quand partir", &cfg), QueryComplexity::Complex);
+        assert_eq!(classify_query("où suis-je", &cfg), QueryComplexity::Complex);
+        assert_eq!(classify_query("quel est le problème", &cfg), QueryComplexity::Complex);
+        assert_eq!(classify_query("quelle est la réponse", &cfg), QueryComplexity::Complex);
+        assert_eq!(classify_query("qui est là", &cfg), QueryComplexity::Complex);
     }
 
     #[test]
     fn test_complex_by_boolean_operators() {
-        assert_eq!(classify_query("rust AND python"), QueryComplexity::Complex);
-        assert_eq!(classify_query("cat OR dog"), QueryComplexity::Complex);
-        assert_eq!(classify_query("chat et chien"), QueryComplexity::Complex);
-        assert_eq!(classify_query("chat ou chien"), QueryComplexity::Complex);
+        let cfg = default_cfg();
+        assert_eq!(classify_query("rust AND python", &cfg), QueryComplexity::Complex);
+        assert_eq!(classify_query("cat OR dog", &cfg), QueryComplexity::Complex);
+        assert_eq!(classify_query("chat et chien", &cfg), QueryComplexity::Complex);
+        assert_eq!(classify_query("chat ou chien", &cfg), QueryComplexity::Complex);
     }
 
     #[test]
     fn test_question_mark_punctuation() {
+        let cfg = default_cfg();
         // Question mark is stripped from markers
-        assert_eq!(classify_query("what?"), QueryComplexity::Complex);
-        assert_eq!(classify_query("how does this work?"), QueryComplexity::Complex);
-        assert_eq!(classify_query("comment?"), QueryComplexity::Complex);
+        assert_eq!(classify_query("what?", &cfg), QueryComplexity::Complex);
+        assert_eq!(classify_query("how does this work?", &cfg), QueryComplexity::Complex);
+        assert_eq!(classify_query("comment?", &cfg), QueryComplexity::Complex);
     }
 
     #[test]
     fn test_edge_cases() {
+        let cfg = default_cfg();
         // Empty string → 0 words → Simple (≤2)
-        assert_eq!(classify_query(""), QueryComplexity::Simple);
+        assert_eq!(classify_query("", &cfg), QueryComplexity::Simple);
         // Single char
-        assert_eq!(classify_query("x"), QueryComplexity::Simple);
+        assert_eq!(classify_query("x", &cfg), QueryComplexity::Simple);
         // Exactly 2 words → Simple
-        assert_eq!(classify_query("two words"), QueryComplexity::Simple);
+        assert_eq!(classify_query("two words", &cfg), QueryComplexity::Simple);
         // Exactly 3 words → Standard (no markers)
-        assert_eq!(classify_query("three word test"), QueryComplexity::Standard);
+        assert_eq!(classify_query("three word test", &cfg), QueryComplexity::Standard);
         // Exactly 8 words → Standard (no markers)
-        assert_eq!(classify_query("one two three four five six seven eight"), QueryComplexity::Standard);
+        assert_eq!(classify_query("one two three four five six seven eight", &cfg), QueryComplexity::Standard);
         // 9 words → Complex
-        assert_eq!(classify_query("one two three four five six seven eight nine"), QueryComplexity::Complex);
+        assert_eq!(classify_query("one two three four five six seven eight nine", &cfg), QueryComplexity::Complex);
     }
 
     #[test]
