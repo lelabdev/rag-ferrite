@@ -1109,7 +1109,7 @@ fn detect_language(text: &str) -> String {
 }
 
 /// Check if a source with the given name already exists in the DB.
-fn check_duplicate_source(filename: &str) -> bool {
+pub fn check_duplicate_source(filename: &str) -> bool {
     let conn = match get_conn() {
         Ok(c) => c,
         Err(e) => {

@@ -428,6 +428,25 @@ async fn process_batch_job(
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_else(|| file_path.clone());
 
+        // ── Dedup: skip if already ingested ──
+        if engine::check_duplicate_source(&file_name) {
+            tracing::info!("Batch {} file {}/{}: SKIP {} (already ingested)", batch_id, i + 1, total_files, file_name);
+            let mut p = progress.lock().unwrap();
+            if let Some(ref mut b) = p.batch {
+                b.completed_files += 1;
+                b.pending_files.retain(|f| f != &file_name);
+                let total_done = b.completed_files + b.failed_files;
+                if total_done > 0 {
+                    b.avg_time_per_file_seconds = b.elapsed_seconds as f64 / total_done as f64;
+                }
+                if b.elapsed_seconds > 0 && total_done < b.total_files {
+                    let remaining = b.total_files.saturating_sub(total_done);
+                    b.eta_seconds = (b.avg_time_per_file_seconds * remaining as f64) as u64;
+                }
+            }
+            continue;
+        }
+
         // Get file size
         let file_size_mb = std::fs::metadata(file_path)
             .map(|m| m.len() as f64 / 1_048_576.0)
