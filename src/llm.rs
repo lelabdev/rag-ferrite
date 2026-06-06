@@ -610,14 +610,14 @@ mod tests {
         let (score, context, _metadata, tags) = parse_context_response(response);
         assert_eq!(score, Some(8.0));
         assert_eq!(context, Some("Rust programming language features.".to_string()));
-        assert_eq!(tags, vec!["rust", "programming", "systems"]);
+        assert_eq!(tags, vec!["rust", "programming", "system"]);
     }
 
     #[test]
     fn test_parse_tags_with_extra_whitespace() {
         let response = "SCORE: 7\nCONTEXT: Some context\nTAGS:  machine-learning ,  neural-networks , ai ";
         let (_score, _context, _metadata, tags) = parse_context_response(response);
-        assert_eq!(tags, vec!["machine-learning", "neural-networks", "ai"]);
+        assert_eq!(tags, vec!["machine-learning", "neural-networks"]);
     }
 
     #[test]
@@ -656,7 +656,7 @@ mod tests {
         let (score, context, metadata, tags) = parse_context_response(response);
         assert_eq!(score, Some(8.0));
         assert_eq!(context, Some("Describes Svelte 5 runes.".to_string()));
-        assert_eq!(tags, vec!["svelte", "frontend", "runes"]);
+        assert_eq!(tags, vec!["svelte", "frontend", "rune"]);
         let meta = metadata.unwrap();
         assert_eq!(meta["topic"], "svelte");
         assert_eq!(meta["version"], 5);

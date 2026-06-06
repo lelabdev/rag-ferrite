@@ -84,8 +84,8 @@ mod tests {
 
     #[test]
     fn test_non_pdf() {
-        // Create a temp file with .txt extension but test .xyz (unsupported)
-        let dir = std::env::temp_dir().join("rag_ferrite_test_extractor");
+        // Use unique dir to avoid race with other tests
+        let dir = std::env::temp_dir().join("rag_ferrite_test_non_pdf");
         std::fs::create_dir_all(&dir).unwrap();
         let file_path = dir.join("test.xyz");
         std::fs::write(&file_path, "some content").unwrap();
