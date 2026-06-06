@@ -172,10 +172,37 @@ Progress: GET /api/ingest/progress
 
   cd ~/dev/rag-ferrite/rag-ferrite
   cargo build --release
-  cp target/release/rag-ferrite ~/services/rag-ferrite/rag-ferrite-new
-  # Puis reload MCP pour swaper
 
-Pas de docker, pas de systemd. Hermes lance le wrapper rag-ferrite-mcp en stdio.
+  ### Déploiement via GitHub Releases
+
+  1. Créer une release avec le binaire :
+     ```bash
+     gh release create vX.Y.Z target/release/rag-ferrite
+     ```
+
+  2. Sur la machine cible (Nova ou aether) :
+     ```bash
+     ~/services/rag-ferrite/rag-ferrite update
+     ```
+
+  Le binaire appelle `update.sh` (à côté de lui dans `~/services/rag-ferrite/`).
+  Le script : stop service → vérifie arrêt → télécharge depuis GitHub Releases → remplace binaire → restart.
+
+  ### Fichiers de déploiement
+
+  ```
+  ~/services/rag-ferrite/
+    rag-ferrite          ← binaire
+    rag-ferrite-mcp      ← wrapper (cd + exec)
+    update.sh            ← script de mise à jour (appelé par `rag-ferrite update`)
+    config.toml          ← config runtime
+    .env                 ← LLM_API_KEY, EMBEDDING_API_KEY, RAG_API_KEY
+    data/
+      rag.sqlite3
+      hnsw_*.hnsw.data   ← index vectoriels persistés
+      hnsw_*.hnsw.graph
+    rag-ferrite.log
+  ```
 
 ## Tests
 
