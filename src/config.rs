@@ -42,7 +42,66 @@ pub struct Config {
     #[serde(default)]
     pub http_port: u16,
 
+    /// Optional API key for HTTP authentication.
+    /// If set, all requests must include `Authorization: Bearer ***`
+    /// If not set or empty, no authentication is required.
+    #[serde(default)]
+    pub api_key: Option<String>,
+
+    /// Query classification keywords and thresholds
+    #[serde(default)]
+    pub query_classification: QueryClassificationConfig,
 }
+
+/// Query classification config — controls how queries are routed
+/// to Simple / Standard / Complex pipelines.
+#[derive(Debug, Deserialize, Clone)]
+pub struct QueryClassificationConfig {
+    /// Words that mark a query as Complex (question markers)
+    #[serde(default = "default_question_markers")]
+    pub question_markers: Vec<String>,
+
+    /// Boolean operators that mark a query as Complex
+    #[serde(default = "default_boolean_operators")]
+    pub boolean_operators: Vec<String>,
+
+    /// Word count above which a query is Complex (> threshold)
+    #[serde(default = "default_complex_word_threshold")]
+    pub complex_word_threshold: usize,
+
+    /// Word count at or below which a query is Simple (<= threshold)
+    #[serde(default = "default_simple_word_threshold")]
+    pub simple_word_threshold: usize,
+}
+
+impl Default for QueryClassificationConfig {
+    fn default() -> Self {
+        Self {
+            question_markers: default_question_markers(),
+            boolean_operators: default_boolean_operators(),
+            complex_word_threshold: default_complex_word_threshold(),
+            simple_word_threshold: default_simple_word_threshold(),
+        }
+    }
+}
+
+fn default_question_markers() -> Vec<String> {
+    vec![
+        "what".into(), "how".into(), "why".into(), "when".into(),
+        "where".into(), "which".into(), "who".into(), "whom".into(),
+        "whose".into(), "whether".into(),
+        "comment".into(), "pourquoi".into(), "quand".into(), "où".into(),
+        "quel".into(), "quelle".into(), "quels".into(), "quelles".into(),
+        "qui".into(),
+    ]
+}
+
+fn default_boolean_operators() -> Vec<String> {
+    vec!["AND".into(), "OR".into(), "et".into(), "ou".into()]
+}
+
+fn default_complex_word_threshold() -> usize { 8 }
+fn default_simple_word_threshold() -> usize { 2 }
 
 /// A named LLM profile with its own provider, model, base_url, and optional API key env var.
 #[derive(Debug, Deserialize, Clone)]
@@ -578,6 +637,8 @@ impl Default for Config {
             chunking: ChunkingConfig::default(),
             query_fallback: None,
             http_port: 0,
+            api_key: None,
+            query_classification: QueryClassificationConfig::default(),
         }
     }
 }

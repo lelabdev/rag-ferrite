@@ -1,6 +1,6 @@
 use axum::{
     extract::{Path, Query, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     response::IntoResponse,
     routing::{delete, get, post},
     Json, Router,
@@ -13,6 +13,32 @@ use tower::ServiceExt;
 use crate::engine;
 use crate::params::*;
 use crate::RagFerriteServer;
+
+// --- API Key authentication middleware ---
+
+/// Check the Authorization header against the configured API key.
+/// Returns Ok(()) if authorized, Err((StatusCode, &str)) otherwise.
+/// If no api_key is configured, all requests are allowed.
+pub fn check_api_key(
+    headers: &HeaderMap,
+    expected_key: &Option<String>,
+) -> Result<(), (StatusCode, &'static str)> {
+    let Some(expected) = expected_key else {
+        return Ok(()); // No auth configured
+    };
+    let Some(auth_header) = headers.get("authorization") else {
+        return Err((StatusCode::UNAUTHORIZED, "Missing Authorization header"));
+    };
+    let auth_str = auth_header.to_str().map_err(|_| {
+        (StatusCode::BAD_REQUEST, "Invalid Authorization header")
+    })?;
+    if let Some(token) = auth_str.strip_prefix("Bearer ") {
+        if token == expected {
+            return Ok(());
+        }
+    }
+    Err((StatusCode::UNAUTHORIZED, "Invalid API key"))
+}
 
 // --- HTTP-only request types (differ from MCP params) ---
 
@@ -210,7 +236,7 @@ async fn flush_indexes(
 
 // --- Server startup ---
 
-pub async fn serve(server: Arc<RagFerriteServer>, port: u16, bind_address: String) -> anyhow::Result<()> {
+pub async fn serve(server: Arc<RagFerriteServer>, port: u16, bind_address: String, api_key: Option<String>) -> anyhow::Result<()> {
     use rmcp::transport::streamable_http_server::{
         StreamableHttpService,
         session::local::LocalSessionManager,
@@ -223,6 +249,10 @@ pub async fn serve(server: Arc<RagFerriteServer>, port: u16, bind_address: Strin
             "127.0.0.1",
             "0.0.0.0",
             &bind_address,
+            // Tailscale IPs for remote MCP access
+            "100.90.185.42",  // aether
+            "100.97.67.73",   // nova
+            "100.88.8.1",     // tuftux
         ]);
 
     let mcp_service = StreamableHttpService::new(
@@ -255,6 +285,25 @@ pub async fn serve(server: Arc<RagFerriteServer>, port: u16, bind_address: Strin
         .route("/api/flush-indexes", post(flush_indexes))
         .layer(CorsLayer::permissive())
         .with_state(server);
+
+    // Apply API key auth on all routes if configured
+    let app = if let Some(ref key) = api_key {
+        tracing::info!("API key authentication enabled");
+        let key = key.clone();
+        app.layer(axum::middleware::from_fn(move |req: axum::extract::Request, next: axum::middleware::Next| {
+            let key = key.clone();
+            async move {
+                let headers = req.headers().clone();
+                if let Err((status, msg)) = check_api_key(&headers, &Some(key)) {
+                    return (status, msg).into_response();
+                }
+                next.run(req).await
+            }
+        }))
+    } else {
+        tracing::info!("API key authentication disabled (no key configured)");
+        app
+    };
 
     // Nest MCP Streamable HTTP under /mcp
     let mcp_router = axum::Router::new()

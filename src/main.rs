@@ -420,8 +420,15 @@ async fn main() -> Result<()> {
     if config.http_port > 0 {
         let http_port = config.http_port;
         let http_bind = config.advanced.http_bind_address.clone();
+        // Read API key from environment variable (RAG_API_KEY), not config.toml
+        let api_key = std::env::var("RAG_API_KEY").ok().filter(|k| !k.is_empty());
+        if api_key.is_some() {
+            tracing::info!("API key authentication enabled (RAG_API_KEY)");
+        } else {
+            tracing::info!("API key authentication disabled (no RAG_API_KEY)");
+        }
         tracing::info!("Starting MCP Streamable HTTP on {}:{}", http_bind, http_port);
-        api::serve(server, http_port, http_bind).await?;
+        api::serve(server, http_port, http_bind, api_key).await?;
     } else {
         tracing::info!("Starting MCP server on stdio...");
         let service = server.serve(rmcp::transport::io::stdio()).await?;
