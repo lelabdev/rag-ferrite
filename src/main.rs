@@ -177,6 +177,11 @@ impl RagFerriteServer {
     async fn collection_heat(&self, _params: Parameters<NoParams>) -> String {
         service::collection_heat_service().to_string()
     }
+
+    #[tool(name = "chunk_qa", description = "Get chunk-level QA report: identify dead chunks (never queried) and cold chunks. Grouped by source with heat scores calculated on-the-fly. Useful for cleaning up noise.")]
+    async fn chunk_qa(&self, _params: Parameters<NoParams>) -> String {
+        service::chunk_qa_service().to_string()
+    }
 }
 
 #[tokio::main(worker_threads = 12)]
@@ -234,6 +239,9 @@ async fn main() -> Result<()> {
         }
 
     let config = config::Config::load()?;
+    // Store config globally before it's consumed by server init
+    let heat_config = config.heat.clone();
+    config::set_global_heat(heat_config);
     let tag_rules = tag_rules::TagRules::load()?;
     llm::init_tag_rules(tag_rules);
 

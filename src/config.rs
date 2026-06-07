@@ -1,6 +1,20 @@
 use anyhow::Result;
 use serde::Deserialize;
 use std::path::PathBuf;
+use std::sync::OnceLock;
+
+/// Global heat config — set once at startup, read by heat module.
+static HEAT_CONFIG: OnceLock<HeatConfig> = OnceLock::new();
+
+/// Store heat config globally so the heat module can access decay factors.
+pub fn set_global_heat(config: HeatConfig) {
+    let _ = HEAT_CONFIG.set(config);
+}
+
+/// Get the global heat config (if set).
+pub fn get_heat_config() -> Option<&'static HeatConfig> {
+    HEAT_CONFIG.get()
+}
 
 #[derive(Debug, Deserialize)]
 pub struct Config {
@@ -51,6 +65,36 @@ pub struct Config {
     /// Query classification keywords and thresholds
     #[serde(default)]
     pub query_classification: QueryClassificationConfig,
+
+    /// Heat tracking configuration (decay factors for collection + chunk level)
+    #[serde(default)]
+    pub heat: HeatConfig,
+}
+
+/// Heat tracking configuration.
+#[derive(Debug, Deserialize, Clone)]
+pub struct HeatConfig {
+    /// Daily decay factor for collection-level heat (0-1).
+    /// Higher = slower decay. 0.99 = 74% after 30 days.
+    #[serde(default = "default_collection_decay")]
+    pub collection_decay: f64,
+
+    /// Daily decay factor for chunk-level QA (0-1).
+    /// Slower than collection: 0.999 = 69% after 1 year.
+    #[serde(default = "default_chunk_decay")]
+    pub chunk_decay: f64,
+}
+
+fn default_collection_decay() -> f64 { 0.99 }
+fn default_chunk_decay() -> f64 { 0.999 }
+
+impl Default for HeatConfig {
+    fn default() -> Self {
+        Self {
+            collection_decay: default_collection_decay(),
+            chunk_decay: default_chunk_decay(),
+        }
+    }
 }
 
 /// Query classification config — controls how queries are routed
@@ -639,6 +683,7 @@ impl Default for Config {
             http_port: 0,
             api_key: None,
             query_classification: QueryClassificationConfig::default(),
+            heat: HeatConfig::default(),
         }
     }
 }

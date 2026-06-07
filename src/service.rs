@@ -250,3 +250,15 @@ pub fn collection_heat_service() -> serde_json::Value {
         Err(e) => json!({ "error": e.to_string() }),
     }
 }
+
+// ── Chunk QA (#159 Phase 5) ────────────────────────────────────────────
+
+pub fn chunk_qa_service() -> serde_json::Value {
+    match engine::get_chunk_qa_report() {
+        Ok(report) => json!({
+            "sources": report,
+            "total_sources": report.len()
+        }),
+        Err(e) => json!({ "error": e.to_string() }),
+    }
+}

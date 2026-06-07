@@ -20,9 +20,10 @@ use tokio::sync::mpsc;
 /// Flush interval in seconds.
 const FLUSH_INTERVAL_SECS: u64 = 30;
 
-/// Daily decay factor (×0.99 per day).
-/// 7d→93%, 30d→74%, 90d→48%, 180d→23%, 365d→2.5%
-const DAILY_DECAY: f64 = 0.99;
+/// Daily decay factor for collection-level heat.
+/// Fallback when config is not available (e.g. table creation at init time).
+/// Actual runtime value comes from config.heat.collection_decay.
+const COLLECTION_DECAY_FALLBACK: f64 = 0.99;
 
 // ── Table creation ───────────────────────────────────────────────────
 
@@ -129,6 +130,7 @@ async fn background_worker(mut receiver: mpsc::UnboundedReceiver<HeatEvent>) {
 fn flush_and_decay(buffer: &std::collections::HashMap<String, i32>) -> Result<()> {
     let conn = super::get_conn()?;
     let now = now_secs();
+    let decay = get_collection_decay();
 
     // 1. Apply decay to ALL collections first
     //    decay = DAILY_DECAY^(elapsed_days since last_queried_at)
@@ -147,7 +149,7 @@ fn flush_and_decay(buffer: &std::collections::HashMap<String, i32>) -> Result<()
         for (coll, score, last_q) in &rows {
             let decayed = if let Some(last) = last_q {
                 let elapsed_days = (now as f64 - last) / 86400.0;
-                let factor = DAILY_DECAY.powf(elapsed_days.max(0.0));
+                let factor = decay.powf(elapsed_days.max(0.0));
                 score * factor
             } else {
                 *score
@@ -251,4 +253,96 @@ fn now_secs() -> u64 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs()
+}
+
+/// Read collection decay from global config, or fall back to constant.
+fn get_collection_decay() -> f64 {
+    crate::config::get_heat_config()
+        .map(|c| c.collection_decay)
+        .unwrap_or(COLLECTION_DECAY_FALLBACK)
+}
+
+/// Read chunk decay from global config, or fall back to constant.
+fn get_chunk_decay() -> f64 {
+    crate::config::get_heat_config()
+        .map(|c| c.chunk_decay)
+        .unwrap_or(0.999)
+}
+
+// ── Chunk-level QA (on-the-fly, no writes) ────────────────────────────
+
+/// QA report for a single source: how many chunks are dead/cold/hot.
+#[derive(Debug, Clone, Serialize)]
+pub struct ChunkQaSource {
+    pub source_id: i64,
+    pub source_name: String,
+    pub collection_id: String,
+    pub total_chunks: i64,
+    pub never_queried: i64,
+    pub avg_heat: f64,
+    pub max_heat: f64,
+}
+
+/// Get chunk-level QA report, grouped by source.
+///
+/// Heat is calculated on-the-fly from `query_count` and `last_queried_at`:
+/// - `query_count = 0` → heat = 0 (never queried, dead)
+/// - `query_count > 0` → heat = 100 * decay^elapsed_days
+///
+/// Results are sorted by `never_queried` descending (most dead first).
+pub fn get_chunk_qa_report() -> Result<Vec<ChunkQaSource>> {
+    let conn = super::get_conn()?;
+    let now = now_secs() as f64;
+    let decay = get_chunk_decay();
+
+    let mut stmt = conn.prepare(
+        "SELECT c.source_id,
+                s.name,
+                s.collection_id,
+                COUNT(*) as total,
+                SUM(CASE WHEN c.query_count = 0 THEN 1 ELSE 0 END) as dead,
+                AVG(c.last_queried_at) as avg_last,
+                MAX(c.last_queried_at) as max_last
+         FROM chunks c
+         JOIN sources s ON c.source_id = s.id
+         GROUP BY c.source_id
+         ORDER BY dead DESC",
+    )?;
+
+    let rows = stmt.query_map([], |row| {
+        let source_id: i64 = row.get(0)?;
+        let source_name: String = row.get(1)?;
+        let collection_id: String = row.get(2)?;
+        let total: i64 = row.get(3)?;
+        let dead: i64 = row.get(4)?;
+        let avg_last: Option<f64> = row.get(5)?;
+        let max_last: Option<f64> = row.get(6)?;
+
+        // Calculate average heat from avg last_queried_at
+        let avg_heat = avg_last
+            .map(|last| {
+                let elapsed_days = ((now - last) / 86400.0).max(0.0);
+                100.0 * decay.powf(elapsed_days)
+            })
+            .unwrap_or(0.0);
+
+        let max_heat = max_last
+            .map(|last| {
+                let elapsed_days = ((now - last) / 86400.0).max(0.0);
+                100.0 * decay.powf(elapsed_days)
+            })
+            .unwrap_or(0.0);
+
+        Ok(ChunkQaSource {
+            source_id,
+            source_name,
+            collection_id,
+            total_chunks: total,
+            never_queried: dead,
+            avg_heat,
+            max_heat,
+        })
+    })?;
+
+    rows.collect::<Result<Vec<_>, _>>().map_err(|e| anyhow::anyhow!(e))
 }

@@ -74,6 +74,7 @@ Clients pass the key via `Authorization: Bearer <key>` header.
 | `check_ingestion(file_path?, content?, source_name?)` | Preview document quality before ingestion |
 | `benchmark(file_path, collection?, limit?)` | Evaluate retrieval quality against a golden dataset |
 | `collection_heat()` | Collection heat tracking: heat_score, last_queried_at, query_count per collection |
+| `chunk_qa()` | Chunk-level QA: dead/cold chunks grouped by source, heat calculated on-the-fly |
 
 ## Ingestion Pipeline
 

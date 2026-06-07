@@ -127,7 +127,7 @@ Progress: GET /api/ingest/progress
         → [Si faible] Corrective RAG (reformulation + retry)
         → Top-k chunks avec tags
 
-## Outils MCP (10)
+## Outils MCP (11)
 
 | Outil | Description |
 |---|---|
@@ -141,6 +141,7 @@ Progress: GET /api/ingest/progress
 | check_ingestion | Preview qualité avant ingestion |
 | benchmark | Évaluation qualité vs dataset golden |
 | collection_heat | Heat tracking par collection (heat_score, last_queried_at, query_count) |
+| chunk_qa | QA chunk-level : chunks morts/froids par source (heat calculé à la volée) |
 
 ## Ce que rag_engine fournit (crate externe v0.8)
 
