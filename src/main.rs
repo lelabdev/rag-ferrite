@@ -193,6 +193,11 @@ impl RagFerriteServer {
     async fn tag_map(&self, _params: Parameters<NoParams>) -> String {
         service::tag_collection_map_service().to_string()
     }
+
+    #[tool(name = "reassign_collection", description = "Move a source (document) and all its chunks to a different collection. Rebuilds HNSW + BM25 indexes for both old and new collections. Use this to organize documents into thematic collections.")]
+    async fn reassign_collection(&self, params: Parameters<ReassignCollectionParams>) -> String {
+        service::reassign_collection_service(params.0.source_id, &params.0.collection).to_string()
+    }
 }
 
 #[tokio::main(worker_threads = 12)]

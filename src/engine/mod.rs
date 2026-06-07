@@ -1294,6 +1294,57 @@ pub fn rebuild_and_save_indexes(collection_id: &str) {
     incremental_index::clear_buffer();
 }
 
+/// Move a source (and all its chunks) to a different collection.
+/// Rebuilds HNSW + BM25 indexes for both old and new collections.
+pub fn reassign_source_collection(source_id: i64, new_collection: &str) -> Result<String> {
+    let new_collection = sanitize_collection(new_collection)?;
+    let conn = get_conn()?;
+
+    // Get current collection
+    let old_collection: String = conn.query_row(
+        "SELECT collection_id FROM sources WHERE id = ?1",
+        rusqlite::params![source_id],
+        |row| row.get(0),
+    )?;
+
+    if old_collection == new_collection {
+        return Ok(format!("Source {} already in collection '{}'", source_id, new_collection));
+    }
+
+    // Get source name for logging
+    let source_name: Option<String> = conn.query_row(
+        "SELECT name FROM sources WHERE id = ?1",
+        rusqlite::params![source_id],
+        |row| row.get(0),
+    ).ok();
+
+    // Update sources
+    let updated = conn.execute(
+        "UPDATE sources SET collection_id = ?1 WHERE id = ?2",
+        rusqlite::params![new_collection, source_id],
+    )?;
+
+    // Update chunks
+    let chunks_updated = conn.execute(
+        "UPDATE chunks SET collection_id = ?1 WHERE source_id = ?2",
+        rusqlite::params![new_collection, source_id],
+    )?;
+
+    tracing::info!(
+        "Reassigned source {} ({:?}): {} → {} ({} chunks moved)",
+        source_id, source_name, old_collection, new_collection, chunks_updated
+    );
+
+    // Rebuild indexes for both collections
+    rebuild_and_save_indexes(&old_collection);
+    rebuild_and_save_indexes(&new_collection);
+
+    Ok(format!(
+        "Source {} ({:?}) moved: {} → {} ({} chunks)",
+        source_id, source_name, old_collection, new_collection, chunks_updated
+    ))
+}
+
 /// Run WAL checkpoint to free disk space and reduce memory pressure.
 pub fn wal_checkpoint() {
     match get_conn() {

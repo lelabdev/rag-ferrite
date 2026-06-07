@@ -131,3 +131,11 @@ pub struct SuggestCollectionParams {
     /// The query string to route
     pub query: String,
 }
+
+#[derive(Debug, Default, Serialize, Deserialize, JsonSchema)]
+pub struct ReassignCollectionParams {
+    /// The source (document) ID to move
+    pub source_id: i64,
+    /// The target collection name
+    pub collection: String,
+}
