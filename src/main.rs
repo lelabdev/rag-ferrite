@@ -43,6 +43,7 @@ struct RagFerriteServer {
     pub ingestion_llm: Option<llm::LlmProvider>,
     pub ingest_config: params::IngestConfig,
     pub ingestion_manager: ingestion::IngestionManager,
+    pub heat_tracker: engine::HeatTracker,
     pub default_query_limit: usize,
     pub max_query_limit: usize,
 }
@@ -66,6 +67,8 @@ impl RagFerriteServer {
             p.limit.unwrap_or(self.default_query_limit).clamp(1, self.max_query_limit),
             p.source_ids,
             p.metadata_like,
+            p.tags,
+            Some(&self.heat_tracker),
         )
         .await
         .to_string()
@@ -169,6 +172,16 @@ impl RagFerriteServer {
         )
         .to_string()
     }
+
+    #[tool(name = "collection_heat", description = "Get collection heat tracking data: which collections are queried most/freshly. Returns heat_score, last_queried_at, and query_count per collection.")]
+    async fn collection_heat(&self, _params: Parameters<NoParams>) -> String {
+        service::collection_heat_service().to_string()
+    }
+
+    #[tool(name = "chunk_qa", description = "Get chunk-level QA report: identify dead chunks (never queried) and cold chunks. Grouped by source with heat scores calculated on-the-fly. Useful for cleaning up noise.")]
+    async fn chunk_qa(&self, _params: Parameters<NoParams>) -> String {
+        service::chunk_qa_service().to_string()
+    }
 }
 
 #[tokio::main(worker_threads = 12)]
@@ -226,6 +239,9 @@ async fn main() -> Result<()> {
         }
 
     let config = config::Config::load()?;
+    // Store config globally before it's consumed by server init
+    let heat_config = config.heat.clone();
+    config::set_global_heat(heat_config);
     let tag_rules = tag_rules::TagRules::load()?;
     llm::init_tag_rules(tag_rules);
 
@@ -447,6 +463,7 @@ async fn main() -> Result<()> {
         ingestion_llm: ingestion_llm.clone(),
         ingestion_manager: ingestion::IngestionManager::new(pipeline, ingest_config.clone(), ingestion_llm),
         ingest_config,
+        heat_tracker: engine::HeatTracker::new(),
         default_query_limit: config.advanced.default_query_limit,
         max_query_limit: config.advanced.max_query_limit,
     };

@@ -18,12 +18,14 @@ pub mod search;
 pub mod query;
 pub mod benchmark;
 pub mod tags;
+pub mod heat;
 
 // Re-export public items from sub-modules
 pub use search::{search_hybrid, search_hybrid_with_expansion};
 pub use query::{get_section_paths_for_chunk_ids, get_neighbors, delete_source, list_sources};
 pub use benchmark::{run_benchmark, get_graph_data};
 pub use tags::{create_chunk_tags_table, create_collection_tags_table, insert_chunk_tags, update_collection_tags, get_tags_for_chunk_ids};
+pub use heat::{create_collection_heat_table, HeatTracker, CollectionHeat, get_all_heat, collections_for_sources, get_chunk_qa_report, ChunkQaSource};
 
 /// Stored DB path so list_sources/stats can query across all collections.
 static DB_PATH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
@@ -117,6 +119,9 @@ pub fn init(data_dir: &std::path::Path, config: &crate::config::Config) -> Resul
 
     // Create collection_tags table for tag routing (v5 design)
     create_collection_tags_table(&db_path_str)?;
+
+    // Create collection_heat table for heat tracking (v5 design, Phase 1)
+    create_collection_heat_table(&db_path_str)?;
 
     // Add heat tracking columns to chunks table (v5 design)
     let conn = Connection::open(&db_path_str)?;
@@ -1133,6 +1138,28 @@ fn detect_language(text: &str) -> String {
     }
 
     "english".to_string()
+}
+
+/// Update heat tracking for chunks returned in query results (#159).
+/// Increments query_count and sets last_queried_at to current time.
+pub fn update_chunk_heat(chunk_ids: &[i64]) -> Result<()> {
+    if chunk_ids.is_empty() {
+        return Ok(());
+    }
+    let conn = get_conn()?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as f64;
+
+    for &id in chunk_ids {
+        conn.execute(
+            "UPDATE chunks SET query_count = query_count + 1, last_queried_at = ?1 WHERE id = ?2",
+            rusqlite::params![now, id],
+        )?;
+    }
+    tracing::debug!("Updated heat for {} chunks", chunk_ids.len());
+    Ok(())
 }
 
 /// Check if a source with the given name already exists in the DB.
