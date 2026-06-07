@@ -15,6 +15,7 @@ pub async fn query_service(
     limit: usize,
     source_ids: Option<Vec<i64>>,
     metadata_like: Option<String>,
+    tags: Option<Vec<String>>,
 ) -> serde_json::Value {
     let filter = if source_ids.is_some() || metadata_like.is_some() {
         Some(rag_engine::api::hybrid_search::SearchFilter {
@@ -28,14 +29,41 @@ pub async fn query_service(
 
     match pipeline.query(query, limit, filter).await {
         Ok(output) => {
-            let doc_ids: Vec<i64> = output.results.iter().map(|r| r.doc_id).collect();
+            let mut doc_ids: Vec<i64> = output.results.iter().map(|r| r.doc_id).collect();
             let section_map = engine::get_section_paths_for_chunk_ids(&doc_ids).unwrap_or_default();
             let tags_map = engine::get_tags_for_chunk_ids(&doc_ids).unwrap_or_default();
+
+            // ── Tag filtering (#149): keep only chunks that have at least one requested tag ──
+            let filtered_results = if let Some(ref filter_tags) = tags {
+                if filter_tags.is_empty() {
+                    output.results
+                } else {
+                    output.results.into_iter().filter(|r| {
+                        let chunk_tags = tags_map.get(&r.doc_id);
+                        match chunk_tags {
+                            Some(ct) => ct.iter().any(|t| filter_tags.iter().any(|ft| ft.eq_ignore_ascii_case(t))),
+                            None => false,
+                        }
+                    }).collect()
+                }
+            } else {
+                output.results
+            };
+
+            // Update doc_ids after tag filtering
+            doc_ids = filtered_results.iter().map(|r| r.doc_id).collect();
+
+            // ── Heat tracking (#159): increment query_count + update last_queried_at ──
+            if !doc_ids.is_empty() {
+                if let Err(e) = engine::update_chunk_heat(&doc_ids) {
+                    tracing::debug!("Failed to update chunk heat: {}", e);
+                }
+            }
 
             // Parent resolution: for child chunks, replace content with parent's
             let parent_map = engine::query::resolve_parents(&doc_ids).unwrap_or_default();
 
-            let out: Vec<HybridResult> = output.results.into_iter().map(|r| {
+            let out: Vec<HybridResult> = filtered_results.into_iter().map(|r| {
                 let sp = section_map.get(&r.doc_id).cloned().flatten();
                 let tags = tags_map.get(&r.doc_id).cloned().unwrap_or_default();
                 let parent_info = parent_map.get(&r.doc_id);

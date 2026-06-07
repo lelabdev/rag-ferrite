@@ -66,6 +66,7 @@ impl RagFerriteServer {
             p.limit.unwrap_or(self.default_query_limit).clamp(1, self.max_query_limit),
             p.source_ids,
             p.metadata_like,
+            p.tags,
         )
         .await
         .to_string()

@@ -180,6 +180,7 @@ async fn query_documents(
         req.limit.unwrap_or(server.default_query_limit).clamp(1, server.max_query_limit),
         req.source_ids,
         req.metadata_like,
+        req.tags,
     )
     .await;
     json_response(val)

@@ -62,6 +62,9 @@ pub struct QueryParams {
     /// Filter by metadata using SQL LIKE pattern (e.g. "%.pdf")
     #[serde(default)]
     pub metadata_like: Option<String>,
+    /// Filter results by tags (chunks must have at least one of these tags)
+    #[serde(default)]
+    pub tags: Option<Vec<String>>,
 }
 
 pub fn default_limit() -> Option<usize> {

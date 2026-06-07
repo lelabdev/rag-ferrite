@@ -1135,6 +1135,28 @@ fn detect_language(text: &str) -> String {
     "english".to_string()
 }
 
+/// Update heat tracking for chunks returned in query results (#159).
+/// Increments query_count and sets last_queried_at to current time.
+pub fn update_chunk_heat(chunk_ids: &[i64]) -> Result<()> {
+    if chunk_ids.is_empty() {
+        return Ok(());
+    }
+    let conn = get_conn()?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as f64;
+
+    for &id in chunk_ids {
+        conn.execute(
+            "UPDATE chunks SET query_count = query_count + 1, last_queried_at = ?1 WHERE id = ?2",
+            rusqlite::params![now, id],
+        )?;
+    }
+    tracing::debug!("Updated heat for {} chunks", chunk_ids.len());
+    Ok(())
+}
+
 /// Check if a source with the given name already exists in the DB.
 pub fn check_duplicate_source(filename: &str) -> bool {
     let conn = match get_conn() {
