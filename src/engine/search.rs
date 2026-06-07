@@ -25,6 +25,36 @@ pub async fn search_hybrid_with_expansion(
     limit: usize,
     filter: Option<hybrid_search::SearchFilter>,
 ) -> Result<Vec<hybrid_search::HybridSearchResult>> {
+    // Soft tag routing: try to route to the best-matching collection
+    let routed_collection = if filter.as_ref().and_then(|f| f.collection_id.as_ref()).is_none() {
+        // Only route if no explicit collection filter was provided
+        match super::tag_routing::route_query(query) {
+            Ok(route) => {
+                if let Some(ref coll) = route.collection {
+                    tracing::info!(
+                        "Tag routing: query '{}' → collection '{}' (keywords: {:?}, matches: {:?})",
+                        query, coll, route.keywords, route.matches
+                    );
+                    Some(coll.clone())
+                } else if !route.matches.is_empty() {
+                    tracing::debug!(
+                        "Tag routing: ambiguous for query '{}' (matches: {:?})",
+                        query, route.matches
+                    );
+                    None
+                } else {
+                    None
+                }
+            }
+            Err(e) => {
+                tracing::warn!("Tag routing failed: {}, searching all collections", e);
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     // Activate ALL collection indexes before searching (fixes #154)
     // Without this, HNSW was never activated unless a collection_id filter was passed
     {
@@ -42,6 +72,19 @@ pub async fn search_hybrid_with_expansion(
             }
         }
     }
+
+    // If routing suggested a collection, inject it into the filter
+    let filter = if let Some(coll) = routed_collection {
+        let mut f = filter.unwrap_or(hybrid_search::SearchFilter {
+            source_ids: None,
+            metadata_like: None,
+            collection_id: None,
+        });
+        f.collection_id = Some(coll);
+        Some(f)
+    } else {
+        filter
+    };
 
     // Expand short queries (< 5 words) if LLM is available
     let queries = if let Some(llm_provider) = llm {

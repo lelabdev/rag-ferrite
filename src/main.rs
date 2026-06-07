@@ -182,6 +182,17 @@ impl RagFerriteServer {
     async fn chunk_qa(&self, _params: Parameters<NoParams>) -> String {
         service::chunk_qa_service().to_string()
     }
+
+    #[tool(name = "suggest_collection", description = "Given a query, extract keywords and suggest the best-matching collection based on tag routing. Returns suggested collection, matched keywords, and all candidate collections with scores.")]
+    async fn suggest_collection(&self, params: Parameters<SuggestCollectionParams>) -> String {
+        let query = &params.0.query;
+        service::suggest_collection_service(query).to_string()
+    }
+
+    #[tool(name = "tag_map", description = "Show the full tag → collection mapping with chunk counts. Useful to understand which tags belong to which collections.")]
+    async fn tag_map(&self, _params: Parameters<NoParams>) -> String {
+        service::tag_collection_map_service().to_string()
+    }
 }
 
 #[tokio::main(worker_threads = 12)]

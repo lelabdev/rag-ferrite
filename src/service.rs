@@ -262,3 +262,31 @@ pub fn chunk_qa_service() -> serde_json::Value {
         Err(e) => json!({ "error": e.to_string() }),
     }
 }
+
+// ── Tag routing (#163) ────────────────────────────────────────────────
+
+pub fn suggest_collection_service(query: &str) -> serde_json::Value {
+    match engine::tag_routing::route_query(query) {
+        Ok(route) => json!({
+            "query": query,
+            "keywords": route.keywords,
+            "suggested_collection": route.collection,
+            "all_matches": route.matches.iter().map(|(c, s)| {
+                json!({"collection": c, "score": s})
+            }).collect::<Vec<_>>(),
+        }),
+        Err(e) => json!({ "error": e.to_string() }),
+    }
+}
+
+pub fn tag_collection_map_service() -> serde_json::Value {
+    match engine::tag_routing::get_tag_collection_map() {
+        Ok(entries) => json!({
+            "entries": entries.iter().map(|(tag, coll, count)| {
+                json!({"tag": tag, "collection": coll, "chunk_count": count})
+            }).collect::<Vec<_>>(),
+            "total": entries.len()
+        }),
+        Err(e) => json!({ "error": e.to_string() }),
+    }
+}

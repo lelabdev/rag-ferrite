@@ -75,6 +75,8 @@ Clients pass the key via `Authorization: Bearer <key>` header.
 | `benchmark(file_path, collection?, limit?)` | Evaluate retrieval quality against a golden dataset |
 | `collection_heat()` | Collection heat tracking: heat_score, last_queried_at, query_count per collection |
 | `chunk_qa()` | Chunk-level QA: dead/cold chunks grouped by source, heat calculated on-the-fly |
+| `suggest_collection(query)` | Tag routing: extract keywords, match against collection_tags, suggest best collection |
+| `tag_map()` | Full tag → collection mapping with chunk counts |
 
 ## Ingestion Pipeline
 
