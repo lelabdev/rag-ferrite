@@ -315,7 +315,7 @@ pub async fn ingest_text(
         context_skipped = skipped;
         results
     } else {
-        vec![ContextResult { context: None, relevance_score: None, extracted_metadata: None, tags: Vec::new() }; chunks.len()]
+        vec![ContextResult::default(); chunks.len()]
     };
     let llm_duration_ms = llm_start.elapsed().as_millis() as u64;
 
@@ -498,8 +498,7 @@ async fn generate_contexts(
             results.push(ContextResult {
                 context: None,
                 relevance_score: None,
-                extracted_metadata: None,
-                tags: Vec::new(),
+                    tags: Vec::new(),
             });
         } else {
             long_indices.push(i);
@@ -518,10 +517,7 @@ async fn generate_contexts(
                     if ctx.context.is_none() { failures += 1; }
                     // Insert at correct position
                     while results.len() <= global_i {
-                        results.push(ContextResult {
-                            context: None, relevance_score: None,
-                            extracted_metadata: None, tags: Vec::new(),
-                        });
+                        results.push(ContextResult::default());
                     }
                     results[global_i] = ctx;
                 }
@@ -529,15 +525,9 @@ async fn generate_contexts(
                     tracing::warn!("Context generation failed: {}, using raw content", e);
                     failures += 1;
                     while results.len() <= global_i {
-                        results.push(ContextResult {
-                            context: None, relevance_score: None,
-                            extracted_metadata: None, tags: Vec::new(),
-                        });
+                        results.push(ContextResult::default());
                     }
-                    results[global_i] = ContextResult {
-                        context: None, relevance_score: None,
-                        extracted_metadata: None, tags: Vec::new(),
-                    };
+                    results[global_i] = ContextResult::default();
                 }
             }
         }
@@ -545,10 +535,7 @@ async fn generate_contexts(
 
     // Ensure results vector is full size
     while results.len() < chunk_texts.len() {
-        results.push(ContextResult {
-            context: None, relevance_score: None,
-            extracted_metadata: None, tags: Vec::new(),
-        });
+        results.push(ContextResult::default());
     }
 
     // Retry failed chunks individually (up to max_retries)
@@ -660,7 +647,7 @@ async fn process_parent(
         let dur = t.elapsed().as_millis() as u64;
         (results, failures, skipped, dur)
     } else {
-        (vec![ContextResult { context: None, relevance_score: None, extracted_metadata: None, tags: Vec::new()}; child_texts.len()], 0, 0, 0)
+        (vec![ContextResult::default(); child_texts.len()], 0, 0, 0)
     };
 
     // Filter by relevance and build final texts

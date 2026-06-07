@@ -5,13 +5,22 @@ use std::time::Duration;
 use crate::tag_rules;
 
 /// Result of contextual retrieval: optional context prefix, optional relevance score (1-10),
-/// optional extracted metadata, and auto-generated tags.
+/// and auto-generated tags.
 #[derive(Debug, Clone)]
 pub struct ContextResult {
     pub context: Option<String>,
     pub relevance_score: Option<f32>,
-    pub extracted_metadata: Option<serde_json::Value>,
     pub tags: Vec<String>,
+}
+
+impl Default for ContextResult {
+    fn default() -> Self {
+        Self {
+            context: None,
+            relevance_score: None,
+            tags: Vec::new(),
+        }
+    }
 }
 
 /// LLM provider for contextual retrieval and other text generation tasks.
@@ -204,11 +213,10 @@ impl LlmProvider {
         };
 
         let trimmed = response_text.trim();
-        let (score, context, extracted_metadata, tags) = parse_context_response(trimmed);
+        let (score, context, tags) = parse_context_response(trimmed);
         Ok(ContextResult {
             context,
             relevance_score: score,
-            extracted_metadata,
             tags,
         })
     }
@@ -512,19 +520,15 @@ mod tests {
     #[test]
     fn test_parse_full_response() {
         let response = "SCORE: 8\nCONTEXT: This chunk describes Svelte runes and their usage in Svelte 5.\nMETADATA: {\"topic\": \"svelte\", \"version\": 5}";
-        let (score, context, metadata, _tags) = parse_context_response(response);
+        let (score, context, _tags) = parse_context_response(response);
         assert_eq!(score, Some(8.0));
         assert_eq!(context, Some("This chunk describes Svelte runes and their usage in Svelte 5.".to_string()));
-        assert!(metadata.is_some());
-        let meta = metadata.unwrap();
-        assert_eq!(meta["topic"], "svelte");
-        assert_eq!(meta["version"], 5);
     }
 
     #[test]
     fn test_parse_score_only() {
         let response = "SCORE: 3\nCONTEXT: Low relevance content";
-        let (score, context, _metadata, _tags) = parse_context_response(response);
+        let (score, context, _tags) = parse_context_response(response);
         assert_eq!(score, Some(3.0));
         assert_eq!(context, Some("Low relevance content".to_string()));
     }
@@ -532,7 +536,7 @@ mod tests {
     #[test]
     fn test_parse_max_score() {
         let response = "SCORE: 10\nCONTEXT: Excellent chunk";
-        let (score, context, _metadata, _tags) = parse_context_response(response);
+        let (score, context, _tags) = parse_context_response(response);
         assert_eq!(score, Some(10.0));
         assert_eq!(context, Some("Excellent chunk".to_string()));
     }
@@ -540,7 +544,7 @@ mod tests {
     #[test]
     fn test_parse_min_score() {
         let response = "SCORE: 1\nCONTEXT: This is noise or boilerplate";
-        let (score, context, _metadata, _tags) = parse_context_response(response);
+        let (score, context, _tags) = parse_context_response(response);
         assert_eq!(score, Some(1.0));
     }
 
@@ -548,7 +552,7 @@ mod tests {
     fn test_parse_no_score_no_context() {
         // Backward compat: no SCORE/CONTEXT → whole response becomes context
         let response = "This is just some text without any structured format.";
-        let (score, context, _metadata, _tags) = parse_context_response(response);
+        let (score, context, _tags) = parse_context_response(response);
         assert_eq!(score, None);
         assert_eq!(context, Some(response.to_string()));
     }
@@ -556,7 +560,7 @@ mod tests {
     #[test]
     fn test_parse_empty_response() {
         let response = "";
-        let (score, context, _metadata, _tags) = parse_context_response(response);
+        let (score, context, _tags) = parse_context_response(response);
         assert_eq!(score, None);
         assert_eq!(context, None);
     }
@@ -564,21 +568,20 @@ mod tests {
     #[test]
     fn test_parse_multiline_context() {
         let response = "SCORE: 7\nCONTEXT: This is the first line\nand this is the second line\nand a third line\nMETADATA: {\"type\": \"api\"}";
-        let (score, context, metadata, _tags) = parse_context_response(response);
+        let (score, context, _tags) = parse_context_response(response);
         assert_eq!(score, Some(7.0));
         assert!(context.is_some());
         let ctx = context.unwrap();
         assert!(ctx.contains("first line"));
         assert!(ctx.contains("second line"));
         assert!(ctx.contains("third line"));
-        assert!(metadata.is_some());
     }
 
     #[test]
     fn test_parse_invalid_score() {
         // Non-numeric score should be ignored → backward compat
         let response = "SCORE: abc\nCONTEXT: Some context";
-        let (score, context, _metadata, _tags) = parse_context_response(response);
+        let (score, context, _tags) = parse_context_response(response);
         // "SCORE: abc" fails to parse, so found_score stays false
         // but "CONTEXT:" is found, so found_context is true
         assert_eq!(score, None);
@@ -586,28 +589,9 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_metadata_invalid_json() {
-        let response = "SCORE: 5\nCONTEXT: Test\nMETADATA: {not valid json}";
-        let (score, _context, metadata, _tags) = parse_context_response(response);
-        assert_eq!(score, Some(5.0));
-        // Invalid JSON metadata should be None
-        assert!(metadata.is_none());
-    }
-
-    #[test]
-    fn test_parse_metadata_only() {
-        let response = "SCORE: 9\nCONTEXT: Good chunk\nMETADATA: {\"domain\": \"frontend\", \"framework\": \"svelte\"}";
-        let (score, _context, metadata, _tags) = parse_context_response(response);
-        assert_eq!(score, Some(9.0));
-        let meta = metadata.unwrap();
-        assert_eq!(meta["domain"], "frontend");
-        assert_eq!(meta["framework"], "svelte");
-    }
-
-    #[test]
     fn test_parse_tags_basic() {
         let response = "SCORE: 8\nCONTEXT: Rust programming language features.\nTAGS: rust, programming, systems";
-        let (score, context, _metadata, tags) = parse_context_response(response);
+        let (score, context, tags) = parse_context_response(response);
         assert_eq!(score, Some(8.0));
         assert_eq!(context, Some("Rust programming language features.".to_string()));
         assert_eq!(tags, vec!["rust", "programming", "system"]);
@@ -616,50 +600,46 @@ mod tests {
     #[test]
     fn test_parse_tags_with_extra_whitespace() {
         let response = "SCORE: 7\nCONTEXT: Some context\nTAGS:  machine-learning ,  neural-networks , ai ";
-        let (_score, _context, _metadata, tags) = parse_context_response(response);
+        let (_score, _context, tags) = parse_context_response(response);
         assert_eq!(tags, vec!["machine-learning", "neural-networks"]);
     }
 
     #[test]
     fn test_parse_tags_single_tag() {
         let response = "SCORE: 5\nCONTEXT: Chunk about databases.\nTAGS: database";
-        let (_score, _context, _metadata, tags) = parse_context_response(response);
+        let (_score, _context, tags) = parse_context_response(response);
         assert_eq!(tags, vec!["database"]);
     }
 
     #[test]
     fn test_parse_tags_empty() {
         let response = "SCORE: 6\nCONTEXT: Some content.\nTAGS:";
-        let (_score, _context, _metadata, tags) = parse_context_response(response);
+        let (_score, _context, tags) = parse_context_response(response);
         assert!(tags.is_empty());
     }
 
     #[test]
     fn test_parse_no_tags() {
         let response = "SCORE: 6\nCONTEXT: Some content.";
-        let (_score, _context, _metadata, tags) = parse_context_response(response);
+        let (_score, _context, tags) = parse_context_response(response);
         assert!(tags.is_empty());
     }
 
     #[test]
     fn test_parse_tags_with_metadata() {
         let response = "SCORE: 9\nCONTEXT: A chunk about web development.\nTAGS: web, frontend, javascript\nMETADATA: {\"difficulty\": \"intermediate\"}";
-        let (score, _context, metadata, tags) = parse_context_response(response);
+        let (score, _context, tags) = parse_context_response(response);
         assert_eq!(score, Some(9.0));
         assert_eq!(tags, vec!["web", "frontend", "javascript"]);
-        assert!(metadata.is_some());
     }
 
     #[test]
     fn test_parse_full_response_with_tags() {
         let response = "SCORE: 8\nCONTEXT: Describes Svelte 5 runes.\nTAGS: svelte, frontend, runes\nMETADATA: {\"topic\": \"svelte\", \"version\": 5}";
-        let (score, context, metadata, tags) = parse_context_response(response);
+        let (score, context, tags) = parse_context_response(response);
         assert_eq!(score, Some(8.0));
         assert_eq!(context, Some("Describes Svelte 5 runes.".to_string()));
         assert_eq!(tags, vec!["svelte", "frontend", "rune"]);
-        let meta = metadata.unwrap();
-        assert_eq!(meta["topic"], "svelte");
-        assert_eq!(meta["version"], 5);
     }
 
     #[test]
@@ -690,7 +670,7 @@ mod tests {
 }
 
 /// Parse the LLM response for SCORE, CONTEXT, TAGS and METADATA lines.
-/// Returns (relevance_score, context, metadata, tags). If parsing fails, uses the whole
+/// Returns (relevance_score, context, tags). If parsing fails, uses the whole
 /// response as context and returns score = None (backward compat).
 /// Parse a multi-chunk LLM response into individual ContextResults.
 /// Expected format: CHUNK N: / SCORE: / CONTEXT: / TAGS: blocks separated by blank lines.
@@ -720,30 +700,30 @@ fn parse_multi_chunk_response(response: &str, expected_count: usize) -> Vec<Resu
     if chunks.is_empty() {
         // Fallback: couldn't parse chunks, try parsing as single response
         tracing::warn!("Could not parse multi-chunk response, falling back to single parse");
-        let (score, context, metadata, tags) = parse_context_response(response);
+        let (score, context, tags) = parse_context_response(response);
         results.push(Ok(ContextResult {
-            context, relevance_score: score, extracted_metadata: metadata, tags,
+            context, relevance_score: score, tags,
         }));
         // Fill rest with empty results
         while results.len() < expected_count {
             results.push(Ok(ContextResult {
-                context: None, relevance_score: None, extracted_metadata: None, tags: Vec::new(),
+                ..ContextResult::default()
             }));
         }
         return results;
     }
     
     for chunk_text in &chunks {
-        let (score, context, metadata, tags) = parse_context_response(chunk_text);
+        let (score, context, tags) = parse_context_response(chunk_text);
         results.push(Ok(ContextResult {
-            context, relevance_score: score, extracted_metadata: metadata, tags,
+            context, relevance_score: score, tags,
         }));
     }
     
     // Pad if we got fewer results than expected
     while results.len() < expected_count {
         results.push(Ok(ContextResult {
-            context: None, relevance_score: None, extracted_metadata: None, tags: Vec::new(),
+            ..ContextResult::default()
         }));
     }
     
@@ -816,10 +796,10 @@ fn sanitize_tags(raw_tags: Vec<String>) -> Vec<String> {
         })
 }
 
-fn parse_context_response(response: &str) -> (Option<f32>, Option<String>, Option<serde_json::Value>, Vec<String>) {
+fn parse_context_response(response: &str) -> (Option<f32>, Option<String>, Vec<String>) {
     let mut score: Option<f32> = None;
     let mut context_lines: Vec<&str> = Vec::new();
-    let mut extracted_metadata: Option<serde_json::Value> = None;
+    // metadata parsing removed (unused)
     let mut tags: Vec<String> = Vec::new();
     let mut found_score = false;
     let mut found_context = false;
@@ -847,7 +827,7 @@ fn parse_context_response(response: &str) -> (Option<f32>, Option<String>, Optio
         if trimmed_line.starts_with("METADATA:") {
             let json_str = trimmed_line["METADATA:".len()..].trim();
             if let Ok(val) = serde_json::from_str::<serde_json::Value>(json_str) {
-                extracted_metadata = Some(val);
+                // metadata line skipped
             }
             continue;
         }
@@ -872,13 +852,13 @@ fn parse_context_response(response: &str) -> (Option<f32>, Option<String>, Optio
         } else {
             Some(context_lines.join(" "))
         };
-        (score, context, extracted_metadata, tags)
+        (score, context, tags)
     } else {
         // Parsing failed — backward compat: use whole response as context
         if response.is_empty() {
-            (None, None, extracted_metadata, tags)
+            (None, None, tags)
         } else {
-            (None, Some(response.to_string()), extracted_metadata, tags)
+            (None, Some(response.to_string()), tags)
         }
     }
 }

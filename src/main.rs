@@ -46,6 +46,7 @@ struct RagFerriteServer {
     pub heat_tracker: engine::HeatTracker,
     pub default_query_limit: usize,
     pub max_query_limit: usize,
+    pub move_after_ingest: bool,
 }
 
 // --- MCP Tools ---
@@ -487,6 +488,7 @@ async fn main() -> Result<()> {
         heat_tracker: engine::HeatTracker::new(),
         default_query_limit: config.advanced.default_query_limit,
         max_query_limit: config.advanced.max_query_limit,
+        move_after_ingest: config.advanced.move_after_ingest,
     };
 
     let server = Arc::new(server);
