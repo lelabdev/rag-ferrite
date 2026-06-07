@@ -29,7 +29,7 @@ data_dir = "./data"
 [embedding]
 provider = "openai"                    # any OpenAI-compatible API
 model = "qwen/qwen3-embedding-8b"
-dimensions = 4096
+dimensions = 512                      # sweet spot for broad content. BM25 + tag routing compensate the <1.5% accuracy loss vs 4096
 base_url = "https://openrouter.ai/api/v1"
 
 [llm]

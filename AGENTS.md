@@ -8,7 +8,7 @@ Moteur RAG personnel, en Rust. MCP server exposé via stdio ou Streamable HTTP.
 |---|---|---|
 | Coeur RAG | rag_engine v0.8 | HNSW vector search, BM25, hybrid fusion (RRF), SQLite storage, semantic chunking |
 | MCP Server | rmcp | Exposition stdio + Streamable HTTP |
-| Embeddings | OpenRouter (Qwen3 8B) | Vecteurs 4096 dims |
+| Embeddings | OpenRouter (Qwen3 8B) | 512 dims (sweet spot perf/RAM) |
 || LLM | Ollama Cloud (Gemma4 31B) | Scoring, contextual retrieval, tagging, reranking |
 || LLM Profiles | Modular per action | Ingestion, query, reranker can use different providers/models |
 | Stockage | SQLite + HNSW | 1 fichier DB, backup = cp |
@@ -34,6 +34,7 @@ Key decisions:
 - Merge consecutive small children (<100 chars) for technical docs
 - Skip small chunks before LLM call (saves tokens, accurate stats)
 - Progress endpoint for monitoring active ingestions
+- Embedding dimensions: 512 (not 4096). Content is broad topics (books, transcripts, tech docs) where BM25 + tag routing compensate the <1.5% accuracy loss. Higher dims (1024+) only justified for narrow domains (legal, medical). 512 keeps RAM low and scales to 4× the data without OOM.
 - Won't fix: #122 (chunker rewrite), #128 (DELETE pattern), #130 (graph config)
 
 ~/services/rag-ferrite/
@@ -82,7 +83,7 @@ config.toml :
   [embedding]
   provider = "openai"
   model = "qwen/qwen3-embedding-8b"
-  dimensions = 4096
+  dimensions = 512
   base_url = "https://openrouter.ai/api/v1"
 
   [llm]

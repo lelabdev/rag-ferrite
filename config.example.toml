@@ -6,7 +6,7 @@ data_dir = "./data"
 [embedding]
 provider = "ollama"             # "ollama" or "openai" (any OpenAI-compatible API)
 model = "bge-m3:latest"
-dimensions = 1024
+dimensions = 512
 base_url = "http://localhost:11434"
 # api_key = "sk-..."           # For OpenAI/OpenRouter — or set EMBEDDING_API_KEY env var
 

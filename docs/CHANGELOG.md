@@ -84,7 +84,7 @@ All notable changes to rag-ferrite are documented here.
 - Hybrid BM25 + vector search with RRF fusion
 - MCP server via rmcp (stdio + Streamable HTTP)
 - SQLite storage with WAL mode
-- Embedding via OpenRouter (Qwen3 8B, 4096 dims)
+- Embedding via OpenRouter (Qwen3 8B, 512 dims)
 
 ## [4.2.0] - 2025-05-25
 

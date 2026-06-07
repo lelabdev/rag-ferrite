@@ -45,7 +45,7 @@ http_port = 4242                     # 0 = stdio-only, >0 = also serve HTTP
 [embedding]
 provider = "openai"
 model = "qwen/qwen3-embedding-8b"
-dimensions = 4096
+dimensions = 512
 base_url = "https://openrouter.ai/api/v1"
 
 [llm]
@@ -318,7 +318,7 @@ http_port = 4242                             # 0 = stdio only
 [embedding]
 provider = "openai"
 model = "qwen/qwen3-embedding-8b"
-dimensions = 4096
+dimensions = 512
 base_url = "https://openrouter.ai/api/v1"
 
 [llm]
