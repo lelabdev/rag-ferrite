@@ -189,7 +189,14 @@ impl App {
 
 fn fetch_progress(url: &str) -> Result<ProgressResponse, String> {
     let endpoint = format!("{}/api/ingest/progress", url.trim_end_matches('/'));
-    match ureq::get(&endpoint).timeout(Duration::from_secs(5)).call() {
+    let req = ureq::get(&endpoint).timeout(Duration::from_secs(5));
+    // Auto-send auth header if RAG_API_KEY is set (for remote servers like Nova)
+    let req = if let Ok(key) = std::env::var("RAG_API_KEY") {
+        req.set("Authorization", &format!("Bearer {}", key))
+    } else {
+        req
+    };
+    match req.call() {
         Ok(resp) => {
             resp.into_json::<ProgressResponse>().map_err(|e| e.to_string())
         }
