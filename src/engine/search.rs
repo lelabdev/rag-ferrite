@@ -4,14 +4,7 @@ use rag_engine::api::{hybrid_search, source_rag};
 use crate::embedding::EmbeddingProvider;
 use crate::llm::LlmProvider;
 
-use super::collection_registry;
 use super::data_dir;
-
-/// Default heat threshold for lazy loading: collections below this are cold-stored.
-/// heat_score 90 ≈ ~10 days without queries (decay 0.99/day).
-/// Collections queried within the last week (heat ≥ 93) stay in RAM.
-/// After ~10 days idle, collections go to cold storage (archive, finished projects).
-const DEFAULT_HEAT_THRESHOLD: f64 = 90.0;
 
 /// Search with hybrid fusion (BM25 + vector + RRF)
 pub async fn search_hybrid(
@@ -25,8 +18,9 @@ pub async fn search_hybrid(
 
 /// Search with optional query expansion for short/ambiguous queries.
 ///
-/// Lazy loading: only activates hot collections (heat_score >= threshold).
-/// Cold collections are skipped unless explicitly routed to.
+/// Collection selection: tag routing picks the best collection based on
+/// query keywords. Falls back to the first available collection.
+/// Memory is managed by the OS via mmap — no explicit load/unload needed.
 pub async fn search_hybrid_with_expansion(
     embedder: &EmbeddingProvider,
     llm: Option<&LlmProvider>,
@@ -34,7 +28,7 @@ pub async fn search_hybrid_with_expansion(
     limit: usize,
     filter: Option<hybrid_search::SearchFilter>,
 ) -> Result<Vec<hybrid_search::HybridSearchResult>> {
-    // ── 1. Tag routing ──
+    // ── 1. Tag routing — pick which collection to search ──
     let routed_collection = if filter.as_ref().and_then(|f| f.collection_id.as_ref()).is_none() {
         match super::tag_routing::route_query(query) {
             Ok(route) => {
@@ -49,7 +43,7 @@ pub async fn search_hybrid_with_expansion(
                 }
             }
             Err(e) => {
-                tracing::warn!("Tag routing failed: {}, searching all hot collections", e);
+                tracing::warn!("Tag routing failed: {}, using default collection", e);
                 None
             }
         }
@@ -57,39 +51,28 @@ pub async fn search_hybrid_with_expansion(
         filter.as_ref().and_then(|f| f.collection_id.clone())
     };
 
-    // ── 2. Determine which collections to search ──
-    let all_collections: Vec<String> = {
-        let conn = crate::engine::get_conn()?;
-        conn.prepare("SELECT DISTINCT collection_id FROM sources")?
-            .query_map([], |row| row.get(0))?
-            .filter_map(Result::ok)
-            .collect()
-    };
-
-    let collections_to_search = decide_collections(
-        &all_collections,
-        routed_collection.as_deref(),
-        DEFAULT_HEAT_THRESHOLD,
-    );
-
-    tracing::info!(
-        "Lazy loading: searching {} / {} collections: {:?}",
-        collections_to_search.len(),
-        all_collections.len(),
-        collections_to_search
-    );
-
-    // ── 3. Activate collections (only hot ones) ──
-    for coll_name in &collections_to_search {
-        let coll = super::sanitize_collection(coll_name)?;
-        let index_path = format!("{}/hnsw_{}.index", data_dir(), coll);
-        if let Err(e) = source_rag::activate_collection_for_hybrid_search(coll.clone(), index_path) {
-            tracing::warn!("Failed to activate collection '{}': {}", coll, e);
+    // ── 2. Determine which collection to activate ──
+    let collection = routed_collection.clone().unwrap_or_else(|| {
+        // Fallback: first collection in DB
+        if let Ok(conn) = crate::engine::get_conn() {
+            if let Ok(mut stmt) = conn.prepare("SELECT DISTINCT collection_id FROM sources LIMIT 1") {
+                if let Ok(rows) = stmt.query_map([], |row| row.get::<_, String>(0)) {
+                    for row in rows.flatten() {
+                        return row;
+                    }
+                }
+            }
         }
-        collection_registry::mark_loaded(&coll);
+        "general".to_string()
+    });
+
+    let coll_sanitized = super::sanitize_collection(&collection)?;
+    let index_path = format!("{}/hnsw_{}.index", data_dir(), coll_sanitized);
+    if let Err(e) = source_rag::activate_collection_for_hybrid_search(coll_sanitized.clone(), index_path) {
+        tracing::warn!("Failed to activate collection '{}': {}", coll_sanitized, e);
     }
 
-    // ── 4. Build filter ──
+    // ── 3. Build filter ──
     let filter = if let Some(coll) = routed_collection {
         let mut f = filter.unwrap_or(hybrid_search::SearchFilter {
             source_ids: None,
@@ -102,7 +85,7 @@ pub async fn search_hybrid_with_expansion(
         filter
     };
 
-    // ── 5. Expand short queries ──
+    // ── 4. Expand short queries ──
     let queries = if let Some(llm_provider) = llm {
         let word_count = query.split_whitespace().count();
         if word_count <= crate::pipeline::EXPANSION_WORD_THRESHOLD {
@@ -123,7 +106,7 @@ pub async fn search_hybrid_with_expansion(
         vec![query.to_string()]
     };
 
-    // ── 6. Search (uses last-activated collection's index) ──
+    // ── 5. Search ──
     let mut all_results: Vec<hybrid_search::HybridSearchResult> = Vec::new();
     let mut seen_doc_ids = std::collections::HashSet::new();
 
@@ -151,48 +134,4 @@ pub async fn search_hybrid_with_expansion(
     all_results.truncate(limit);
 
     Ok(all_results)
-}
-
-/// Decide which collections to search based on heat score and routing.
-fn decide_collections(
-    all: &[String],
-    routed: Option<&str>,
-    heat_threshold: f64,
-) -> Vec<String> {
-    let statuses = match collection_registry::get_all_statuses(heat_threshold) {
-        Ok(s) => s,
-        Err(_) => return all.to_vec(),
-    };
-
-    let mut to_search: Vec<String> = Vec::new();
-
-    if let Some(routed_coll) = routed {
-        if all.iter().any(|c| c == routed_coll) {
-            to_search.push(routed_coll.to_string());
-        }
-    }
-
-    for status in &statuses {
-        if status.is_hot && !to_search.contains(&status.collection) {
-            to_search.push(status.collection.clone());
-        }
-    }
-
-    if to_search.is_empty() && !statuses.is_empty() {
-        let hottest = statuses
-            .iter()
-            .max_by(|a, b| {
-                a.heat_score
-                    .partial_cmp(&b.heat_score)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            })
-            .unwrap();
-        to_search.push(hottest.collection.clone());
-    }
-
-    if to_search.is_empty() {
-        return all.to_vec();
-    }
-
-    to_search
 }
