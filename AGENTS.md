@@ -34,8 +34,7 @@ Key decisions:
 - Merge consecutive small children (<100 chars) for technical docs
 - Skip small chunks before LLM call (saves tokens, accurate stats)
 - Progress endpoint for monitoring active ingestions
-- Embedding dimensions: 512 (not 4096). Content is broad topics (books, transcripts, tech docs) where BM25 + tag routing compensate the <1.5% accuracy loss. Higher dims (1024+) only justified for narrow domains (legal, medical). 512 keeps RAM low and scales to 4× the data without OOM.
-- Won't fix: #122 (chunker rewrite), #128 (DELETE pattern), #130 (graph config)
+- Embedding dimensions: 512. Content is broad topics (books, transcripts, tech docs) where BM25 + tag routing compensate the minimal accuracy loss. Keeps RAM low and scales to 4× the data without OOM.
 
 ~/services/rag-ferrite/
   rag-ferrite          <- binaire
