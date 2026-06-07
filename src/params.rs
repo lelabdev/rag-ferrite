@@ -125,3 +125,9 @@ pub struct BenchmarkParams {
 
 #[derive(Debug, Default, Serialize, Deserialize, JsonSchema)]
 pub struct NoParams {}
+
+#[derive(Debug, Default, Serialize, Deserialize, JsonSchema)]
+pub struct SuggestCollectionParams {
+    /// The query string to route
+    pub query: String,
+}

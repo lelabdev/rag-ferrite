@@ -759,6 +759,11 @@ pub fn init_tag_rules(rules: tag_rules::TagRules) {
     let _ = TAG_RULES.set(rules);
 }
 
+/// Get the global tag rules (if initialized).
+pub fn get_tag_rules() -> tag_rules::TagRules {
+    TAG_RULES.get().cloned().unwrap_or_default()
+}
+
 /// Sanitize raw tags from LLM output using tag-rules.toml.
 /// Multi-stage pipeline: strip → lowercase → synonyms → stop words → length → dedup.
 fn sanitize_tags(raw_tags: Vec<String>) -> Vec<String> {
