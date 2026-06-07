@@ -127,7 +127,7 @@ Progress: GET /api/ingest/progress
         → [Si faible] Corrective RAG (reformulation + retry)
         → Top-k chunks avec tags
 
-## Outils MCP (15)
+## Outils MCP (14)
 
 | Outil | Description |
 |---|---|

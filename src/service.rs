@@ -299,26 +299,3 @@ pub fn reassign_collection_service(source_id: i64, new_collection: &str) -> serd
         Err(e) => json!({ "success": false, "error": e.to_string() }),
     }
 }
-
-// ── Lazy loading (#165) ────────────────────────────────────────────────
-
-pub fn collection_status_service() -> serde_json::Value {
-    match engine::collection_registry::get_all_statuses(90.0) {
-        Ok(statuses) => json!({
-            "collections": statuses.iter().map(|s| {
-                json!({
-                    "collection": s.collection,
-                    "heat_score": s.heat_score,
-                    "query_count": s.query_count,
-                    "chunk_count": s.chunk_count,
-                    "loaded": s.is_loaded,
-                    "hot": s.is_hot,
-                })
-            }).collect::<Vec<_>>(),
-            "total": statuses.len(),
-            "loaded_count": statuses.iter().filter(|s| s.is_loaded).count(),
-            "hot_count": statuses.iter().filter(|s| s.is_hot).count(),
-        }),
-        Err(e) => json!({ "error": e.to_string() }),
-    }
-}
