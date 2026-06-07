@@ -6,8 +6,9 @@
 //! Design:
 //! - Events are sent via mpsc channel (non-blocking on query hot path)
 //! - Background worker buffers in memory, flushes to SQLite every 30s
-//! - EMA decay: `heat_score = heat_score * decay + count`
-//!   decay = 0.95^elapsed_days (matches the "×0.95 per day" spec)
+//! - heat_score is on [0, 100]: 100 = just queried, decays by 0.99/day
+//!   → 93% after 7 days, 74% after 30 days, 48% after 90 days, ~2.5% after 1 year
+//! - query_count is a separate accumulator (total queries since start, never decays)
 //! - Collections not queried this cycle still get decayed
 
 use anyhow::Result;
@@ -19,8 +20,9 @@ use tokio::sync::mpsc;
 /// Flush interval in seconds.
 const FLUSH_INTERVAL_SECS: u64 = 30;
 
-/// Daily decay factor (×0.95 per day per the v5 design).
-const DAILY_DECAY: f64 = 0.95;
+/// Daily decay factor (×0.99 per day).
+/// 7d→93%, 30d→74%, 90d→48%, 180d→23%, 365d→2.5%
+const DAILY_DECAY: f64 = 0.99;
 
 // ── Table creation ───────────────────────────────────────────────────
 
@@ -157,7 +159,7 @@ fn flush_and_decay(buffer: &std::collections::HashMap<String, i32>) -> Result<()
         }
     }
 
-    // 2. Upsert buffered counts (add query boost + update metadata)
+    // 2. Upsert buffered counts — reset heat to 100, accumulate query_count separately
     for (collection, &count) in buffer {
         // Check if collection exists
         let exists: bool = conn
@@ -171,17 +173,17 @@ fn flush_and_decay(buffer: &std::collections::HashMap<String, i32>) -> Result<()
         if exists {
             conn.execute(
                 "UPDATE collection_heat
-                 SET heat_score = heat_score + ?1,
-                     last_queried_at = ?2,
-                     query_count = query_count + ?1
+                 SET heat_score = 100.0,
+                     last_queried_at = ?1,
+                     query_count = query_count + ?2
                  WHERE collection = ?3",
-                rusqlite::params![count as f64, now, collection],
+                rusqlite::params![now, count, collection],
             )?;
         } else {
             conn.execute(
                 "INSERT INTO collection_heat (collection, heat_score, last_queried_at, query_count)
-                 VALUES (?1, ?2, ?3, ?4)",
-                rusqlite::params![collection, count as f64, now, count],
+                 VALUES (?1, 100.0, ?2, ?3)",
+                rusqlite::params![collection, now, count],
             )?;
         }
     }
