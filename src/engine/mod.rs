@@ -18,12 +18,14 @@ pub mod search;
 pub mod query;
 pub mod benchmark;
 pub mod tags;
+pub mod heat;
 
 // Re-export public items from sub-modules
 pub use search::{search_hybrid, search_hybrid_with_expansion};
 pub use query::{get_section_paths_for_chunk_ids, get_neighbors, delete_source, list_sources};
 pub use benchmark::{run_benchmark, get_graph_data};
 pub use tags::{create_chunk_tags_table, create_collection_tags_table, insert_chunk_tags, update_collection_tags, get_tags_for_chunk_ids};
+pub use heat::{create_collection_heat_table, HeatTracker, CollectionHeat, get_all_heat, collections_for_sources};
 
 /// Stored DB path so list_sources/stats can query across all collections.
 static DB_PATH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
@@ -117,6 +119,9 @@ pub fn init(data_dir: &std::path::Path, config: &crate::config::Config) -> Resul
 
     // Create collection_tags table for tag routing (v5 design)
     create_collection_tags_table(&db_path_str)?;
+
+    // Create collection_heat table for heat tracking (v5 design, Phase 1)
+    create_collection_heat_table(&db_path_str)?;
 
     // Add heat tracking columns to chunks table (v5 design)
     let conn = Connection::open(&db_path_str)?;

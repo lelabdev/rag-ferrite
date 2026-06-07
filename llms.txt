@@ -73,6 +73,7 @@ Clients pass the key via `Authorization: Bearer <key>` header.
 | `read_chunk_neighbors(source_id, chunk_index)` | Expand context around a chunk |
 | `check_ingestion(file_path?, content?, source_name?)` | Preview document quality before ingestion |
 | `benchmark(file_path, collection?, limit?)` | Evaluate retrieval quality against a golden dataset |
+| `collection_heat()` | Collection heat tracking: heat_score, last_queried_at, query_count per collection |
 
 ## Ingestion Pipeline
 
@@ -186,6 +187,7 @@ src/
 │   ├── query.rs   — list, delete, neighbors, sources
 │   ├── benchmark.rs — quality evaluation
 │   └── tags.rs    — chunk tagging
+│   └── heat.rs    — collection heat tracking (v5 Phase 1)
 ├── llm.rs         — LLM provider (Ollama + OpenAI), scoring, tagging, context
 ├── tag_rules.rs   — Tag normalization rules loaded from tag-rules.toml
 ├── reranker.rs    — reranker (LLM, Cohere, passthrough)

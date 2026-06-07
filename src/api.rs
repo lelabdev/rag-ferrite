@@ -181,6 +181,7 @@ async fn query_documents(
         req.source_ids,
         req.metadata_like,
         req.tags,
+        Some(&server.heat_tracker),
     )
     .await;
     json_response(val)

@@ -5,6 +5,7 @@ use crate::llm;
 use crate::params::IngestConfig;
 use crate::pipeline::QueryPipeline;
 use crate::types::{ChunkResult, HybridResult, SourceInfo};
+use crate::engine::HeatTracker;
 use serde_json::json;
 
 // ── Query ──────────────────────────────────────────────────────────────
@@ -16,6 +17,7 @@ pub async fn query_service(
     source_ids: Option<Vec<i64>>,
     metadata_like: Option<String>,
     tags: Option<Vec<String>>,
+    heat_tracker: Option<&HeatTracker>,
 ) -> serde_json::Value {
     let filter = if source_ids.is_some() || metadata_like.is_some() {
         Some(rag_engine::api::hybrid_search::SearchFilter {
@@ -57,6 +59,17 @@ pub async fn query_service(
             if !doc_ids.is_empty() {
                 if let Err(e) = engine::update_chunk_heat(&doc_ids) {
                     tracing::debug!("Failed to update chunk heat: {}", e);
+                }
+            }
+
+            // ── Collection heat tracking (#159 Phase 1): async, non-blocking ──
+            if let Some(tracker) = heat_tracker {
+                let result_source_ids: Vec<i64> = filtered_results.iter().map(|r| r.source_id).collect();
+                match engine::collections_for_sources(&result_source_ids) {
+                    Ok(collections) => {
+                        tracker.record_collections(&collections);
+                    }
+                    Err(e) => tracing::debug!("Failed to map sources to collections: {}", e),
                 }
             }
 
@@ -222,6 +235,18 @@ pub fn neighbors_service(
                 "chunks": out
             })
         }
+        Err(e) => json!({ "error": e.to_string() }),
+    }
+}
+
+// ── Collection heat (#159 Phase 1) ─────────────────────────────────────
+
+pub fn collection_heat_service() -> serde_json::Value {
+    match engine::get_all_heat() {
+        Ok(heat) => json!({
+            "collections": heat,
+            "total": heat.len()
+        }),
         Err(e) => json!({ "error": e.to_string() }),
     }
 }

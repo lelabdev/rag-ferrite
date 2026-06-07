@@ -64,6 +64,7 @@ src/
     query.rs     — get_section_paths, get_neighbors, delete_source, list_sources
     benchmark.rs — run_benchmark(), get_graph_data()
     tags.rs      — chunk_tags + collection_tags tables, insert/update/get tags
+    heat.rs      — Collection heat tracking (v5 Phase 1): HeatTracker, EMA decay, async flush
   llm.rs         — LlmProvider (ollama + openai), contextual retrieval, scoring, tagging, profile builder
   reranker.rs    — Reranker (LLM + passthrough), rerank_hybrid()
   embedding.rs   — EmbeddingProvider (openai-compatible)
@@ -126,7 +127,7 @@ Progress: GET /api/ingest/progress
         → [Si faible] Corrective RAG (reformulation + retry)
         → Top-k chunks avec tags
 
-## Outils MCP (9)
+## Outils MCP (10)
 
 | Outil | Description |
 |---|---|
@@ -139,6 +140,7 @@ Progress: GET /api/ingest/progress
 | read_chunk_neighbors | Chunks adjacents pour expansion de contexte |
 | check_ingestion | Preview qualité avant ingestion |
 | benchmark | Évaluation qualité vs dataset golden |
+| collection_heat | Heat tracking par collection (heat_score, last_queried_at, query_count) |
 
 ## Ce que rag_engine fournit (crate externe v0.8)
 
