@@ -900,8 +900,13 @@ fn open_selected_file(app: &mut App, terminal: &mut Terminal<CrosstermBackend<St
 // ── Entry point ──
 
 pub fn run(args: &[String]) {
-    // Load .env (same as the server — provides RAG_API_KEY for remote auth)
-    let _ = dotenvy::dotenv();
+    // Load .env from the binary's directory (same folder as the server's .env)
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            let env_path = dir.join(".env");
+            let _ = dotenvy::from_path(&env_path);
+        }
+    }
 
     // Check for --demo flag
     let demo_mode = args.iter().any(|a| a == "--demo" || a == "demo");
