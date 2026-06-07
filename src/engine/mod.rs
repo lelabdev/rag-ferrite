@@ -20,6 +20,7 @@ pub mod benchmark;
 pub mod tags;
 pub mod heat;
 pub mod tag_routing;
+pub mod collection_registry;
 
 // Re-export public items from sub-modules
 pub use search::{search_hybrid, search_hybrid_with_expansion};
