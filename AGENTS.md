@@ -6,11 +6,11 @@ Moteur RAG personnel, en Rust. MCP server exposé via stdio ou Streamable HTTP.
 
 | Composant | Choix | Rôle |
 |---|---|---|
-| Coeur RAG | rag_engine v0.8 | HNSW vector search, BM25, hybrid fusion (RRF), SQLite storage, semantic chunking |
+| Coeur RAG | rag_engine (fork lelabdev/rag-engine) | HNSW vector search, BM25, hybrid fusion (RRF), SQLite storage, semantic chunking |
 | MCP Server | rmcp | Exposition stdio + Streamable HTTP |
 | Embeddings | OpenRouter (Qwen3 8B) | 512 dims (sweet spot perf/RAM) |
-|| LLM | Ollama Cloud (Gemma4 31B) | Scoring, contextual retrieval, tagging, reranking |
-|| LLM Profiles | Modular per action | Ingestion, query, reranker can use different providers/models |
+| LLM | Ollama Cloud (Gemma4 31B) | Scoring, contextual retrieval, tagging, reranking |
+| LLM Profiles | Modular per action | Ingestion, query, reranker can use different providers/models |
 | Stockage | SQLite + HNSW | 1 fichier DB, backup = cp |
 
 ## Architecture
@@ -35,23 +35,11 @@ Key decisions:
 - Skip small chunks before LLM call (saves tokens, accurate stats)
 - Progress endpoint for monitoring active ingestions
 - Embedding dimensions: 512. Content is broad topics (books, transcripts, tech docs) where BM25 + tag routing compensate the minimal accuracy loss. Keeps RAM low and scales to 4× the data without OOM.
-
-~/services/rag-ferrite/
-  rag-ferrite          <- binaire
-  rag-ferrite-mcp      <- wrapper (cd + exec)
-  config.toml          <- config runtime
-  .env                 <- LLM_API_KEY, EMBEDDING_API_KEY
-  data/
-    rag.sqlite3
-    hnsw_*.hnsw.data   <- index vectoriels persistés
-    hnsw_*.hnsw.graph
-  rag-ferrite.log
-
-Code source : ~/dev/rag-ferrite/rag-ferrite/
-Déploiement : copie du binaire compilé vers ~/services/rag-ferrite/
+- Fork of rag_engine under `lelabdev/rag-engine` — enables mmap for vector data loading (OS manages page cache, cold collections naturally evicted from RAM)
 
 ### Structure du code
 
+```
 src/
   main.rs        — MCP server (rmcp), initialise pipeline + reranker
   service.rs     — Couche service partagée MCP + HTTP
@@ -64,7 +52,8 @@ src/
     query.rs     — get_section_paths, get_neighbors, delete_source, list_sources
     benchmark.rs — run_benchmark(), get_graph_data()
     tags.rs      — chunk_tags + collection_tags tables, insert/update/get tags
-    heat.rs      — Collection heat tracking (v5 Phase 1): HeatTracker, EMA decay, async flush
+    tag_routing.rs — Keyword extraction, collection_tags matching, route_query()
+    heat.rs      — Collection heat tracking: HeatTracker, EMA decay, chunk QA
   llm.rs         — LlmProvider (ollama + openai), contextual retrieval, scoring, tagging, profile builder
   reranker.rs    — Reranker (LLM + passthrough), rerank_hybrid()
   embedding.rs   — EmbeddingProvider (openai-compatible)
@@ -72,60 +61,68 @@ src/
   chunker.rs     — Recursive chunking, section extraction, language detection
   extractor.rs   — PDF/DOCX/text extraction
   types.rs       — Structs partagés + From impls
+```
 
 ## Config actuelle
 
-config.toml :
+`~/services/rag-ferrite/config.toml` :
 
-  data_dir = "/home/loops/services/rag-ferrite/data"
+```toml
+data_dir = "/home/loops/services/rag-ferrite/data"
 
-  [embedding]
-  provider = "openai"
-  model = "qwen/qwen3-embedding-8b"
-  dimensions = 512
-  base_url = "https://openrouter.ai/api/v1"
+[embedding]
+provider = "openai"
+model = "qwen/qwen3-embedding-8b"
+dimensions = 512
+base_url = "https://openrouter.ai/api/v1"
 
-  [llm]
-  provider = "ollama"
-  model = "gemma4:31b"
-  base_url = "https://api.ollama.com"
-  context_enabled = true
-  relevance_scoring = true
-  min_relevance_score = 5.0
-  max_concurrent = 3
+[llm]
+provider = "ollama"
+model = "gemma4:31b"
+base_url = "https://api.ollama.com"
+context_enabled = true
+relevance_scoring = true
+min_relevance_score = 5.0
+max_concurrent = 3
 
-  [reranker]
-  reranker_type = "llm"
-  top_k = 10
+[reranker]
+reranker_type = "llm"
+top_k = 10
+```
 
-API keys via .env : LLM_API_KEY (Ollama Cloud), EMBEDDING_API_KEY (OpenRouter).
+API keys via `.env` : `LLM_API_KEY` (Ollama Cloud), `EMBEDDING_API_KEY` (OpenRouter).
 
 ## Pipeline d'ingestion
 
-  Document → Pre-ingestion check (qualité, doublons, langue)
-           → Extraction texte (pdftotext / docx-lite / raw)
-           → Chunking parent-child ou récursif (auto-détecté)
-           → Merge consecutive small children (<100 chars)
-           → Skip chunks below child_min_chars (no LLM call)
-           → Relevance scoring LLM (1-10, filtre le bruit)
-           → Contextual retrieval (LLM context prefix, batch + retry)
-           → Auto-tagging (2-3 tags par chunk)
-           → Embedding batch → SQLite + HNSW + BM25
+```
+Document → Pre-ingestion check (qualité, doublons, langue)
+         → Extraction texte (pdftotext / docx-lite / raw)
+         → Chunking parent-child ou récursif (auto-détecté)
+         → Merge consecutive small children (<100 chars)
+         → Skip chunks below child_min_chars (no LLM call)
+         → Relevance scoring LLM (1-10, filtre le bruit)
+         → Contextual retrieval (LLM context prefix, batch + retry)
+         → Auto-tagging (2-3 tags par chunk)
+         → Embedding batch → SQLite + HNSW + BM25
+```
 
 Ingestion is queued via mpsc channel — HTTP returns immediately.
 Progress: GET /api/ingest/progress
 
 ## Pipeline de query
 
-  Query → MCP tool call
-        → Classification (simple / standard / complex)
-        → [Si standard/complex] Query expansion (LLM multi-query)
-        → Hybrid retrieval (BM25 + HNSW + RRF)
-        → LLM reranking (scoring 0-1 des top-k résultats)
-        → Query caching (résultats en cache 300s)
-        → [Quality gate] Score de confiance
-        → [Si faible] Corrective RAG (reformulation + retry)
-        → Top-k chunks avec tags
+```
+Query → MCP tool call
+      → Classification (simple / standard / complex)
+      → [Si standard/complex] Query expansion (LLM multi-query)
+      → Tag routing (sélection collection via collection_tags)
+      → Hybrid retrieval (BM25 + HNSW + RRF)
+      → LLM reranking (scoring 0-1 des top-k résultats)
+      → Query caching (résultats en cache 300s)
+      → [Quality gate] Score de confiance
+      → [Si faible] Corrective RAG (reformulation + retry)
+      → Top-k chunks avec tags
+```
 
 ## Outils MCP (14)
 
@@ -145,75 +142,49 @@ Progress: GET /api/ingest/progress
 | suggest_collection | Tag routing : suggère la meilleure collection pour une query |
 | tag_map | Mapping complet tag → collection avec chunk counts |
 | reassign_collection | Déplace un source (et ses chunks) vers une autre collection |
-| collection_status | État lazy loading : collections chargées, heat, hot/cold |
-
-## Ce que rag_engine fournit (crate externe v0.8)
-
-| Feature | Module |
-|---|---|
-| Vector search (HNSW) | hnsw_index |
-| BM25 keyword search | bm25_search |
-| Hybrid search + RRF | hybrid_search |
-| Semantic chunking | semantic_chunker |
-| Markdown-aware chunking | markdown_chunk |
-| PDF / DOCX parsing | pdf-extract / docx-lite |
-| SQLite storage | db_pool + source_rag |
-| Chunk neighbors | get_adjacent_chunks |
-| Metadata filtering | SearchFilter |
-| Tokenization | HuggingFace tokenizers |
-
-## Ce qu'on code par-dessus
-
-- Contextual retrieval (LLM context prefix)
-- Relevance scoring (filtrage ingestion)
-- Auto-tagging (tags LLM par chunk)
-- LLM reranking (via LlmProvider partagé)
-- Query expansion (multi-query)
-- Query reformulation (corrective RAG)
-- Query caching (in-memory TTL 300s)
-- Embedding provider abstraction
-- Ollama Cloud auth (Bearer token)
-- Évaluation (benchmark vs golden dataset)
 
 ## Build & Deploy
 
-  cd ~/dev/rag-ferrite/rag-ferrite
-  cargo build --release
+```bash
+cd ~/dev/rag-ferrite-hub/rag-ferrite
+cargo build --release
+```
 
-  ### Déploiement via GitHub Releases
+### Déploiement via GitHub Releases
 
-  1. Créer une release avec le binaire :
-     ```bash
-     gh release create vX.Y.Z target/release/rag-ferrite
-     ```
+1. Créer une release avec le binaire :
+   ```bash
+   gh release create vX.Y.Z target/release/rag-ferrite
+   ```
+2. Sur la machine cible (Nova ou aether) :
+   ```bash
+   ~/services/rag-ferrite/rag-ferrite update
+   ```
 
-  2. Sur la machine cible (Nova ou aether) :
-     ```bash
-     ~/services/rag-ferrite/rag-ferrite update
-     ```
+Le binaire appelle `update.sh` (à côté de lui dans `~/services/rag-ferrite/`).
+Le script : stop service → vérifie arrêt → télécharge depuis GitHub Releases → remplace binaire → restart.
 
-  Le binaire appelle `update.sh` (à côté de lui dans `~/services/rag-ferrite/`).
-  Le script : stop service → vérifie arrêt → télécharge depuis GitHub Releases → remplace binaire → restart.
+### Fichiers de déploiement
 
-  ### Fichiers de déploiement
-
-  ```
-  ~/services/rag-ferrite/
-    rag-ferrite          ← binaire
-    rag-ferrite-mcp      ← wrapper (cd + exec)
-    update.sh            ← script de mise à jour (appelé par `rag-ferrite update`)
-    config.toml          ← config runtime
-    .env                 ← LLM_API_KEY, EMBEDDING_API_KEY, RAG_API_KEY
-    data/
-      rag.sqlite3
-      hnsw_*.hnsw.data   ← index vectoriels persistés
-      hnsw_*.hnsw.graph
-    rag-ferrite.log
-  ```
+```
+~/services/rag-ferrite/
+  rag-ferrite          ← binaire
+  rag-ferrite-mcp      ← wrapper (cd + exec)
+  update.sh            ← script de mise à jour (appelé par `rag-ferrite update`)
+  config.toml          ← config runtime
+  .env                 ← LLM_API_KEY, EMBEDDING_API_KEY, RAG_API_KEY
+  data/
+    rag.sqlite3
+    hnsw_*.hnsw.data   ← index vectoriels persistés
+    hnsw_*.hnsw.graph
+  rag-ferrite.log
+```
 
 ## Tests
 
-  cargo test    # 49 tests unitaires (chunker, extractor, config, llm, tags, pipeline)
+```bash
+cargo test    # 50 tests unitaires (chunker, extractor, config, llm, tags, pipeline, tag_routing)
+```
 
 ## ⚠️ Mise à jour des docs — OBLIGATOIRE
 
