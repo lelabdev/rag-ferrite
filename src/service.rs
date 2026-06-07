@@ -290,3 +290,12 @@ pub fn tag_collection_map_service() -> serde_json::Value {
         Err(e) => json!({ "error": e.to_string() }),
     }
 }
+
+// ── Multi-collection (#164) ────────────────────────────────────────────
+
+pub fn reassign_collection_service(source_id: i64, new_collection: &str) -> serde_json::Value {
+    match engine::reassign_source_collection(source_id, new_collection) {
+        Ok(msg) => json!({ "success": true, "message": msg }),
+        Err(e) => json!({ "success": false, "error": e.to_string() }),
+    }
+}

@@ -77,6 +77,7 @@ Clients pass the key via `Authorization: Bearer <key>` header.
 | `chunk_qa()` | Chunk-level QA: dead/cold chunks grouped by source, heat calculated on-the-fly |
 | `suggest_collection(query)` | Tag routing: extract keywords, match against collection_tags, suggest best collection |
 | `tag_map()` | Full tag → collection mapping with chunk counts |
+| `reassign_collection(source_id, collection)` | Move a source and its chunks to a different collection, rebuilds indexes |
 
 ## Ingestion Pipeline
 

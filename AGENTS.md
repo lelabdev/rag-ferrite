@@ -127,7 +127,7 @@ Progress: GET /api/ingest/progress
         → [Si faible] Corrective RAG (reformulation + retry)
         → Top-k chunks avec tags
 
-## Outils MCP (13)
+## Outils MCP (14)
 
 | Outil | Description |
 |---|---|
@@ -144,6 +144,7 @@ Progress: GET /api/ingest/progress
 | chunk_qa | QA chunk-level : chunks morts/froids par source (heat calculé à la volée) |
 | suggest_collection | Tag routing : suggère la meilleure collection pour une query |
 | tag_map | Mapping complet tag → collection avec chunk counts |
+| reassign_collection | Déplace un source (et ses chunks) vers une autre collection |
 
 ## Ce que rag_engine fournit (crate externe v0.8)
 
