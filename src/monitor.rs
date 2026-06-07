@@ -900,6 +900,9 @@ fn open_selected_file(app: &mut App, terminal: &mut Terminal<CrosstermBackend<St
 // ── Entry point ──
 
 pub fn run(args: &[String]) {
+    // Load .env (same as the server — provides RAG_API_KEY for remote auth)
+    let _ = dotenvy::dotenv();
+
     // Check for --demo flag
     let demo_mode = args.iter().any(|a| a == "--demo" || a == "demo");
 
