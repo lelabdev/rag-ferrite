@@ -198,6 +198,11 @@ impl RagFerriteServer {
     async fn reassign_collection(&self, params: Parameters<ReassignCollectionParams>) -> String {
         service::reassign_collection_service(params.0.source_id, &params.0.collection).to_string()
     }
+
+    #[tool(name = "collection_status", description = "Show lazy loading status: which collections are loaded in RAM, their heat scores, chunk counts, and hot/cold status.")]
+    async fn collection_status(&self, _params: Parameters<NoParams>) -> String {
+        service::collection_status_service().to_string()
+    }
 }
 
 #[tokio::main(worker_threads = 12)]
