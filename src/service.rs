@@ -303,7 +303,7 @@ pub fn reassign_collection_service(source_id: i64, new_collection: &str) -> serd
 // ── Lazy loading (#165) ────────────────────────────────────────────────
 
 pub fn collection_status_service() -> serde_json::Value {
-    match engine::collection_registry::get_all_statuses(5.0) {
+    match engine::collection_registry::get_all_statuses(90.0) {
         Ok(statuses) => json!({
             "collections": statuses.iter().map(|s| {
                 json!({

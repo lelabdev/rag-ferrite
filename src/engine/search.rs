@@ -7,8 +7,11 @@ use crate::llm::LlmProvider;
 use super::collection_registry;
 use super::data_dir;
 
-/// Default heat threshold for lazy loading: collections below this are skipped.
-const DEFAULT_HEAT_THRESHOLD: f64 = 5.0;
+/// Default heat threshold for lazy loading: collections below this are cold-stored.
+/// heat_score 90 ≈ ~10 days without queries (decay 0.99/day).
+/// Collections queried within the last week (heat ≥ 93) stay in RAM.
+/// After ~10 days idle, collections go to cold storage (archive, finished projects).
+const DEFAULT_HEAT_THRESHOLD: f64 = 90.0;
 
 /// Search with hybrid fusion (BM25 + vector + RRF)
 pub async fn search_hybrid(
