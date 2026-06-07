@@ -222,7 +222,7 @@ async fn ingest(
         return json_response(serde_json::json!({ "error": "No files provided. Use 'file_path' or 'paths'." }));
     }
     // Use API override or fall back to config default
-    let move_after = req.move_after_ingest.unwrap_or(true);
+    let move_after = req.move_after_ingest.unwrap_or(server.move_after_ingest);
     let val = server.ingestion_manager.ingest_batch(all_paths, move_after);
     json_response(val)
 }

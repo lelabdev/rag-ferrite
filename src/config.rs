@@ -56,12 +56,6 @@ pub struct Config {
     #[serde(default)]
     pub http_port: u16,
 
-    /// Optional API key for HTTP authentication.
-    /// If set, all requests must include `Authorization: Bearer ***`
-    /// If not set or empty, no authentication is required.
-    #[serde(default)]
-    pub api_key: Option<String>,
-
     /// Query classification keywords and thresholds
     #[serde(default)]
     pub query_classification: QueryClassificationConfig,
@@ -215,8 +209,8 @@ impl Default for EmbeddingConfig {
         Self {
             provider: default_provider(),
             model: default_model(),
-            api_key: None,
             base_url: None,
+            api_key: None,
             dimensions: None,
         }
     }
@@ -681,7 +675,6 @@ impl Default for Config {
             chunking: ChunkingConfig::default(),
             query_fallback: None,
             http_port: 0,
-            api_key: None,
             query_classification: QueryClassificationConfig::default(),
             heat: HeatConfig::default(),
         }
