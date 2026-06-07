@@ -89,6 +89,9 @@ pub struct BatchProgress {
     pub avg_time_per_file_seconds: f64,
     /// Error rate percentage
     pub error_rate: f64,
+    /// Estimated total chunks (based on file sizes at batch start)
+    #[serde(default)]
+    pub total_estimated_chunks: usize,
     /// Completed files with details
     pub files: Vec<FileResult>,
     /// Pending files (not yet processed)
@@ -388,7 +391,18 @@ async fn process_batch_job(
         .unwrap_or_default()
         .as_secs();
 
-    tracing::info!("Batch {} started: {} files", batch_id, total_files);
+    // Estimate total chunks based on file sizes (bytes / 800 ≈ chunk count)
+    // This gives a realistic ETA instead of avg_time_per_file which is skewed
+    // by mixing large books and small articles.
+    const CHUNK_SIZE: usize = 800;
+    let total_estimated_chunks: usize = files.iter().map(|f| {
+        std::fs::metadata(f).map(|m| {
+            let bytes = m.len() as usize;
+            if bytes == 0 { 0 } else { (bytes / CHUNK_SIZE).max(1) }
+        }).unwrap_or(0)
+    }).sum();
+
+    tracing::info!("Batch {} started: {} files, ~{} estimated chunks", batch_id, total_files, total_estimated_chunks);
 
     {
         let mut p = progress.lock().unwrap();
@@ -410,6 +424,7 @@ async fn process_batch_job(
             total_size_mb: 0.0,
             avg_time_per_file_seconds: 0.0,
             error_rate: 0.0,
+            total_estimated_chunks,
             files: Vec::new(),
             pending_files: files.iter().map(|f| {
                 std::path::Path::new(f)
@@ -439,9 +454,9 @@ async fn process_batch_job(
                 if total_done > 0 {
                     b.avg_time_per_file_seconds = b.elapsed_seconds as f64 / total_done as f64;
                 }
-                if b.elapsed_seconds > 0 && total_done < b.total_files {
-                    let remaining = b.total_files.saturating_sub(total_done);
-                    b.eta_seconds = (b.avg_time_per_file_seconds * remaining as f64) as u64;
+                if b.elapsed_seconds > 0 && b.speed_chunks_per_min > 0.0 && b.total_estimated_chunks > 0 {
+                    let remaining_chunks = b.total_estimated_chunks.saturating_sub(b.completed_chunks);
+                    b.eta_seconds = (remaining_chunks as f64 / b.speed_chunks_per_min * 60.0) as u64;
                 }
             }
             continue;
@@ -525,8 +540,10 @@ async fn process_batch_job(
                         }
                         if b.elapsed_seconds > 0 {
                             b.speed_chunks_per_min = (b.completed_chunks as f64 / b.elapsed_seconds as f64) * 60.0;
-                            let remaining_files = b.total_files.saturating_sub(total_done);
-                            b.eta_seconds = (b.avg_time_per_file_seconds * remaining_files as f64) as u64;
+                            if b.speed_chunks_per_min > 0.0 && b.total_estimated_chunks > 0 {
+                                let remaining_chunks = b.total_estimated_chunks.saturating_sub(b.completed_chunks);
+                                b.eta_seconds = (remaining_chunks as f64 / b.speed_chunks_per_min * 60.0) as u64;
+                            }
                         }
                     }
                     p.last_completed = Some(file_path.clone());
