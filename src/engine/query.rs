@@ -80,18 +80,7 @@ pub fn get_neighbors(source_id: i64, chunk_index: i64, before: i64, after: i64) 
 
 /// Delete a source by ID
 pub fn delete_source(source_id: i64) -> Result<()> {
-    // Look up the collection before deleting, so we can rebuild its indexes
-    let conn = get_conn()?;
-    let collection_id: Option<String> = conn
-        .query_row(
-            "SELECT collection_id FROM sources WHERE id = ?1",
-            rusqlite::params![source_id],
-            |row| row.get(0),
-        )
-        .ok()
-        .flatten();
-    drop(conn);
-
+    // Delete from rag_engine (sources table)
     source_rag::delete_source(source_id)?;
 
     // Also delete orphaned chunks and their tags (rag_engine::delete_source may not clean them)
@@ -105,15 +94,8 @@ pub fn delete_source(source_id: i64) -> Result<()> {
         conn.execute("DELETE FROM chunks WHERE source_id = ?1", rusqlite::params![source_id])?;
     }
 
-    // Rebuild indexes for the specific collection if found
-    if let Some(ref coll) = collection_id {
-        super::rebuild_and_save_indexes(coll);
-    } else {
-        // Fallback: rebuild all if we couldn't find the collection
-        tracing::warn!("Could not find collection for source {}, rebuilding all indexes", source_id);
-        let _ = source_rag::rebuild_chunk_hnsw_index();
-        let _ = source_rag::rebuild_chunk_bm25_index();
-    }
+    // Note: indexes are NOT rebuilt on delete — they'll be rebuilt on next flush/restart.
+    // Rebuilding 69K+ chunks synchronously on every delete was causing 120s+ hangs.
 
     Ok(())
 }
