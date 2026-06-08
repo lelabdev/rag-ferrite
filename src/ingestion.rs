@@ -117,6 +117,7 @@ pub enum BatchStatus {
     Running,
     Completed,
     Failed,
+    Cancelled,
 }
 
 #[derive(Debug, Clone, Serialize, Default)]
@@ -141,7 +142,7 @@ pub struct IngestionManager {
     sender: mpsc::UnboundedSender<IngestJob>,
     /// LLM provider dedicated to ingestion (contextual retrieval, scoring, tagging).
     /// Separate from the query pipeline's LLM so different profiles can be used.
-    ingestion_llm: Option<LlmProvider>,
+    pub ingestion_llm: Option<LlmProvider>,
 }
 
 impl Clone for IngestionManager {
@@ -255,6 +256,15 @@ impl IngestionManager {
             }),
             Err(_) => serde_json::json!({ "error": "Failed to queue flush" }),
         }
+    }
+
+    /// Cancel the running batch. The worker will stop after the current file.
+    pub fn cancel_batch(&self) -> serde_json::Value {
+        engine::cancel::request();
+        serde_json::json!({
+            "status": "cancelling",
+            "message": "Batch cancellation requested. Worker will stop after current file."
+        })
     }
 }
 
@@ -465,6 +475,17 @@ async fn process_batch_job(
     let llm = ingestion_llm.as_ref().or(pipeline.llm.as_ref());
 
     for (i, file_path) in files.iter().enumerate() {
+        // ── Check cancellation between files ──
+        if engine::cancel::check_and_reset() {
+            tracing::info!("Batch {} cancelled by user after {}/{} files", batch_id, i, total_files);
+            let mut p = progress.lock().unwrap();
+            if let Some(ref mut b) = p.batch {
+                b.status = BatchStatus::Cancelled;
+            }
+            p.status = IngestStatus::Idle;
+            return;
+        }
+
         let file_name = std::path::Path::new(file_path)
             .file_name()
             .map(|n| n.to_string_lossy().to_string())

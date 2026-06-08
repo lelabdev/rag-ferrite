@@ -261,6 +261,26 @@ async fn flush_indexes(
     json_response(val)
 }
 
+async fn cancel_batch(
+    State(server): State<Arc<RagFerriteServer>>,
+) -> impl IntoResponse {
+    let val = server.ingestion_manager.cancel_batch();
+    json_response(val)
+}
+
+async fn stop_service() -> impl IntoResponse {
+    tracing::info!("Stop requested via API. Shutting down...");
+    // Graceful shutdown: the caller (script wrapper) will restart the process
+    std::thread::spawn(|| {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        std::process::exit(0);
+    });
+    json_response(serde_json::json!({
+        "status": "stopping",
+        "message": "Server is shutting down."
+    }))
+}
+
 // --- Server startup ---
 
 pub async fn serve(server: Arc<RagFerriteServer>, port: u16, bind_address: String, admin_key: Option<String>, guest_key: Option<String>) -> anyhow::Result<()> {
@@ -310,6 +330,8 @@ pub async fn serve(server: Arc<RagFerriteServer>, port: u16, bind_address: Strin
         .route("/api/graph", get(get_graph))
         .route("/api/rebuild-indexes", post(rebuild_indexes))
         .route("/api/flush-indexes", post(flush_indexes))
+        .route("/api/service/cancel-batch", post(cancel_batch))
+        .route("/api/service/stop", post(stop_service))
         .layer(CorsLayer::permissive())
         .with_state(server);
 

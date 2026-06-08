@@ -1,0 +1,405 @@
+#!/usr/bin/env python3
+"""rag — CLI client for rag-ferrite API.
+
+Usage:
+    rag status                          # Engine status (doc count, version)
+    rag progress                        # Batch ingestion progress
+    rag query "text" [-c COLLECTION] [-l LIMIT] [-t tag1,tag2]
+    rag list [-c COLLECTION]            # List documents
+    rag ingest-file <path> [-c COLLECTION] [--force]  # Ingest a file
+    rag ingest-batch <paths...> [-c COLLECTION]       # Ingest multiple files
+    rag ingest-data <name> [-c COLLECTION]  # Ingest from stdin
+    rag delete <source_id>              # Delete a document
+    rag neighbors <source_id> <chunk_index>
+    rag flush                           # Flush HNSW indexes
+    rag rebuild                         # Rebuild indexes
+    rag cancel                          # Cancel running batch
+    rag stop                            # Stop the server
+    rag monitor                         # Launch TUI monitor (SSH to instance)
+
+Options:
+    --env ENV   prod (default) | test   # Select instance
+    -c          Collection name
+    -l          Result limit (default 10)
+    -t          Tags filter (comma-separated)
+    --force     Force reingest (delete existing first)
+    --json      Raw JSON output (no formatting)
+"""
+
+import sys
+import os
+import json
+import argparse
+import urllib.request
+import urllib.error
+
+# ─── Config ───────────────────────────────────────────────────────────────────
+
+INSTANCES = {
+    "prod": {
+        "url": "http://100.97.67.73:4242",  # Nova
+        "key_env": "RAG_API_KEY_NOVA",
+        "key_file": os.path.expanduser("~/.config/rag/api_key_nova"),
+    },
+    "test": {
+        "url": "http://100.90.185.42:4242",  # aether
+        "key_env": "RAG_API_KEY_AETHER",
+        "key_file": os.path.expanduser("~/.config/rag/api_key_aether"),
+    },
+}
+
+
+def get_api_key(instance: str) -> str:
+    cfg = INSTANCES[instance]
+    # 1. Env var
+    key = os.environ.get(cfg["key_env"])
+    if key:
+        return key
+    # 2. Key file
+    try:
+        with open(cfg["key_file"]) as f:
+            return f.read().strip()
+    except FileNotFoundError:
+        pass
+    # 3. Inline fallback (Nova key — prod)
+    if instance == "prod":
+        return "e521d0ef391b719af8773857c912a9bd2fdf86e27d77c906"
+    print(f"Error: No API key for '{instance}'. Set ${cfg['key_env']} or write to {cfg['key_file']}", file=sys.stderr)
+    sys.exit(1)
+
+
+def api_call(instance: str, method: str, path: str, data=None) -> dict:
+    cfg = INSTANCES[instance]
+    url = f"{cfg['url']}{path}"
+    headers = {"Authorization": f"Bearer {get_api_key(instance)}"}
+
+    body = None
+    if data is not None:
+        body = json.dumps(data).encode()
+        headers["Content-Type"] = "application/json"
+
+    req = urllib.request.Request(url, data=body, method=method, headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=300) as resp:
+            return json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        err_body = e.read().decode()[:200]
+        print(f"HTTP {e.code}: {err_body}", file=sys.stderr)
+        sys.exit(1)
+    except urllib.error.URLError as e:
+        print(f"Connection error: {e.reason}", file=sys.stderr)
+        sys.exit(1)
+
+# ─── Formatters ───────────────────────────────────────────────────────────────
+
+def fmt_duration(seconds):
+    if not seconds or seconds == 0:
+        return "—"
+    s = int(seconds)
+    if s < 60:
+        return f"{s}s"
+    if s < 3600:
+        return f"{s//60}m{s%60}s"
+    return f"{s//3600}h{(s%3600)//60}m"
+
+
+def fmt_size(kb):
+    if kb < 1024:
+        return f"{kb:.0f}K"
+    return f"{kb/1024:.1f}M"
+
+# ─── Commands ─────────────────────────────────────────────────────────────────
+
+def cmd_status(args):
+    r = api_call(args.env, "GET", "/api/status")
+    if args.json:
+        print(json.dumps(r))
+        return
+    print(f"rag-ferrite v{r.get('version', '?')}")
+    print(f"Documents: {r.get('document_count', '?')}")
+
+
+def cmd_progress(args):
+    r = api_call(args.env, "GET", "/api/ingest/progress")
+    if args.json:
+        print(json.dumps(r))
+        return
+
+    status = r.get("status", "idle")
+    if status == "idle" or "batch" not in r:
+        print("No batch running.")
+        return
+
+    b = r["batch"]
+    pct = b["completed_files"] / b["total_files"] * 100 if b["total_files"] > 0 else 0
+    speed = b.get("speed_chunks_per_min", 0)
+    eta = fmt_duration(b.get("eta_seconds", 0))
+    elapsed = fmt_duration(b.get("elapsed_seconds", 0))
+
+    print(f"Batch {b.get('batch_id', '?')}")
+    print(f"  Status:    {b['status']}")
+    print(f"  Progress:  {b['completed_files']}/{b['total_files']} files ({pct:.0f}%)")
+    print(f"  Chunks:    {b['completed_chunks']:,} done")
+    print(f"  Speed:     {speed:.0f} chunks/min")
+    print(f"  Elapsed:   {elapsed}")
+    print(f"  ETA:       {eta}")
+    print(f"  Errors:    {b.get('failed_files', 0)}")
+
+    if b.get("current_file"):
+        cf = b["current_file"]
+        print(f"  Current:   {cf['name'][:70]}")
+        if cf.get("phase"):
+            print(f"    Phase:   {cf['phase']}")
+
+    if b.get("errors"):
+        print(f"\n  Recent errors:")
+        for e in b["errors"][-3:]:
+            print(f"    - {e}")
+
+
+def cmd_query(args):
+    data = {"query": args.text, "limit": args.limit}
+    if args.collection:
+        data["collection"] = args.collection
+    if args.tags:
+        data["tags"] = [t.strip() for t in args.tags.split(",")]
+
+    r = api_call(args.env, "POST", "/api/query", data)
+    if args.json:
+        print(json.dumps(r))
+        return
+
+    results = r.get("results", r) if isinstance(r, dict) else r
+    if not isinstance(results, list):
+        results = r.get("chunks", []) if isinstance(r, dict) else []
+
+    if not results:
+        print("No results.")
+        return
+
+    for i, chunk in enumerate(results):
+        score = chunk.get("score", chunk.get("rerank_score", ""))
+        source = chunk.get("source_name", chunk.get("source", "?"))
+        content = chunk.get("content", "")[:300]
+        tags = chunk.get("tags", [])
+
+        print(f"\n{'─'*70}")
+        print(f"[{i+1}] {source}  (score: {score})")
+        if tags:
+            print(f"    tags: {', '.join(tags)}")
+        print(f"    {content}...")
+    print(f"\n{len(results)} result(s)")
+
+
+def cmd_list(args):
+    params = []
+    if args.collection:
+        params.append(f"collection={args.collection}")
+    qs = "&".join(params)
+    path = f"/api/documents{'?'+qs if qs else ''}"
+
+    r = api_call(args.env, "GET", path)
+    if args.json:
+        print(json.dumps(r))
+        return
+
+    docs = r if isinstance(r, list) else r.get("documents", r.get("sources", []))
+    if not docs:
+        print("No documents.")
+        return
+
+    for d in docs:
+        name = d.get("name", "?")
+        coll = d.get("collection_id", d.get("collection", ""))
+        chunks = d.get("chunk_count", d.get("chunks", "?"))
+        print(f"  {name[:60]:<60} [{coll}] {chunks} chunks")
+    print(f"\n{len(docs)} document(s)")
+
+
+def cmd_ingest_file(args):
+    path = os.path.expanduser(args.path)
+    if not os.path.exists(path):
+        print(f"File not found: {path}", file=sys.stderr)
+        sys.exit(1)
+
+    if args.force:
+        # Delete existing source with same filename first
+        fname = os.path.basename(path)
+        try:
+            docs = api_call(args.env, "GET", "/api/documents")
+            doc_list = docs if isinstance(docs, list) else docs.get("documents", docs.get("sources", []))
+            for d in doc_list:
+                if d.get("name") == fname:
+                    sid = d.get("id", d.get("source_id"))
+                    print(f"  Deleting existing source {sid} ({fname})...")
+                    api_call(args.env, "DELETE", f"/api/documents/{sid}")
+                    break
+        except Exception:
+            pass
+
+    data = {"file_path": path}
+    if args.collection:
+        data["collection"] = args.collection
+
+    r = api_call(args.env, "POST", "/api/ingest/file", data)
+    if args.json:
+        print(json.dumps(r))
+        return
+    print(json.dumps(r, indent=2))
+
+
+def cmd_ingest_batch(args):
+    paths = [os.path.expanduser(p) for p in args.paths]
+    # Verify all files exist
+    for p in paths:
+        if not os.path.exists(p):
+            print(f"File not found: {p}", file=sys.stderr)
+            sys.exit(1)
+
+    data = {"paths": paths}
+    if args.collection:
+        data["collection"] = args.collection
+
+    r = api_call(args.env, "POST", "/api/ingest/batch", data)
+    if args.json:
+        print(json.dumps(r))
+        return
+    print(json.dumps(r, indent=2))
+
+
+def cmd_ingest_data(args):
+    content = sys.stdin.read()
+    if not content.strip():
+        print("No data on stdin.", file=sys.stderr)
+        sys.exit(1)
+
+    data = {"content": content, "source_name": args.name}
+    if args.collection:
+        data["collection"] = args.collection
+
+    r = api_call(args.env, "POST", "/api/ingest/data", data)
+    if args.json:
+        print(json.dumps(r))
+        return
+    print(json.dumps(r, indent=2))
+
+
+def cmd_delete(args):
+    r = api_call(args.env, "DELETE", f"/api/documents/{args.source_id}")
+    print(json.dumps(r, indent=2))
+
+
+def cmd_neighbors(args):
+    r = api_call(args.env, "GET", f"/api/documents/{args.source_id}/chunks/{args.chunk_index}/neighbors")
+    if args.json:
+        print(json.dumps(r))
+        return
+    for chunk in r.get("chunks", r) if isinstance(r, dict) else r:
+        print(f"\n[chunk {chunk.get('chunk_index', '?')}] {chunk.get('content', '')[:300]}...")
+
+
+def cmd_flush(args):
+    print("Flushing HNSW indexes... (this may take a while)")
+    r = api_call(args.env, "POST", "/api/flush-indexes")
+    print(json.dumps(r, indent=2))
+
+
+def cmd_rebuild(args):
+    print("Rebuilding indexes... (this may take a while)")
+    r = api_call(args.env, "POST", "/api/rebuild-indexes")
+    print(json.dumps(r, indent=2))
+
+
+def cmd_cancel(args):
+    r = api_call(args.env, "POST", "/api/service/cancel-batch")
+    print(json.dumps(r, indent=2))
+
+
+def cmd_stop(args):
+    r = api_call(args.env, "POST", "/api/service/stop")
+    print(json.dumps(r, indent=2))
+
+
+def cmd_monitor(args):
+    """Launch the TUI monitor via SSH on the target instance."""
+    hosts = {"prod": "nova", "test": "aether"}
+    host = hosts[args.env]
+    import subprocess
+    os.execvp("ssh", ["ssh", "-t", host, "~/services/rag-ferrite/rag-ferrite monitor"])
+
+
+# ─── Main ─────────────────────────────────────────────────────────────────────
+
+def main():
+    parser = argparse.ArgumentParser(
+        prog="rag",
+        description="CLI client for rag-ferrite API",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument("--env", choices=["prod", "test"], default="prod",
+                        help="Instance: prod (Nova, default) or test (aether)")
+    parser.add_argument("--json", action="store_true", help="Raw JSON output")
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    sub.add_parser("status", help="Engine status")
+    sub.add_parser("progress", help="Batch ingestion progress")
+
+    q = sub.add_parser("query", help="Search documents")
+    q.add_argument("text", help="Query text")
+    q.add_argument("-c", "--collection", help="Collection name")
+    q.add_argument("-l", "--limit", type=int, default=10, help="Result limit")
+    q.add_argument("-t", "--tags", help="Tag filter (comma-separated)")
+
+    ls = sub.add_parser("list", help="List documents")
+    ls.add_argument("-c", "--collection", help="Collection name")
+
+    ig = sub.add_parser("ingest-file", help="Ingest a file")
+    ig.add_argument("path", help="File path")
+    ig.add_argument("-c", "--collection", help="Collection name")
+    ig.add_argument("--force", action="store_true", help="Delete existing source first")
+
+    ib = sub.add_parser("ingest-batch", help="Ingest multiple files")
+    ib.add_argument("paths", nargs="+", help="File paths")
+    ib.add_argument("-c", "--collection", help="Collection name")
+
+    idata = sub.add_parser("ingest-data", help="Ingest from stdin")
+    idata.add_argument("name", help="Source name")
+    idata.add_argument("-c", "--collection", help="Collection name")
+
+    rm = sub.add_parser("delete", help="Delete a document")
+    rm.add_argument("source_id", help="Source ID")
+
+    nb = sub.add_parser("neighbors", help="Get chunk neighbors")
+    nb.add_argument("source_id")
+    nb.add_argument("chunk_index", type=int)
+
+    sub.add_parser("flush", help="Flush HNSW indexes")
+    sub.add_parser("rebuild", help="Rebuild indexes")
+    sub.add_parser("cancel", help="Cancel running batch")
+    sub.add_parser("stop", help="Stop the server (use with wrapper script for restart)")
+    sub.add_parser("monitor", help="Launch TUI monitor (SSH)")
+
+    args = parser.parse_args()
+
+    commands = {
+        "status": cmd_status,
+        "progress": cmd_progress,
+        "query": cmd_query,
+        "list": cmd_list,
+        "ingest-file": cmd_ingest_file,
+        "ingest-batch": cmd_ingest_batch,
+        "ingest-data": cmd_ingest_data,
+        "delete": cmd_delete,
+        "neighbors": cmd_neighbors,
+        "flush": cmd_flush,
+        "rebuild": cmd_rebuild,
+        "cancel": cmd_cancel,
+        "stop": cmd_stop,
+        "monitor": cmd_monitor,
+    }
+
+    commands[args.command](args)
+
+
+if __name__ == "__main__":
+    main()

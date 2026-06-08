@@ -19,6 +19,7 @@ pub mod query;
 pub mod benchmark;
 pub mod tags;
 pub mod chunk_counter;
+pub mod cancel;
 pub mod heat;
 pub mod tag_routing;
 
