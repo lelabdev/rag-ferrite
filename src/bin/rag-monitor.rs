@@ -2,7 +2,7 @@
 //!
 //! Config via env vars:
 //!   RAG_MONITOR_URL     — base URL (default: http://100.97.67.73:4242)
-//!   RAG_MONITOR_KEY     — API key, sent as Authorization: Bearer header
+//!   RAG_MONITOR_KEY     — API key, sent as Authorization: Bearer ***
 //!   RAG_MONITOR_REFRESH — poll interval in seconds (default: 5)
 
 use std::io;
@@ -70,6 +70,19 @@ struct StatusResponse {
 }
 
 #[derive(serde::Deserialize, Default)]
+struct ActivityEvent {
+    #[allow(dead_code)]
+    timestamp: u64,
+    message: String,
+    event_type: String,
+}
+
+#[derive(serde::Deserialize, Default)]
+struct ActivityLogResponse {
+    events: Vec<ActivityEvent>,
+}
+
+#[derive(serde::Deserialize, Default)]
 struct ProgressResponse {
     #[allow(dead_code)]
     status: Option<String>,
@@ -78,14 +91,19 @@ struct ProgressResponse {
     current_source: Option<String>,
     #[allow(dead_code)]
     last_error: Option<String>,
+    #[serde(default)]
+    activity_log: ActivityLogResponse,
 }
 
 #[derive(serde::Deserialize, Default)]
 struct BatchProgress {
+    #[allow(dead_code)]
     batch_id: Option<String>,
+    #[allow(dead_code)]
     status: Option<String>,
     total_files: usize,
     completed_files: usize,
+    #[allow(dead_code)]
     failed_files: usize,
     #[allow(dead_code)]
     total_chunks: usize,
@@ -95,6 +113,7 @@ struct BatchProgress {
     avg_time_per_file_seconds: Option<f64>,
     elapsed_seconds: Option<f64>,
     eta_seconds: Option<f64>,
+    #[allow(dead_code)]
     error_rate: Option<f64>,
     #[serde(default)]
     #[allow(dead_code)]
@@ -110,7 +129,9 @@ struct BatchProgress {
 struct CurrentFile {
     name: Option<String>,
     phase: Option<String>,
+    #[allow(dead_code)]
     chunks_done: Option<usize>,
+    #[allow(dead_code)]
     chunks_total: Option<usize>,
 }
 
@@ -158,6 +179,7 @@ struct App {
     spinner_idx: usize,
     pendulum_frames: Vec<String>,
     show_help: bool,
+    show_files: bool,
     action_msg: Option<(String, Instant)>,
 }
 
@@ -173,6 +195,7 @@ impl App {
             spinner_idx: 0,
             pendulum_frames: generate_pendulum_frames(),
             show_help: false,
+            show_files: false,
             action_msg: None,
         }
     }
@@ -307,391 +330,518 @@ fn render_progress_bar<'a>(
     spans
 }
 
+// ── Activity event color ──
+
+fn event_color(event_type: &str) -> Color {
+    match event_type {
+        "embedding" => Color::Cyan,
+        "llm" => Color::Yellow,
+        "chunking" => Color::Green,
+        "error" => Color::Red,
+        _ => Color::Gray,
+    }
+}
+
 // ── UI ──
 
 fn ui(f: &mut Frame, app: &mut App) {
     let size = f.area();
     let batch = app.progress.as_ref().and_then(|p| p.batch.as_ref());
+    let has_batch = batch.is_some();
 
-    // Layout: header | lists | footer
-    let chunks = Layout::default()
+    // ── Compute section heights ──
+    // Top: header(1) + blank(1) + filename(1) + bar(1) + phase(1) + blank(1) + stats(2) + blank(1) = 9
+    // Idle: header(1) + idle line(1) = 2
+    let top_h: u16 = if has_batch { 9 } else { 2 };
+    let fl_h: u16 = if app.show_files && has_batch {
+        std::cmp::min(10, size.height.saturating_sub(top_h + 4))
+    } else {
+        0
+    };
+
+    let outer = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Min(12),   // header
-            Constraint::Min(10),   // lists
+            Constraint::Length(top_h),
+            Constraint::Length(fl_h),
+            Constraint::Min(2), // activity log (separator + at least 1 event)
             Constraint::Length(1), // footer
         ])
         .split(size);
 
-    // ── Header ──
-    let header = Block::default().borders(Borders::TOP).title(Span::styled(
-        " rag-monitor ",
-        Style::default()
-            .fg(Color::Cyan)
-            .add_modifier(Modifier::BOLD),
-    ));
-    f.render_widget(header, chunks[0]);
-
-    let inner = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(2), // status line + bar
-            Constraint::Length(1), // pct
-            Constraint::Length(1), // blank
-            Constraint::Length(4), // stats
-            Constraint::Length(1), // server info
-        ])
-        .margin(1)
-        .split(chunks[0]);
-
-    // Status line
-    let status_str = batch
-        .map(|b| b.status.as_deref().unwrap_or("?"))
-        .unwrap_or("connecting...");
-    let total = batch.map(|b| b.total_files).unwrap_or(0);
-    let done = batch.map(|b| b.completed_files).unwrap_or(0);
-    let pct = if total > 0 {
-        done as f64 / total as f64 * 100.0
-    } else {
-        0.0
-    };
-    let bid = batch
-        .and_then(|b| b.batch_id.as_deref())
-        .map(|id| &id[id.len().saturating_sub(8)..])
-        .unwrap_or("????????");
-
+    // ══════════════════════════════════════════════════════════════════
+    // ── Header (always rendered) ──
+    // ══════════════════════════════════════════════════════════════════
+    let version = app
+        .status
+        .as_ref()
+        .and_then(|s| s.version.as_deref())
+        .unwrap_or("?");
+    let doc_count = app
+        .status
+        .as_ref()
+        .and_then(|s| s.document_count)
+        .unwrap_or(0);
     let spinner_char = SPINNER[app.spinner_idx % SPINNER.len()];
-    let badge = match status_str {
-        "running" => Span::styled(
-            format!("{} RUNNING", spinner_char),
-            Style::default().fg(Color::Yellow),
-        ),
-        "completed" => Span::styled("✓ DONE", Style::default().fg(Color::Green)),
-        "failed" => Span::styled("✗ FAILED", Style::default().fg(Color::Red)),
-        _ => Span::styled(
-            status_str.to_uppercase(),
-            Style::default().fg(Color::DarkGray),
-        ),
-    };
 
-    let status_line = Line::from(vec![
-        Span::raw("  "),
-        badge,
-        Span::raw(" "),
-        Span::styled(
-            format!("— batch {}", bid),
-            Style::default().fg(Color::DarkGray),
-        ),
-        Span::styled(
-            if total > 0 {
-                format!("    {:.0}% ({}/{})", pct, done, total)
-            } else {
-                "    waiting…".to_string()
-            },
-            Style::default().fg(Color::White),
-        ),
-    ]);
-    f.render_widget(Paragraph::new(status_line), inner[0]);
-
-    // Progress bar + stats — only when a batch is running
-    if batch.is_some() {
-    let bar_spans = render_progress_bar(pct, app.spinner_idx, 50, &app.pendulum_frames);
-    let mut bar_line_spans = vec![Span::raw("  [")];
-    bar_line_spans.extend(bar_spans);
-    bar_line_spans.push(Span::raw("]"));
-    f.render_widget(Paragraph::new(Line::from(bar_line_spans)), inner[1]);
-
-    // Stats
-    if let Some(b) = batch {
-        let speed = b.speed_chunks_per_min.unwrap_or(0.0);
-        let avg_file = b.avg_time_per_file_seconds.unwrap_or(0.0);
-        let elapsed = fmt_duration(b.elapsed_seconds);
-        let eta = fmt_duration(b.eta_seconds);
-        let err_count = b.failed_files;
-        let err_rate = b.error_rate.unwrap_or(0.0);
-        let size_mb = b.total_size_mb.unwrap_or(0.0);
-        let chunks_done = b.completed_chunks;
-
-        let speed_color = if speed >= 100.0 {
-            Color::Green
-        } else {
-            Color::Yellow
-        };
-        let stats_lines = vec![
-            Line::from(vec![
-                Span::styled(
-                    format!("  Chunks   {:>6}", chunks_done),
-                    Style::default().fg(Color::Cyan),
-                ),
-                Span::raw("          "),
-                Span::styled(
-                    format!("Size      {:>8.1} MB", size_mb),
-                    Style::default().fg(Color::White),
-                ),
-            ]),
-            Line::from(vec![
-                Span::styled(
-                    format!("  Speed    {:>6.0} chunks/min", speed),
-                    Style::default().fg(speed_color),
-                ),
-                Span::raw("     "),
-                Span::styled(
-                    format!("Avg/file  {:>8.1}s", avg_file),
-                    Style::default().fg(Color::White),
-                ),
-            ]),
-            Line::from(vec![
-                Span::styled(
-                    format!("  Elapsed  {:>6}", elapsed),
-                    Style::default().fg(Color::White),
-                ),
-                Span::raw("       "),
-                Span::styled(
-                    format!("ETA       {:>8}", eta),
-                    Style::default().fg(Color::Magenta),
-                ),
-            ]),
-            Line::from(vec![Span::styled(
-                format!("  Errors   {:>6} ({:.1}%)", err_count, err_rate),
-                Style::default().fg(if err_count > 0 {
-                    Color::Red
-                } else {
-                    Color::White
-                }),
-            )]),
-        ];
-        f.render_widget(Paragraph::new(stats_lines), inner[3]);
-    } else if let Some(e) = &app.error {
-        let err_line = Line::from(vec![Span::styled(
-            format!("  ⚠ Connection error: {}", e),
-            Style::default().fg(Color::Red),
-        )]);
-        f.render_widget(Paragraph::new(err_line), inner[3]);
-    }
-    } // end if batch.is_some()
-
-    // Server status line (version + doc count)
-    if let Some(s) = &app.status {
-        let version = s.version.as_deref().unwrap_or("?");
-        let doc_count = s.document_count.unwrap_or(0);
-        let server_line = Line::from(vec![Span::styled(
-            format!("  Server v{} • {} documents", version, doc_count),
-            Style::default().fg(Color::DarkGray),
-        )]);
-        f.render_widget(Paragraph::new(server_line), inner[4]);
-    }
-
-    // ── Lists ──
-    let list_area = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(55), Constraint::Percentage(45)])
-        .split(chunks[1]);
-
-    // Completed files
-    let completed_items: Vec<ListItem> = batch
-        .map(|b| {
-            b.files
-                .iter()
-                .rev()
-                .map(|f| {
-                    let name = f.name.as_deref().unwrap_or("?");
-                    let chunks = f.chunks.unwrap_or(0);
-                    let dur = f.duration_seconds.unwrap_or(0.0);
-                    let status_icon = match f.status.as_deref() {
-                        Some("ok") | Some("completed") => "✓",
-                        Some("error") | Some("failed") => "✗",
-                        _ => "?",
-                    };
-                    let color_raw = match f.status.as_deref() {
-                        Some("ok") | Some("completed") => Color::Green,
-                        Some("error") | Some("failed") => Color::Red,
-                        _ => Color::Yellow,
-                    };
-                    let text = format!(" {:<48} {:>4}ch {:>6.1}s", truncate(name, 48), chunks, dur);
-                    ListItem::new(Line::from(vec![
-                        Span::styled(format!("{} ", status_icon), Style::default().fg(color_raw)),
-                        Span::styled(text, Style::default().fg(color_raw)),
-                    ]))
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-
-    let completed_title = format!(
-        " Completed ({}) ",
-        batch.map(|b| b.completed_files).unwrap_or(0)
-    );
-    let completed_block = Block::default().borders(Borders::ALL).title(Span::styled(
-        completed_title,
-        Style::default()
-            .fg(if app.focus == Panel::Completed {
-                Color::Cyan
-            } else {
-                Color::DarkGray
-            })
-            .add_modifier(if app.focus == Panel::Completed {
-                Modifier::BOLD
-            } else {
-                Modifier::empty()
-            }),
-    ));
-    let mut completed_state = ListState::default();
-    if app.focus == Panel::Completed && !completed_items.is_empty() {
-        completed_state.select(Some(app.scroll_completed));
-    }
-    let completed_list = List::new(completed_items)
-        .block(completed_block)
-        .highlight_style(
-            Style::default()
-                .fg(Color::Black)
-                .bg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        )
-        .highlight_symbol("▶ ");
-    f.render_stateful_widget(completed_list, list_area[0], &mut completed_state);
-
-    // Right panel: current file + queue
-    let right_chunks = Layout::default()
+    // Header uses first line of top section
+    let top_lines = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(5), Constraint::Min(5)])
-        .split(list_area[1]);
-
-    // Current file
-    let current_lines = batch
-        .and_then(|b| b.current_file.as_ref())
-        .map(|cf| {
-            let name = cf.name.as_deref().unwrap_or("?");
-            let phase = cf.phase.as_deref().unwrap_or("?");
-            let chunks_done = cf.chunks_done.unwrap_or(0);
-            let chunks_total = cf.chunks_total.unwrap_or(0);
+        .constraints(if has_batch {
             vec![
-                Line::from(vec![
-                    Span::styled(" ▶ ", Style::default().fg(Color::Yellow)),
-                    Span::styled(truncate(name, 38), Style::default().fg(Color::White)),
-                ]),
-                Line::from(vec![Span::styled(
-                    format!("   phase: {}", phase),
-                    Style::default().fg(Color::DarkGray),
-                )]),
-                Line::from(vec![Span::styled(
-                    format!("   chunks: {}/{}", chunks_done, chunks_total),
-                    Style::default().fg(Color::DarkGray),
-                )]),
+                Constraint::Length(1), // 0: header
+                Constraint::Length(1), // 1: blank
+                Constraint::Length(1), // 2: file name
+                Constraint::Length(1), // 3: progress bar
+                Constraint::Length(1), // 4: phase
+                Constraint::Length(1), // 5: blank
+                Constraint::Length(1), // 6: stats line 1
+                Constraint::Length(1), // 7: stats line 2
+                Constraint::Length(1), // 8: blank
+            ]
+        } else {
+            vec![
+                Constraint::Length(1), // 0: header
+                Constraint::Length(1), // 1: idle/error line
             ]
         })
-        .unwrap_or_else(|| {
-            vec![Line::from(Span::styled(
-                "  idle",
-                Style::default().fg(Color::DarkGray),
-            ))]
-        });
+        .split(outer[0]);
 
-    let current_block = Block::default().borders(Borders::ALL).title(Span::styled(
-        " Current ",
-        Style::default().fg(Color::Yellow),
-    ));
-    f.render_widget(
-        Paragraph::new(current_lines).block(current_block),
-        right_chunks[0],
-    );
-
-    // Queue (pending files)
-    let queue_items: Vec<ListItem> = batch
-        .map(|b| {
-            b.pending_files
-                .iter()
-                .map(|name| {
-                    ListItem::new(Line::from(vec![Span::styled(
-                        format!(" {}", truncate(name, 42)),
-                        Style::default().fg(Color::Gray),
-                    )]))
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-
-    let queue_title = format!(
-        " Queue ({}) ",
-        batch.map(|b| b.pending_files.len()).unwrap_or(0)
-    );
-    let queue_block = Block::default().borders(Borders::ALL).title(Span::styled(
-        queue_title,
-        Style::default()
-            .fg(if app.focus == Panel::Queue {
-                Color::Cyan
-            } else {
-                Color::DarkGray
-            })
-            .add_modifier(if app.focus == Panel::Queue {
-                Modifier::BOLD
-            } else {
-                Modifier::empty()
-            }),
-    ));
-    let mut queue_state = ListState::default();
-    if app.focus == Panel::Queue && !queue_items.is_empty() {
-        queue_state.select(Some(app.scroll_pending));
-    }
-    let queue_list = List::new(queue_items)
-        .block(queue_block)
-        .highlight_style(
+    // Header line: rag-ferrite v5.0.0 • 132 docs  [or spinner if batch running]
+    {
+        let mut header_spans = vec![Span::styled(
+            format!(" rag-ferrite v{} • {} docs", version, doc_count),
             Style::default()
-                .fg(Color::Black)
-                .bg(Color::Cyan)
+                .fg(Color::Cyan)
                 .add_modifier(Modifier::BOLD),
-        )
-        .highlight_symbol("▶ ");
-    f.render_stateful_widget(queue_list, right_chunks[1], &mut queue_state);
+        )];
+        if has_batch {
+            header_spans.push(Span::styled(
+                format!("  {}", spinner_char),
+                Style::default().fg(Color::Yellow),
+            ));
+        }
+        f.render_widget(Paragraph::new(Line::from(header_spans)), top_lines[0]);
+    }
 
-    // ── Footer ──
-    let key_style = Style::default()
-        .fg(Color::Cyan)
-        .add_modifier(Modifier::BOLD);
-    let dim_style = Style::default().fg(Color::DarkGray);
-    // Footer: action feedback or key hints
-    if let Some((msg, ts)) = &app.action_msg {
-        if ts.elapsed() < Duration::from_secs(5) {
-            let color = if msg.starts_with('✓') { Color::Green } else { Color::Red };
-            let footer = Line::from(vec![
-                Span::styled(msg.clone(), Style::default().fg(color)),
-            ]);
-            f.render_widget(Paragraph::new(footer), chunks[2]);
+    if has_batch {
+        if let Some(b) = batch {
+            // ── File name (bold) ──
+            let name = b
+                .current_file
+                .as_ref()
+                .and_then(|cf| cf.name.as_deref())
+                .unwrap_or("?");
+            let max_name = top_lines[2].width as usize;
+            f.render_widget(
+                Paragraph::new(Line::from(vec![Span::styled(
+                    format!(" {}", truncate(name, max_name.saturating_sub(1))),
+                    Style::default()
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD),
+                )])),
+                top_lines[2],
+            );
+
+            // ── Progress bar + file progress ──
+            let done = b.completed_files;
+            let total = b.total_files;
+            let pct = if total > 0 {
+                done as f64 / total as f64 * 100.0
+            } else {
+                0.0
+            };
+            let file_info = if total > 0 {
+                format!(" {:>3.0}%  {}/{}", pct, done, total)
+            } else {
+                "  waiting…".to_string()
+            };
+            let bar_len = (top_lines[3].width as usize)
+                .saturating_sub(3 + file_info.len()) // " [" + "]" + file_info
+                .max(10);
+            let bar_spans = render_progress_bar(pct, app.spinner_idx, bar_len, &app.pendulum_frames);
+            let mut bar_line = vec![Span::raw(" [")];
+            bar_line.extend(bar_spans);
+            bar_line.push(Span::raw("]"));
+            bar_line.push(Span::styled(
+                file_info,
+                Style::default().fg(Color::White),
+            ));
+            f.render_widget(Paragraph::new(Line::from(bar_line)), top_lines[3]);
+
+            // ── Phase + chunks + speed ──
+            let phase = b
+                .current_file
+                .as_ref()
+                .and_then(|cf| cf.phase.as_deref())
+                .unwrap_or("processing");
+            let chunks = b.completed_chunks;
+            let speed = b.speed_chunks_per_min.unwrap_or(0.0);
+            let speed_fmt = if speed >= 1.0 {
+                format!("{:.0}", speed)
+            } else {
+                "—".to_string()
+            };
+            f.render_widget(
+                Paragraph::new(Line::from(vec![
+                    Span::styled(
+                        format!(" {}", phase),
+                        Style::default().fg(Color::Yellow),
+                    ),
+                    Span::raw(" • "),
+                    Span::styled(
+                        format!("{} chunks", chunks),
+                        Style::default().fg(Color::Cyan),
+                    ),
+                    Span::raw(" • "),
+                    Span::styled(
+                        format!("{}/min", speed_fmt),
+                        Style::default().fg(Color::Green),
+                    ),
+                ])),
+                top_lines[4],
+            );
+
+            // ── Stats line 1: Speed + Avg/file ──
+            let speed = b.speed_chunks_per_min.unwrap_or(0.0);
+            let avg_file = b.avg_time_per_file_seconds.unwrap_or(0.0);
+            let speed_str = if speed >= 1.0 {
+                format!("{:.0}/min", speed)
+            } else {
+                "—".to_string()
+            };
+            let avg_str = if avg_file > 0.0 {
+                format!("{:.1}s", avg_file)
+            } else {
+                "—".to_string()
+            };
+            f.render_widget(
+                Paragraph::new(Line::from(vec![
+                    Span::styled(" Speed  ", Style::default().fg(Color::DarkGray)),
+                    Span::styled(
+                        format!("{:>8}", speed_str),
+                        Style::default().fg(Color::White),
+                    ),
+                    Span::raw("    "),
+                    Span::styled("Avg/file  ", Style::default().fg(Color::DarkGray)),
+                    Span::styled(
+                        format!("{:>6}", avg_str),
+                        Style::default().fg(Color::White),
+                    ),
+                ])),
+                top_lines[6],
+            );
+
+            // ── Stats line 2: Elapsed + ETA + Size ──
+            let elapsed = fmt_duration(b.elapsed_seconds);
+            let eta = fmt_duration(b.eta_seconds);
+            let size_mb = b.total_size_mb.unwrap_or(0.0);
+            f.render_widget(
+                Paragraph::new(Line::from(vec![
+                    Span::styled(" Elapsed ", Style::default().fg(Color::DarkGray)),
+                    Span::styled(
+                        format!("{:>6}", elapsed),
+                        Style::default().fg(Color::White),
+                    ),
+                    Span::raw("   "),
+                    Span::styled("ETA ", Style::default().fg(Color::DarkGray)),
+                    Span::styled(
+                        format!("{:>6}", eta),
+                        Style::default().fg(Color::Magenta),
+                    ),
+                    Span::raw("   "),
+                    Span::styled("Size ", Style::default().fg(Color::DarkGray)),
+                    Span::styled(
+                        format!("{:.1} MB", size_mb),
+                        Style::default().fg(Color::White),
+                    ),
+                ])),
+                top_lines[7],
+            );
+        }
+    } else {
+        // ── Idle / error state ──
+        if let Some(e) = &app.error {
+            f.render_widget(
+                Paragraph::new(Line::from(vec![Span::styled(
+                    format!(" ⚠ {}", e),
+                    Style::default().fg(Color::Red),
+                )])),
+                top_lines[1],
+            );
+        } else if app.progress.is_some() {
+            f.render_widget(
+                Paragraph::new(Line::from(vec![Span::styled(
+                    " Idle — no batch running",
+                    Style::default().fg(Color::DarkGray),
+                )])),
+                top_lines[1],
+            );
         } else {
-            app.action_msg = None;
+            f.render_widget(
+                Paragraph::new(Line::from(vec![Span::styled(
+                    format!(" {} Connecting…", spinner_char),
+                    Style::default().fg(Color::Yellow),
+                )])),
+                top_lines[1],
+            );
         }
     }
-    if app.action_msg.is_none() {
-        let footer = Line::from(vec![
-            Span::styled("TAB", key_style),
-            Span::styled(" switch ", dim_style),
-            Span::styled("•", dim_style),
-            Span::styled(" ↑↓", key_style),
-            Span::styled(" scroll ", dim_style),
-            Span::styled("•", dim_style),
-            Span::styled(" c", key_style),
-            Span::styled(" cancel ", dim_style),
-            Span::styled("•", dim_style),
-            Span::styled(" x", key_style),
-            Span::styled(" stop ", dim_style),
-            Span::styled("•", dim_style),
-            Span::styled(" r", key_style),
-            Span::styled(" rebuild ", dim_style),
-            Span::styled("•", dim_style),
-            Span::styled(" f", key_style),
-            Span::styled(" flush ", dim_style),
-            Span::styled("•", dim_style),
-            Span::styled(" ?", key_style),
-            Span::styled(" help ", dim_style),
-            Span::styled("•", dim_style),
-            Span::styled(" q", key_style),
-            Span::styled(" quit", dim_style),
-        ]);
-        f.render_widget(Paragraph::new(footer), chunks[2]);
+
+    // ══════════════════════════════════════════════════════════════════
+    // ── File lists (toggled with 'l') ──
+    // ══════════════════════════════════════════════════════════════════
+    if app.show_files && has_batch && fl_h > 0 {
+        let list_area = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(55), Constraint::Percentage(45)])
+            .split(outer[1]);
+
+        // ── Completed files ──
+        let completed_items: Vec<ListItem> = batch
+            .map(|b| {
+                b.files
+                    .iter()
+                    .rev()
+                    .map(|f| {
+                        let name = f.name.as_deref().unwrap_or("?");
+                        let chunks = f.chunks.unwrap_or(0);
+                        let dur = f.duration_seconds.unwrap_or(0.0);
+                        let status_icon = match f.status.as_deref() {
+                            Some("ok") | Some("completed") => "✓",
+                            Some("error") | Some("failed") => "✗",
+                            _ => "?",
+                        };
+                        let color_raw = match f.status.as_deref() {
+                            Some("ok") | Some("completed") => Color::Green,
+                            Some("error") | Some("failed") => Color::Red,
+                            _ => Color::Yellow,
+                        };
+                        let text = format!(
+                            " {:<36} {:>4}ch {:>6.1}s",
+                            truncate(name, 36),
+                            chunks,
+                            dur
+                        );
+                        ListItem::new(Line::from(vec![
+                            Span::styled(
+                                format!("{} ", status_icon),
+                                Style::default().fg(color_raw),
+                            ),
+                            Span::styled(text, Style::default().fg(color_raw)),
+                        ]))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let completed_title = format!(
+            " Completed ({}) ",
+            batch.map(|b| b.completed_files).unwrap_or(0)
+        );
+        let completed_block = Block::default().borders(Borders::ALL).title(Span::styled(
+            completed_title,
+            Style::default()
+                .fg(if app.focus == Panel::Completed {
+                    Color::Cyan
+                } else {
+                    Color::DarkGray
+                })
+                .add_modifier(if app.focus == Panel::Completed {
+                    Modifier::BOLD
+                } else {
+                    Modifier::empty()
+                }),
+        ));
+        let mut completed_state = ListState::default();
+        if app.focus == Panel::Completed && !completed_items.is_empty() {
+            completed_state.select(Some(app.scroll_completed));
+        }
+        let completed_list = List::new(completed_items)
+            .block(completed_block)
+            .highlight_style(
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            )
+            .highlight_symbol("▶ ");
+        f.render_stateful_widget(completed_list, list_area[0], &mut completed_state);
+
+        // ── Queue (pending files) ──
+        let queue_items: Vec<ListItem> = batch
+            .map(|b| {
+                b.pending_files
+                    .iter()
+                    .map(|name| {
+                        ListItem::new(Line::from(vec![Span::styled(
+                            format!(" {}", truncate(name, 36)),
+                            Style::default().fg(Color::Gray),
+                        )]))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let queue_title = format!(
+            " Queue ({}) ",
+            batch.map(|b| b.pending_files.len()).unwrap_or(0)
+        );
+        let queue_block = Block::default().borders(Borders::ALL).title(Span::styled(
+            queue_title,
+            Style::default()
+                .fg(if app.focus == Panel::Queue {
+                    Color::Cyan
+                } else {
+                    Color::DarkGray
+                })
+                .add_modifier(if app.focus == Panel::Queue {
+                    Modifier::BOLD
+                } else {
+                    Modifier::empty()
+                }),
+        ));
+        let mut queue_state = ListState::default();
+        if app.focus == Panel::Queue && !queue_items.is_empty() {
+            queue_state.select(Some(app.scroll_pending));
+        }
+        let queue_list = List::new(queue_items)
+            .block(queue_block)
+            .highlight_style(
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            )
+            .highlight_symbol("▶ ");
+        f.render_stateful_widget(queue_list, list_area[1], &mut queue_state);
     }
 
+    // ══════════════════════════════════════════════════════════════════
+    // ── Activity log ──
+    // ══════════════════════════════════════════════════════════════════
+    {
+        let act_area = outer[2];
+        if act_area.height < 1 {
+            // skip if no space
+        } else {
+            let act_layout = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Length(1), // separator
+                    Constraint::Min(0),    // events
+                ])
+                .split(act_area);
+
+            // Separator: "── Activity ──────────────────────────"
+            let label = " Activity ";
+            let sep_total = act_layout[0].width as usize;
+            let sep_dashes = sep_total.saturating_sub(label.len() + 1); // " " + label + dashes
+            let sep_line = format!(
+                " {}{}{}",
+                "─".repeat(2),
+                label,
+                "─".repeat(sep_dashes.saturating_sub(2)),
+            );
+            f.render_widget(
+                Paragraph::new(Line::from(Span::styled(
+                    sep_line,
+                    Style::default().fg(Color::DarkGray),
+                ))),
+                act_layout[0],
+            );
+
+            // Events
+            let events = app
+                .progress
+                .as_ref()
+                .map(|p| &p.activity_log.events)
+                .map(|e| e.as_slice())
+                .unwrap_or(&[]);
+
+            let max_events = act_layout[1].height as usize;
+            let start = events.len().saturating_sub(max_events);
+
+            if events.is_empty() {
+                f.render_widget(
+                    Paragraph::new(Line::from(Span::styled(
+                        " No activity",
+                        Style::default().fg(Color::DarkGray),
+                    ))),
+                    act_layout[1],
+                );
+            } else {
+                let lines: Vec<Line> = events[start..]
+                    .iter()
+                    .map(|ev| {
+                        let color = event_color(&ev.event_type);
+                        Line::from(vec![
+                            Span::styled(" → ", Style::default().fg(color)),
+                            Span::styled(&ev.message, Style::default().fg(color)),
+                        ])
+                    })
+                    .collect();
+                f.render_widget(Paragraph::new(lines), act_layout[1]);
+            }
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════════
+    // ── Footer ──
+    // ══════════════════════════════════════════════════════════════════
+    {
+        let footer_area = outer[3];
+        // Action feedback overlay (5 seconds)
+        if let Some((msg, ts)) = &app.action_msg {
+            if ts.elapsed() < Duration::from_secs(5) {
+                let color = if msg.starts_with('✓') {
+                    Color::Green
+                } else {
+                    Color::Red
+                };
+                f.render_widget(
+                    Paragraph::new(Line::from(Span::styled(
+                        msg.clone(),
+                        Style::default().fg(color),
+                    ))),
+                    footer_area,
+                );
+            } else {
+                app.action_msg = None;
+            }
+        }
+        if app.action_msg.is_none() {
+            let k = Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD);
+            let d = Style::default().fg(Color::DarkGray);
+            f.render_widget(
+                Paragraph::new(Line::from(vec![
+                    Span::styled("[c]", k),
+                    Span::styled("ancel ", d),
+                    Span::styled("[r]", k),
+                    Span::styled("ebuild ", d),
+                    Span::styled("[f]", k),
+                    Span::styled("lush ", d),
+                    Span::styled("[x]", k),
+                    Span::styled("top ", d),
+                    Span::styled("[l]", k),
+                    Span::styled("files ", d),
+                    Span::styled("[?]", k),
+                    Span::styled("help ", d),
+                    Span::styled("[q]", k),
+                    Span::styled("uit", d),
+                ])),
+                footer_area,
+            );
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════════
     // ── Help popup ──
+    // ══════════════════════════════════════════════════════════════════
     if app.show_help {
-        let area = centered_rect(50, 50, f.area());
+        let area = centered_rect(50, 55, f.area());
         let block = Block::default().borders(Borders::ALL).title(Span::styled(
             " Help — press ? or Esc to close ",
             Style::default()
@@ -713,12 +863,37 @@ fn ui(f: &mut Frame, app: &mut App) {
                 Span::styled("Scroll list", hd),
             ]),
             Line::from(vec![
+                Span::styled("  l      ", hk),
+                Span::styled("Toggle file lists", hd),
+            ]),
+            Line::from(vec![
                 Span::styled("  ?      ", hk),
                 Span::styled("Toggle this help", hd),
             ]),
             Line::from(vec![
                 Span::styled("  q/Esc  ", hk),
                 Span::styled("Quit", hd),
+            ]),
+            Line::from(""),
+            Line::from(vec![Span::styled(
+                "  Actions:",
+                Style::default().fg(Color::Cyan),
+            )]),
+            Line::from(vec![
+                Span::styled("  c      ", hk),
+                Span::styled("Cancel batch", hd),
+            ]),
+            Line::from(vec![
+                Span::styled("  x      ", hk),
+                Span::styled("Stop server", hd),
+            ]),
+            Line::from(vec![
+                Span::styled("  r      ", hk),
+                Span::styled("Rebuild indexes", hd),
+            ]),
+            Line::from(vec![
+                Span::styled("  f      ", hk),
+                Span::styled("Flush indexes", hd),
             ]),
             Line::from(""),
             Line::from(vec![Span::styled(
@@ -774,7 +949,7 @@ fn main() {
         .or_else(|| std::env::var("RAG_API_KEY_NOVA").ok())
         .or_else(|| {
             let path = std::path::PathBuf::from(
-                std::env::var("HOME").unwrap_or_else(|_| "/home/loops".to_string())
+                std::env::var("HOME").unwrap_or_else(|_| "/home/loops".to_string()),
             )
             .join(".config/rag/api_key_nova");
             std::fs::read_to_string(path).ok().map(|s| s.trim().to_string())
@@ -847,6 +1022,9 @@ fn main() {
                 match key.code {
                     KeyCode::Char('q') | KeyCode::Esc => break,
                     KeyCode::Tab => app.focus = app.focus.next(),
+                    KeyCode::Char('l') => {
+                        app.show_files = !app.show_files;
+                    }
                     KeyCode::Down => match app.focus {
                         Panel::Completed => {
                             let max = app
@@ -886,26 +1064,58 @@ fn main() {
                     KeyCode::Char('?') => app.show_help = true,
                     KeyCode::Char('c') => {
                         match post_action(&base_url, api_key.as_deref(), "/api/service/cancel-batch") {
-                            Ok(msg) => app.action_msg = Some((format!("✓ Cancel: {}", msg), Instant::now())),
-                            Err(e) => app.action_msg = Some((format!("✗ Cancel failed: {}", e), Instant::now())),
+                            Ok(msg) => {
+                                app.action_msg =
+                                    Some((format!("✓ Cancel: {}", msg), Instant::now()))
+                            }
+                            Err(e) => {
+                                app.action_msg =
+                                    Some((format!("✗ Cancel failed: {}", e), Instant::now()))
+                            }
                         }
                     }
                     KeyCode::Char('x') => {
                         match post_action(&base_url, api_key.as_deref(), "/api/service/stop") {
-                            Ok(msg) => app.action_msg = Some((format!("✓ Stop: {}", msg), Instant::now())),
-                            Err(e) => app.action_msg = Some((format!("✗ Stop failed: {}", e), Instant::now())),
+                            Ok(msg) => {
+                                app.action_msg =
+                                    Some((format!("✓ Stop: {}", msg), Instant::now()))
+                            }
+                            Err(e) => {
+                                app.action_msg =
+                                    Some((format!("✗ Stop failed: {}", e), Instant::now()))
+                            }
                         }
                     }
                     KeyCode::Char('r') => {
-                        match post_action(&base_url, api_key.as_deref(), "/api/rebuild-indexes") {
-                            Ok(msg) => app.action_msg = Some((format!("✓ Rebuild: {}", msg), Instant::now())),
-                            Err(e) => app.action_msg = Some((format!("✗ Rebuild failed: {}", e), Instant::now())),
+                        match post_action(
+                            &base_url,
+                            api_key.as_deref(),
+                            "/api/rebuild-indexes",
+                        ) {
+                            Ok(msg) => {
+                                app.action_msg =
+                                    Some((format!("✓ Rebuild: {}", msg), Instant::now()))
+                            }
+                            Err(e) => {
+                                app.action_msg =
+                                    Some((format!("✗ Rebuild failed: {}", e), Instant::now()))
+                            }
                         }
                     }
                     KeyCode::Char('f') => {
-                        match post_action(&base_url, api_key.as_deref(), "/api/flush-indexes") {
-                            Ok(msg) => app.action_msg = Some((format!("✓ Flush: {}", msg), Instant::now())),
-                            Err(e) => app.action_msg = Some((format!("✗ Flush failed: {}", e), Instant::now())),
+                        match post_action(
+                            &base_url,
+                            api_key.as_deref(),
+                            "/api/flush-indexes",
+                        ) {
+                            Ok(msg) => {
+                                app.action_msg =
+                                    Some((format!("✓ Flush: {}", msg), Instant::now()))
+                            }
+                            Err(e) => {
+                                app.action_msg =
+                                    Some((format!("✗ Flush failed: {}", e), Instant::now()))
+                            }
                         }
                     }
                     _ => {}

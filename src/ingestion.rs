@@ -57,6 +57,9 @@ pub struct IngestProgress {
     /// Active batch info (if running a batch)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub batch: Option<BatchProgress>,
+    /// Recent activity events (ring buffer, last 20)
+    #[serde(default)]
+    pub activity_log: engine::activity_log::ActivityLog,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -243,6 +246,8 @@ impl IngestionManager {
                 cf.chunks_done = live_chunks.saturating_sub(chunks_before_file);
             }
         }
+        // Inject activity log snapshot
+        p.activity_log = engine::activity_log::snapshot();
         p
     }
 
@@ -427,6 +432,9 @@ async fn process_batch_job(
 
     // Reset global chunk counter for this batch
     engine::chunk_counter::reset();
+
+    // Reset activity log for this batch
+    engine::activity_log::clear();
 
     // Estimate total chunks based on file sizes (bytes / 800 ≈ chunk count)
     // This gives a realistic ETA instead of avg_time_per_file which is skewed

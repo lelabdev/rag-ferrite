@@ -17,6 +17,7 @@ use super::{
     verify_chunks,
 };
 use super::chunk_counter;
+use super::activity_log;
 
 /// Ingest a text document into the RAG (recursive chunking path).
 pub async fn ingest_text(
@@ -84,6 +85,7 @@ pub async fn ingest_text(
         chunker::chunk_text(content, chunk_size, options.chunk_overlap_ratio, options.merge_last_chunk_threshold)
     };
     tracing::info!("Chunked into {} chunks (size={})", chunks.len(), chunk_size);
+    activity_log::push("chunking", format!("Chunked '{}' into {} chunks (size={})", source_name, chunks.len(), chunk_size));
 
     // Post-chunking verification
     let chunk_texts: Vec<String> = chunks.iter().map(|c| c.content.clone()).collect();
@@ -100,6 +102,7 @@ pub async fn ingest_text(
     let llm_start = Instant::now();
     let context_results: Vec<ContextResult> = if let Some(llm_provider) = llm {
         tracing::info!("Generating context prefixes for {} chunks via LLM...", chunks.len());
+        activity_log::push("llm", format!("Starting contextual retrieval for {} chunks", chunks.len()));
         let (results, failures, skipped) = generate_contexts(
             llm_provider, content, &chunk_texts,
             options.context_batch_size, options.context_max_retries,
@@ -117,6 +120,7 @@ pub async fn ingest_text(
         vec![ContextResult::default(); chunks.len()]
     };
     let llm_duration_ms = llm_start.elapsed().as_millis() as u64;
+    activity_log::push("llm", format!("Contextual retrieval done in {}ms", llm_duration_ms));
 
     // Filter chunks by relevance score if enabled
     let mut filtered_count = 0usize;
@@ -161,8 +165,10 @@ pub async fn ingest_text(
 
     // Batch embed all chunks (with context prefixes)
     let embed_start = Instant::now();
+    activity_log::push("embedding", format!("Embedding {} texts...", final_texts.len()));
     let embeddings = embedder.embed_batch(&final_texts).await?;
     let embedding_duration_ms = embed_start.elapsed().as_millis() as u64;
+    activity_log::push("embedding", format!("Embedding done in {}ms ({} texts)", embedding_duration_ms, final_texts.len()));
 
     // Store original chunk content (not the prefixed version)
     // Collect section_paths, pages, and tags indexed by original chunk.index
@@ -322,6 +328,7 @@ pub(super) async fn generate_contexts(
                 }
                 Err(e) => {
                     tracing::warn!("Context generation failed: {}, using raw content", e);
+                    activity_log::push("error", format!("Context generation failed: {}", e));
                     failures += 1;
                     while results.len() <= global_i {
                         results.push(ContextResult::default());
@@ -438,12 +445,17 @@ async fn process_parent(
     // LLM context generation
     let (context_results, context_failures, context_skipped, llm_ms) = if let Some(ref llm_provider) = llm {
         tracing::info!("Processing parent {}/{} ({} children)...", p_idx + 1, total_parents, children.len());
+        activity_log::push("llm", format!("Parent {}/{}: contextual retrieval for {} children", p_idx + 1, total_parents, children.len()));
         let t = Instant::now();
         let (results, failures, skipped) = generate_contexts(
             llm_provider, &whole_document, &child_texts,
             batch_size, max_retries, child_min_chars,
         ).await;
         let dur = t.elapsed().as_millis() as u64;
+        if failures > 0 {
+            activity_log::push("error", format!("Parent {}/{}: {} context generation failures", p_idx + 1, total_parents, failures));
+        }
+        activity_log::push("llm", format!("Parent {}/{}: context done in {}ms ({} ok, {} skip, {} fail)", p_idx + 1, total_parents, dur, results.iter().filter(|r| r.context.is_some()).count(), skipped, failures));
         (results, failures, skipped, dur)
     } else {
         (vec![ContextResult::default(); child_texts.len()], 0, 0, 0)
@@ -484,9 +496,11 @@ async fn process_parent(
 
     // Embed
     tracing::info!("Embedding {} texts...", final_texts.len());
+    activity_log::push("embedding", format!("Parent {}/{}: embedding {} texts", p_idx + 1, total_parents, final_texts.len()));
     let t = Instant::now();
     let embeddings = embedder.embed_batch(&final_texts).await?;
     let embed_ms = t.elapsed().as_millis() as u64;
+    activity_log::push("embedding", format!("Parent {}/{}: embedding done in {}ms", p_idx + 1, total_parents, embed_ms));
 
     // Build kept data
     let kept_data: Vec<KeptChild> = kept_children.iter().zip(embeddings)
@@ -619,6 +633,7 @@ async fn ingest_text_parent_child(
         "Parent-child chunking: {} parents, {} children",
         total_parents, total_children
     );
+    activity_log::push("chunking", format!("Parent-child chunking: {} parents, {} children for '{}'", total_parents, total_children, source_name));
 
     // Parallel processing: use JoinSet to process up to max_concurrent parents simultaneously.
     // LLM context generation and embedding happen in parallel.
@@ -724,6 +739,7 @@ async fn ingest_text_parent_child(
                 let kept_count = commit_parent_to_db(source_id, &processed.parent_chunk, &processed.kept_data, &collection_id)?;
                 total_kept += kept_count;
                 tracing::info!("Parent {}/{} committed ({} children stored)", processed.p_idx + 1, total_parents, kept_count);
+                activity_log::push("info", format!("Parent {}/{} committed ({} children stored)", processed.p_idx + 1, total_parents, kept_count));
                 // Increment global chunk counter for real-time progress
                 chunk_counter::add(kept_count);
 
