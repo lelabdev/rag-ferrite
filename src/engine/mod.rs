@@ -18,6 +18,7 @@ pub mod search;
 pub mod query;
 pub mod benchmark;
 pub mod tags;
+pub mod chunk_counter;
 pub mod heat;
 pub mod tag_routing;
 
@@ -923,6 +924,8 @@ async fn ingest_text_parent_child(
                 let kept_count = commit_parent_to_db(source_id, &processed.parent_chunk, &processed.kept_data, &collection_id)?;
                 total_kept += kept_count;
                 tracing::info!("Parent {}/{} committed ({} children stored)", processed.p_idx + 1, total_parents, kept_count);
+                // Increment global chunk counter for real-time progress
+                chunk_counter::add(kept_count);
 
                 // Periodic WAL checkpoint to prevent WAL bloat during ingestion
                 if options.wal_checkpoint_interval > 0 && total_kept % options.wal_checkpoint_interval == 0 {

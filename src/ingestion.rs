@@ -223,7 +223,26 @@ impl IngestionManager {
 
     /// Get current progress.
     pub fn get_progress(&self) -> IngestProgress {
-        self.progress.lock().unwrap().clone()
+        let mut p = self.progress.lock().unwrap().clone();
+        // Inject real-time chunk count from the global counter (incremented by engine per parent commit)
+        let live_chunks = engine::chunk_counter::get();
+        if let Some(ref mut batch) = p.batch {
+            batch.completed_chunks = live_chunks;
+            // Recalculate speed and ETA with live data
+            if batch.elapsed_seconds > 0 {
+                batch.speed_chunks_per_min = (live_chunks as f64 / batch.elapsed_seconds as f64) * 60.0;
+                if batch.speed_chunks_per_min > 0.0 && batch.total_estimated_chunks > 0 {
+                    let remaining = batch.total_estimated_chunks.saturating_sub(live_chunks);
+                    batch.eta_seconds = (remaining as f64 / batch.speed_chunks_per_min * 60.0) as u64;
+                }
+            }
+            // Update current file progress
+            if let Some(ref mut cf) = batch.current_file {
+                let chunks_before_file = batch.total_chunks;
+                cf.chunks_done = live_chunks.saturating_sub(chunks_before_file);
+            }
+        }
+        p
     }
 
     /// Queue a flush: rebuild HNSW + BM25 indexes + WAL checkpoint.
@@ -395,6 +414,9 @@ async fn process_batch_job(
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs();
+
+    // Reset global chunk counter for this batch
+    engine::chunk_counter::reset();
 
     // Estimate total chunks based on file sizes (bytes / 800 ≈ chunk count)
     // This gives a realistic ETA instead of avg_time_per_file which is skewed
