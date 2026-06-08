@@ -121,6 +121,7 @@ impl QueryPipeline {
         cache_ttl_secs: u64,
         cache_max_entries: usize,
         high_confidence_threshold: f64,
+        classification: QueryClassificationConfig,
     ) -> Self {
         Self {
             embedder,
@@ -129,7 +130,7 @@ impl QueryPipeline {
             quality_threshold,
             max_retries,
             high_confidence_threshold,
-            classification: QueryClassificationConfig::default(),
+            classification,
             cache: std::sync::Arc::new(Cache::new(
                 std::time::Duration::from_secs(cache_ttl_secs),
                 cache_max_entries,

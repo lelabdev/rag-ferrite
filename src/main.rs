@@ -198,6 +198,21 @@ impl RagFerriteServer {
     async fn reassign_collection(&self, params: Parameters<ReassignCollectionParams>) -> String {
         service::reassign_collection_service(params.0.source_id, &params.0.collection).to_string()
     }
+
+    #[tool(name = "rebuild_indexes", description = "Rebuild HNSW + BM25 indexes for the general collection and run a WAL checkpoint. Use after bulk deletes or if search quality seems degraded.")]
+    async fn rebuild_indexes(&self, _params: Parameters<NoParams>) -> String {
+        tokio::task::spawn_blocking(|| {
+            engine::rebuild_and_save_indexes("general");
+            engine::wal_checkpoint();
+        });
+        "Rebuilding indexes + WAL checkpoint started.".to_string()
+    }
+
+    #[tool(name = "flush_indexes", description = "Flush the incremental HNSW buffer to disk. Makes recently ingested chunks fully persistent and searchable.")]
+    async fn flush_indexes(&self, _params: Parameters<NoParams>) -> String {
+        let val = self.ingestion_manager.flush_indexes();
+        val.to_string()
+    }
 }
 
 #[tokio::main(worker_threads = 12)]
@@ -453,6 +468,7 @@ async fn main() -> Result<()> {
         config.advanced.cache_ttl_secs,
         config.advanced.cache_max_entries,
         config.advanced.high_confidence_threshold,
+        config.query_classification.clone(),
     );
 
     let server = RagFerriteServer {
@@ -474,6 +490,7 @@ async fn main() -> Result<()> {
                 config.advanced.cache_ttl_secs,
                 config.advanced.cache_max_entries,
                 config.advanced.high_confidence_threshold,
+                config.query_classification.clone(),
             )
         }),
         ingestion_llm: ingestion_llm.clone(),
