@@ -763,10 +763,20 @@ fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
 // ── Entry point ──
 
 fn main() {
-    // Config from env
+    // Config from env, falling back to same locations as CLI `rag`
     let base_url =
         std::env::var("RAG_MONITOR_URL").unwrap_or_else(|_| "http://100.97.67.73:4242".to_string());
-    let api_key = std::env::var("RAG_MONITOR_KEY").ok();
+    let api_key = std::env::var("RAG_MONITOR_KEY")
+        .ok()
+        .or_else(|| std::env::var("RAG_API_KEY").ok())
+        .or_else(|| std::env::var("RAG_API_KEY_NOVA").ok())
+        .or_else(|| {
+            let path = std::path::PathBuf::from(
+                std::env::var("HOME").unwrap_or_else(|_| "/home/loops".to_string())
+            )
+            .join(".config/rag/api_key_nova");
+            std::fs::read_to_string(path).ok().map(|s| s.trim().to_string())
+        });
     let refresh_secs: f64 = std::env::var("RAG_MONITOR_REFRESH")
         .ok()
         .and_then(|s| s.parse().ok())
