@@ -3,6 +3,11 @@ use rag_engine::api::source_rag::{self, ChunkSearchResult};
 
 use super::get_conn;
 
+/// Generate a SQL IN clause with N placeholders: "?,?,?,?,?" for N items.
+pub fn in_placeholders(n: usize) -> String {
+    vec!["?"; n].join(",")
+}
+
 /// Fetch section_path for a batch of chunk IDs.
 pub fn get_section_paths_for_chunk_ids(chunk_ids: &[i64]) -> Result<std::collections::HashMap<i64, Option<String>>> {
     if chunk_ids.is_empty() {
@@ -10,11 +15,9 @@ pub fn get_section_paths_for_chunk_ids(chunk_ids: &[i64]) -> Result<std::collect
     }
     let conn = get_conn()?;
 
-    // Build IN clause: SELECT id, section_path FROM chunks WHERE id IN (?,?,...)
-    let placeholders: Vec<&str> = chunk_ids.iter().map(|_| "?").collect();
     let sql = format!(
         "SELECT id, section_path FROM chunks WHERE id IN ({})",
-        placeholders.join(",")
+        in_placeholders(chunk_ids.len())
     );
     let params: Vec<&i64> = chunk_ids.iter().collect();
     let mut stmt = conn.prepare(&sql)?;
@@ -41,8 +44,7 @@ pub fn get_pages_for_chunk_ids(chunk_ids: &[i64]) -> Result<std::collections::Ha
     }
     let conn = get_conn()?;
     let mut map = std::collections::HashMap::new();
-    let placeholders: Vec<String> = chunk_ids.iter().enumerate().map(|(i, _)| format!("?{}", i + 1)).collect();
-    let sql = format!("SELECT id, page FROM chunks WHERE id IN ({})", placeholders.join(","));
+    let sql = format!("SELECT id, page FROM chunks WHERE id IN ({})", in_placeholders(chunk_ids.len()));
     let params: Vec<&dyn rusqlite::types::ToSql> = chunk_ids.iter().map(|id| id as &dyn rusqlite::types::ToSql).collect();
     let mut stmt = conn.prepare(&sql)?;
     let rows = stmt.query_map(params.as_slice(), |row| {
@@ -144,10 +146,9 @@ pub fn resolve_parents(chunk_ids: &[i64]) -> Result<std::collections::HashMap<i6
     let conn = get_conn()?;
 
     // Find children (chunks with chunk_role = 'child' and a parent_id)
-    let placeholders: Vec<&str> = chunk_ids.iter().map(|_| "?").collect();
     let sql = format!(
         "SELECT c.id, c.parent_id FROM chunks c WHERE c.id IN ({}) AND c.chunk_role = 'child'",
-        placeholders.join(",")
+        in_placeholders(chunk_ids.len())
     );
     let params: Vec<&i64> = chunk_ids.iter().collect();
     let mut stmt = conn.prepare(&sql)?;
@@ -164,10 +165,9 @@ pub fn resolve_parents(chunk_ids: &[i64]) -> Result<std::collections::HashMap<i6
 
     // Batch-fetch parent content
     let parent_ids: Vec<i64> = child_rows.iter().map(|(_, pid)| *pid).collect();
-    let parent_placeholders: Vec<&str> = parent_ids.iter().map(|_| "?").collect();
     let parent_sql = format!(
         "SELECT id, content, section_path, page FROM chunks WHERE id IN ({})",
-        parent_placeholders.join(",")
+        in_placeholders(parent_ids.len())
     );
     let parent_params: Vec<&i64> = parent_ids.iter().collect();
     let mut parent_stmt = conn.prepare(&parent_sql)?;

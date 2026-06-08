@@ -115,8 +115,7 @@ pub fn get_tags_for_chunk_ids(chunk_ids: &[i64]) -> Result<std::collections::Has
     let conn = get_conn()?;
     let mut map = std::collections::HashMap::new();
 
-    let placeholders: Vec<String> = chunk_ids.iter().enumerate().map(|(i, _)| format!("?{}", i + 1)).collect();
-    let sql = format!("SELECT chunk_id, tag FROM chunk_tags WHERE chunk_id IN ({}) ORDER BY tag", placeholders.join(","));
+    let sql = format!("SELECT chunk_id, tag FROM chunk_tags WHERE chunk_id IN ({}) ORDER BY tag", crate::engine::query::in_placeholders(chunk_ids.len()));
     let params: Vec<&dyn rusqlite::types::ToSql> = chunk_ids.iter().map(|id| id as &dyn rusqlite::types::ToSql).collect();
     let mut stmt = conn.prepare(&sql)?;
     let rows = stmt.query_map(params.as_slice(), |row| {
