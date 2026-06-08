@@ -1,6 +1,7 @@
 //! rag-ferrite batch monitor — TUI with ratatui
 //! Usage: rag-ferrite monitor [refresh_seconds] [url]
 
+use std::collections::BTreeMap;
 use std::io::{self, Stdout};
 use std::time::{Duration, Instant};
 
@@ -164,6 +165,10 @@ struct App {
     show_stats: bool,
     show_help: bool,
     color_mode: ColorMode,
+    folder_view: bool,
+    expanded_folder: Option<String>,
+    scroll_folders_completed: usize,
+    scroll_folders_queue: usize,
 }
 
 impl App {
@@ -181,6 +186,10 @@ impl App {
             show_stats: true,
             show_help: false,
             color_mode: ColorMode::Full,
+            folder_view: false,
+            expanded_folder: None,
+            scroll_folders_completed: 0,
+            scroll_folders_queue: 0,
         }
     }
 }
@@ -230,6 +239,64 @@ fn truncate(s: &str, max: usize) -> String {
     } else {
         format!("{}…", &s[..max.saturating_sub(1)])
     }
+}
+
+/// Extract the parent folder from a file path (e.g. "@AlexHormozi/video.txt" → "@AlexHormozi").
+fn parent_folder(path: &str) -> &str {
+    match path.rfind('/') {
+        Some(idx) => &path[..idx],
+        None => "",
+    }
+}
+
+/// Folder group stats: (ok_count, failed_count, pending_count)
+struct FolderStats {
+    ok: usize,
+    failed: usize,
+    pending: usize,
+}
+
+/// Build a BTreeMap of folder → stats from completed files and pending files.
+fn build_folder_map(
+    completed_files: &[FileResult],
+    pending_files: &[String],
+) -> BTreeMap<String, FolderStats> {
+    let mut map: BTreeMap<String, FolderStats> = BTreeMap::new();
+
+    for f in completed_files {
+        let name = f.name.as_deref().unwrap_or("?");
+        let folder = if name.contains('/') {
+            parent_folder(name).to_string()
+        } else {
+            "(root)".to_string()
+        };
+        let entry = map.entry(folder).or_insert(FolderStats {
+            ok: 0,
+            failed: 0,
+            pending: 0,
+        });
+        match f.status.as_deref() {
+            Some("ok") | Some("completed") => entry.ok += 1,
+            Some("error") | Some("failed") => entry.failed += 1,
+            _ => {}
+        }
+    }
+
+    for pf in pending_files {
+        let folder = if pf.contains('/') {
+            parent_folder(pf).to_string()
+        } else {
+            "(root)".to_string()
+        };
+        let entry = map.entry(folder).or_insert(FolderStats {
+            ok: 0,
+            failed: 0,
+            pending: 0,
+        });
+        entry.pending += 1;
+    }
+
+    map
 }
 
 /// Resolve a "full" color to the color to actually render, respecting `color_mode`.
@@ -529,51 +596,152 @@ fn ui(f: &mut Frame, app: &mut App) {
         .constraints([Constraint::Percentage(55), Constraint::Percentage(45)])
         .split(chunks[1]);
 
-    // Completed files
-    let completed_items: Vec<ListItem> = batch
-        .map(|b| {
-            b.files
+    // Completed files (or folder groups)
+    let completed_items: Vec<ListItem> = if app.folder_view {
+        if let Some(ref expanded) = app.expanded_folder {
+            // Expanded folder: show individual completed files for this folder
+            batch
+                .map(|b| {
+                    b.files
+                        .iter()
+                        .rev()
+                        .filter(|f| {
+                            let name = f.name.as_deref().unwrap_or("?");
+                            let folder = if name.contains('/') {
+                                parent_folder(name)
+                            } else {
+                                ""
+                            };
+                            folder == expanded.as_str()
+                        })
+                        .map(|f| {
+                            let name = f.name.as_deref().unwrap_or("?");
+                            let chunks = f.chunks.unwrap_or(0);
+                            let dur = f.duration_seconds.unwrap_or(0.0);
+                            let status_icon = match f.status.as_deref() {
+                                Some("ok") | Some("completed") => "✓",
+                                Some("error") | Some("failed") => "✗",
+                                _ => "?",
+                            };
+                            let color_raw = match f.status.as_deref() {
+                                Some("ok") | Some("completed") => Color::Green,
+                                Some("error") | Some("failed") => Color::Red,
+                                _ => Color::Yellow,
+                            };
+                            let file_name =
+                                name.rfind('/').map(|i| &name[i + 1..]).unwrap_or(name);
+                            let text = format!(
+                                " {:<48} {:>4}ch {:>6.1}s",
+                                truncate(file_name, 48),
+                                chunks,
+                                dur
+                            );
+                            ListItem::new(Line::from(vec![
+                                Span::styled(
+                                    format!("{} ", status_icon),
+                                    Style::default().fg(color_for(cm, color_raw)),
+                                ),
+                                Span::styled(
+                                    text,
+                                    Style::default().fg(color_for(cm, color_raw)),
+                                ),
+                            ]))
+                        })
+                        .collect()
+                })
+                .unwrap_or_default()
+        } else {
+            // Folder view: group by parent directory with combined stats
+            let folder_map = batch
+                .map(|b| build_folder_map(&b.files, &b.pending_files))
+                .unwrap_or_default();
+            folder_map
                 .iter()
-                .rev()
-                .map(|f| {
-                    let name = f.name.as_deref().unwrap_or("?");
-                    let chunks = f.chunks.unwrap_or(0);
-                    let dur = f.duration_seconds.unwrap_or(0.0);
-                    let status_icon = match f.status.as_deref() {
-                        Some("ok") | Some("completed") => "✓",
-                        Some("error") | Some("failed") => "✗",
-                        _ => "?",
+                .map(|(folder, stats)| {
+                    let total = stats.ok + stats.failed + stats.pending;
+                    let done = stats.ok + stats.failed;
+                    let icon = if stats.failed > 0 {
+                        "✗"
+                    } else if stats.pending > 0 {
+                        "⏳"
+                    } else {
+                        "✓"
                     };
-                    let color_raw = match f.status.as_deref() {
-                        Some("ok") | Some("completed") => Color::Green,
-                        Some("error") | Some("failed") => Color::Red,
-                        _ => Color::Yellow,
+                    let color = if stats.failed > 0 {
+                        Color::Red
+                    } else if stats.pending > 0 {
+                        Color::Yellow
+                    } else {
+                        Color::Green
                     };
                     let text = format!(
-                        " {:<48} {:>4}ch {:>6.1}s",
-                        truncate(name, 48),
-                        chunks,
-                        dur
+                        " {:<28} {:>3}/{:<3} {}",
+                        truncate(folder, 28),
+                        done,
+                        total,
+                        icon
                     );
-                    ListItem::new(Line::from(vec![
-                        Span::styled(
-                            format!("{} ", status_icon),
-                            Style::default().fg(color_for(cm, color_raw)),
-                        ),
-                        Span::styled(
-                            text,
-                            Style::default().fg(color_for(cm, color_raw)),
-                        ),
-                    ]))
+                    ListItem::new(Line::from(vec![Span::styled(
+                        text,
+                        Style::default().fg(color_for(cm, color)),
+                    )]))
                 })
                 .collect()
-        })
-        .unwrap_or_default();
+        }
+    } else {
+        // Normal view: individual files
+        batch
+            .map(|b| {
+                b.files
+                    .iter()
+                    .rev()
+                    .map(|f| {
+                        let name = f.name.as_deref().unwrap_or("?");
+                        let chunks = f.chunks.unwrap_or(0);
+                        let dur = f.duration_seconds.unwrap_or(0.0);
+                        let status_icon = match f.status.as_deref() {
+                            Some("ok") | Some("completed") => "✓",
+                            Some("error") | Some("failed") => "✗",
+                            _ => "?",
+                        };
+                        let color_raw = match f.status.as_deref() {
+                            Some("ok") | Some("completed") => Color::Green,
+                            Some("error") | Some("failed") => Color::Red,
+                            _ => Color::Yellow,
+                        };
+                        let text = format!(
+                            " {:<48} {:>4}ch {:>6.1}s",
+                            truncate(name, 48),
+                            chunks,
+                            dur
+                        );
+                        ListItem::new(Line::from(vec![
+                            Span::styled(
+                                format!("{} ", status_icon),
+                                Style::default().fg(color_for(cm, color_raw)),
+                            ),
+                            Span::styled(
+                                text,
+                                Style::default().fg(color_for(cm, color_raw)),
+                            ),
+                        ]))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
 
-    let completed_title = format!(
-        " Completed ({}) ",
-        batch.map(|b| b.completed_files).unwrap_or(0)
-    );
+    let completed_title = if app.folder_view && app.expanded_folder.is_none() {
+        let folder_count = batch
+            .map(|b| build_folder_map(&b.files, &b.pending_files).len())
+            .unwrap_or(0);
+        format!(" Folders ({}) ", folder_count)
+    } else {
+        format!(
+            " Completed ({}) ",
+            batch.map(|b| b.completed_files).unwrap_or(0)
+        )
+    };
     let completed_block = Block::default().borders(Borders::ALL).title(Span::styled(
         completed_title,
         Style::default()
@@ -593,7 +761,11 @@ fn ui(f: &mut Frame, app: &mut App) {
     ));
     let mut completed_state = ListState::default();
     if app.focus == Panel::Completed && !completed_items.is_empty() {
-        completed_state.select(Some(app.scroll_completed));
+        if app.folder_view && app.expanded_folder.is_none() {
+            completed_state.select(Some(app.scroll_folders_completed));
+        } else {
+            completed_state.select(Some(app.scroll_completed));
+        }
     }
     let completed_list = List::new(completed_items)
         .block(completed_block)
@@ -667,12 +839,93 @@ fn ui(f: &mut Frame, app: &mut App) {
         right_chunks[0],
     );
 
-    // Queue — scrollable list of pending files
-    let pending_files: Vec<&String> = batch
-        .map(|b| b.pending_files.iter().collect())
-        .unwrap_or_default();
-    let pending_count = pending_files.len();
-    let queue_title = format!(" Queue ({}) ", pending_count);
+    // Queue — scrollable list of pending files (or folder groups)
+    let queue_items: Vec<ListItem> = if app.folder_view {
+        if let Some(ref expanded) = app.expanded_folder {
+            // Expanded folder: show individual pending files for this folder
+            batch
+                .map(|b| {
+                    b.pending_files
+                        .iter()
+                        .filter(|pf| {
+                            let folder = if pf.contains('/') {
+                                parent_folder(pf)
+                            } else {
+                                ""
+                            };
+                            folder == expanded.as_str()
+                        })
+                        .map(|pf| {
+                            let file_name =
+                                pf.rfind('/').map(|i| &pf[i + 1..]).unwrap_or(pf.as_str());
+                            ListItem::new(Line::from(vec![Span::styled(
+                                format!(" {}", truncate(file_name, 42)),
+                                Style::default().fg(color_for(cm, Color::Gray)),
+                            )]))
+                        })
+                        .collect()
+                })
+                .unwrap_or_default()
+        } else {
+            // Folder view: group pending files by parent directory
+            let mut pending_folders: BTreeMap<String, usize> = BTreeMap::new();
+            if let Some(b) = batch {
+                for pf in &b.pending_files {
+                    let folder = if pf.contains('/') {
+                        parent_folder(pf).to_string()
+                    } else {
+                        "(root)".to_string()
+                    };
+                    *pending_folders.entry(folder).or_insert(0) += 1;
+                }
+            }
+            pending_folders
+                .iter()
+                .map(|(folder, count)| {
+                    let text = format!(" {:<28} {:>3} ⏳", truncate(folder, 28), count);
+                    ListItem::new(Line::from(vec![Span::styled(
+                        text,
+                        Style::default().fg(color_for(cm, Color::Yellow)),
+                    )]))
+                })
+                .collect()
+        }
+    } else {
+        // Normal view: individual pending files
+        let pending_files: Vec<&String> = batch
+            .map(|b| b.pending_files.iter().collect())
+            .unwrap_or_default();
+        pending_files
+            .iter()
+            .map(|name| {
+                ListItem::new(Line::from(vec![Span::styled(
+                    format!(" {}", truncate(name, 42)),
+                    Style::default().fg(color_for(cm, Color::Gray)),
+                )]))
+            })
+            .collect()
+    };
+
+    let queue_title = if app.folder_view && app.expanded_folder.is_none() {
+        let pending_folders: BTreeMap<String, usize> = batch
+            .map(|b| {
+                let mut m = BTreeMap::new();
+                for pf in &b.pending_files {
+                    let folder = if pf.contains('/') {
+                        parent_folder(pf).to_string()
+                    } else {
+                        "(root)".to_string()
+                    };
+                    *m.entry(folder).or_insert(0) += 1;
+                }
+                m
+            })
+            .unwrap_or_default();
+        format!(" Queue Folders ({}) ", pending_folders.len())
+    } else {
+        let pending_count = batch.map(|b| b.pending_files.len()).unwrap_or(0);
+        format!(" Queue ({}) ", pending_count)
+    };
     let queue_block = Block::default().borders(Borders::ALL).title(Span::styled(
         queue_title,
         Style::default()
@@ -691,19 +944,13 @@ fn ui(f: &mut Frame, app: &mut App) {
             }),
     ));
 
-    let queue_items: Vec<ListItem> = pending_files
-        .iter()
-        .map(|name| {
-            ListItem::new(Line::from(vec![Span::styled(
-                format!(" {}", truncate(name, 42)),
-                Style::default().fg(color_for(cm, Color::Gray)),
-            )]))
-        })
-        .collect();
-
     let mut queue_state = ListState::default();
     if app.focus == Panel::Queue && !queue_items.is_empty() {
-        queue_state.select(Some(app.scroll_pending));
+        if app.folder_view && app.expanded_folder.is_none() {
+            queue_state.select(Some(app.scroll_folders_queue));
+        } else {
+            queue_state.select(Some(app.scroll_pending));
+        }
     }
     let queue_list = List::new(queue_items)
         .block(queue_block)
@@ -727,6 +974,9 @@ fn ui(f: &mut Frame, app: &mut App) {
         Span::styled("•", dim_style),
         Span::styled(" ↑↓", key_style),
         Span::styled(" scroll ", dim_style),
+        Span::styled("•", dim_style),
+        Span::styled(" g", key_style),
+        Span::styled(" folders ", dim_style),
         Span::styled("•", dim_style),
         Span::styled(" l", key_style),
         Span::styled(" list ", dim_style),
@@ -765,8 +1015,26 @@ fn ui(f: &mut Frame, app: &mut App) {
 
         let help_lines = vec![
             Line::from(""),
-            Line::from(vec![Span::styled("  TAB    ", hk), Span::styled("Switch panel", hd)]),
-            Line::from(vec![Span::styled("  ↑ ↓    ", hk), Span::styled("Scroll list", hd)]),
+            Line::from(vec![
+                Span::styled("  TAB    ", hk),
+                Span::styled("Switch panel", hd),
+            ]),
+            Line::from(vec![
+                Span::styled("  ↑ ↓    ", hk),
+                Span::styled("Scroll list", hd),
+            ]),
+            Line::from(vec![
+                Span::styled("  g      ", hk),
+                Span::styled("Toggle folder grouping view", hd),
+            ]),
+            Line::from(vec![
+                Span::styled("  Enter→ ", hk),
+                Span::styled("Expand folder / open file in less", hd),
+            ]),
+            Line::from(vec![
+                Span::styled("  ← Esc  ", hk),
+                Span::styled("Collapse folder (in folder view)", hd),
+            ]),
             Line::from(vec![
                 Span::styled("  l      ", hk),
                 Span::styled("Toggle lists visibility", hd),
@@ -775,7 +1043,10 @@ fn ui(f: &mut Frame, app: &mut App) {
                 Span::styled("  c      ", hk),
                 Span::styled("Cycle color modes (Full → StatsOnly → Mono)", hd),
             ]),
-            Line::from(vec![Span::styled("  s      ", hk), Span::styled("Toggle stats", hd)]),
+            Line::from(vec![
+                Span::styled("  s      ", hk),
+                Span::styled("Toggle stats", hd),
+            ]),
             Line::from(vec![
                 Span::styled("  o      ", hk),
                 Span::styled("Open selected file in less (Completed/Queue)", hd),
@@ -784,7 +1055,10 @@ fn ui(f: &mut Frame, app: &mut App) {
                 Span::styled("  ?      ", hk),
                 Span::styled("Toggle this help", hd),
             ]),
-            Line::from(vec![Span::styled("  q/Esc  ", hk), Span::styled("Quit", hd)]),
+            Line::from(vec![
+                Span::styled("  q/Esc  ", hk),
+                Span::styled("Quit", hd),
+            ]),
         ];
 
         f.render_widget(Clear, area);
@@ -962,16 +1236,53 @@ pub fn run(args: &[String]) {
                 demo_pct = 0.0;
             }
             let done = (demo_pct / 100.0 * 220.0).round() as usize;
+            let demo_folders = [
+                "@AlexHormozi",
+                "@CodieSanchezCT",
+                "@naval",
+                "@SahilBloom",
+                "@TheKitchen",
+            ];
+            // Generate demo files spread across folders
+            let mut demo_files: Vec<FileResult> = Vec::new();
+            let mut demo_pending: Vec<String> = Vec::new();
+            for i in 0..220 {
+                let folder = demo_folders[i % demo_folders.len()];
+                let file_name = format!("{}/video_{:03}.txt", folder, i);
+                if i < done {
+                    let is_error = done > 50 && done < 55 && (i % 20 == 0);
+                    demo_files.push(FileResult {
+                        name: Some(file_name),
+                        chunks: Some(if is_error { 0 } else { 8 + i % 5 }),
+                        size_mb: Some(1.2 + (i as f64 % 3.0)),
+                        duration_seconds: Some(if is_error { 0.1 } else { 3.0 + (i as f64 % 5.0) }),
+                        status: Some(if is_error {
+                            "error".into()
+                        } else {
+                            "ok".into()
+                        }),
+                    });
+                } else {
+                    demo_pending.push(file_name);
+                }
+            }
             app.data = Some(ProgressResponse {
                 status: Some("running".into()),
-                current_source: Some(format!("demo_file_{:03}.txt", done % 220)),
+                current_source: Some(format!(
+                    "demo_file_{:03}.txt",
+                    done % 220
+                )),
                 last_error: None,
                 batch: Some(BatchProgress {
                     batch_id: Some("demo-batch".into()),
                     status: Some("running".into()),
                     total_files: 220,
                     completed_files: done,
-                    failed_files: if done > 50 && done < 55 { 2 } else { 0 },
+                    failed_files: if done > 50 && done < 55 {
+                        2
+                    } else {
+                        0
+                    },
                     total_chunks: done * 850,
                     completed_chunks: done * 800,
                     total_size_mb: Some(done as f64 * 1.5),
@@ -979,16 +1290,24 @@ pub fn run(args: &[String]) {
                     avg_time_per_file_seconds: Some(4.2),
                     elapsed_seconds: Some(done as f64 * 4.2),
                     eta_seconds: Some((220 - done) as f64 * 4.2),
-                    error_rate: Some(if done > 50 && done < 55 { 3.6 } else { 0.0 }),
+                    error_rate: Some(if done > 50 && done < 55 {
+                        3.6
+                    } else {
+                        0.0
+                    }),
                     errors: Vec::new(),
                     current_file: Some(CurrentFile {
-                        name: Some(format!("video_{}.txt", done + 1)),
+                        name: Some(format!(
+                            "{}/video_{:03}.txt",
+                            demo_folders[(done + 1) % demo_folders.len()],
+                            done + 1
+                        )),
                         phase: Some("embedding".into()),
                         chunks_done: Some(3),
                         chunks_total: Some(12),
                     }),
-                    files: Vec::new(),
-                    pending_files: Vec::new(),
+                    files: demo_files,
+                    pending_files: demo_pending,
                 }),
             });
             app.error = None;
@@ -1024,46 +1343,221 @@ pub fn run(args: &[String]) {
                     continue;
                 }
                 match key.code {
-                    KeyCode::Char('q') | KeyCode::Esc => break,
+                    KeyCode::Char('q') => break,
+                    KeyCode::Esc => {
+                        // Esc collapses folder if expanded, otherwise quits
+                        if app.expanded_folder.is_some() {
+                            app.expanded_folder = None;
+                            app.scroll_completed = 0;
+                            app.scroll_pending = 0;
+                        } else {
+                            break;
+                        }
+                    }
                     KeyCode::Tab => app.focus = app.focus.next(),
+                    KeyCode::Char('g') => {
+                        app.folder_view = !app.folder_view;
+                        app.expanded_folder = None;
+                        app.scroll_completed = 0;
+                        app.scroll_pending = 0;
+                        app.scroll_folders_completed = 0;
+                        app.scroll_folders_queue = 0;
+                    }
                     KeyCode::Down => match app.focus {
                         Panel::Completed => {
-                            let max = app
-                                .data
-                                .as_ref()
-                                .and_then(|d| d.batch.as_ref())
-                                .map(|b| b.files.len().saturating_sub(1))
-                                .unwrap_or(0);
-                            if app.scroll_completed < max {
-                                app.scroll_completed += 1;
+                            if app.folder_view && app.expanded_folder.is_none() {
+                                // Scroll folder list
+                                let max = app
+                                    .data
+                                    .as_ref()
+                                    .and_then(|d| d.batch.as_ref())
+                                    .map(|b| {
+                                        build_folder_map(&b.files, &b.pending_files)
+                                            .len()
+                                            .saturating_sub(1)
+                                    })
+                                    .unwrap_or(0);
+                                if app.scroll_folders_completed < max {
+                                    app.scroll_folders_completed += 1;
+                                }
+                            } else {
+                                let max = if app.folder_view {
+                                    // Expanded folder: count filtered files
+                                    app.data
+                                        .as_ref()
+                                        .and_then(|d| d.batch.as_ref())
+                                        .map(|b| {
+                                            b.files
+                                                .iter()
+                                                .filter(|f| {
+                                                    let name =
+                                                        f.name.as_deref().unwrap_or("?");
+                                                    let folder = if name.contains('/') {
+                                                        parent_folder(name)
+                                                    } else {
+                                                        ""
+                                                    };
+                                                    Some(folder)
+                                                        == app
+                                                            .expanded_folder
+                                                            .as_deref()
+                                                })
+                                                .count()
+                                                .saturating_sub(1)
+                                        })
+                                        .unwrap_or(0)
+                                } else {
+                                    app.data
+                                        .as_ref()
+                                        .and_then(|d| d.batch.as_ref())
+                                        .map(|b| b.files.len().saturating_sub(1))
+                                        .unwrap_or(0)
+                                };
+                                if app.scroll_completed < max {
+                                    app.scroll_completed += 1;
+                                }
                             }
                         }
                         Panel::Queue => {
-                            let max = app
-                                .data
-                                .as_ref()
-                                .and_then(|d| d.batch.as_ref())
-                                .map(|b| b.pending_files.len().saturating_sub(1))
-                                .unwrap_or(0);
-                            if app.scroll_pending < max {
-                                app.scroll_pending += 1;
+                            if app.folder_view && app.expanded_folder.is_none() {
+                                // Scroll folder list
+                                let max = app
+                                    .data
+                                    .as_ref()
+                                    .and_then(|d| d.batch.as_ref())
+                                    .map(|b| {
+                                        let mut m = BTreeMap::new();
+                                        for pf in &b.pending_files {
+                                            let folder = if pf.contains('/') {
+                                                parent_folder(pf).to_string()
+                                            } else {
+                                                "(root)".to_string()
+                                            };
+                                            *m.entry(folder).or_insert(0usize) += 1;
+                                        }
+                                        m.len().saturating_sub(1)
+                                    })
+                                    .unwrap_or(0);
+                                if app.scroll_folders_queue < max {
+                                    app.scroll_folders_queue += 1;
+                                }
+                            } else {
+                                let max = if app.folder_view {
+                                    // Expanded folder: count filtered pending files
+                                    app.data
+                                        .as_ref()
+                                        .and_then(|d| d.batch.as_ref())
+                                        .map(|b| {
+                                            b.pending_files
+                                                .iter()
+                                                .filter(|pf| {
+                                                    let folder = if pf.contains('/') {
+                                                        parent_folder(pf)
+                                                    } else {
+                                                        ""
+                                                    };
+                                                    Some(folder)
+                                                        == app
+                                                            .expanded_folder
+                                                            .as_deref()
+                                                })
+                                                .count()
+                                                .saturating_sub(1)
+                                        })
+                                        .unwrap_or(0)
+                                } else {
+                                    app.data
+                                        .as_ref()
+                                        .and_then(|d| d.batch.as_ref())
+                                        .map(|b| b.pending_files.len().saturating_sub(1))
+                                        .unwrap_or(0)
+                                };
+                                if app.scroll_pending < max {
+                                    app.scroll_pending += 1;
+                                }
                             }
                         }
                         Panel::Current => {}
                     },
                     KeyCode::Up => match app.focus {
                         Panel::Completed => {
-                            if app.scroll_completed > 0 {
+                            if app.folder_view && app.expanded_folder.is_none() {
+                                if app.scroll_folders_completed > 0 {
+                                    app.scroll_folders_completed -= 1;
+                                }
+                            } else if app.scroll_completed > 0 {
                                 app.scroll_completed -= 1;
                             }
                         }
                         Panel::Queue => {
-                            if app.scroll_pending > 0 {
+                            if app.folder_view && app.expanded_folder.is_none() {
+                                if app.scroll_folders_queue > 0 {
+                                    app.scroll_folders_queue -= 1;
+                                }
+                            } else if app.scroll_pending > 0 {
                                 app.scroll_pending -= 1;
                             }
                         }
                         Panel::Current => {}
                     },
+                    KeyCode::Left | KeyCode::Backspace => {
+                        // Collapse expanded folder
+                        if app.expanded_folder.is_some() {
+                            app.expanded_folder = None;
+                            app.scroll_completed = 0;
+                            app.scroll_pending = 0;
+                        }
+                    }
+                    KeyCode::Right | KeyCode::Enter => {
+                        if app.folder_view && app.expanded_folder.is_none() {
+                            // Expand the selected folder
+                            let folder_name = match app.focus {
+                                Panel::Completed => app
+                                    .data
+                                    .as_ref()
+                                    .and_then(|d| d.batch.as_ref())
+                                    .map(|b| {
+                                        let map =
+                                            build_folder_map(&b.files, &b.pending_files);
+                                        let keys: Vec<&String> = map.keys().collect();
+                                        keys.get(app.scroll_folders_completed)
+                                            .map(|k| (*k).clone())
+                                    })
+                                    .flatten(),
+                                Panel::Queue => app
+                                    .data
+                                    .as_ref()
+                                    .and_then(|d| d.batch.as_ref())
+                                    .map(|b| {
+                                        let mut m = BTreeMap::new();
+                                        for pf in &b.pending_files {
+                                            let folder = if pf.contains('/') {
+                                                parent_folder(pf).to_string()
+                                            } else {
+                                                "(root)".to_string()
+                                            };
+                                            *m.entry(folder).or_insert(0usize) += 1;
+                                        }
+                                        let keys: Vec<String> = m.keys().cloned().collect();
+                                        keys.get(app.scroll_folders_queue).cloned()
+                                    })
+                                    .flatten(),
+                                Panel::Current => None,
+                            };
+                            if let Some(name) = folder_name {
+                                app.expanded_folder = Some(name);
+                                app.scroll_completed = 0;
+                                app.scroll_pending = 0;
+                            }
+                        } else if !app.folder_view {
+                            // Normal mode: open file in less
+                            if app.focus == Panel::Completed
+                                || app.focus == Panel::Queue
+                            {
+                                open_selected_file(&mut app, &mut terminal);
+                            }
+                        }
+                    }
                     KeyCode::Char('l') => app.show_lists = !app.show_lists,
                     KeyCode::Char('s') => app.show_stats = !app.show_stats,
                     KeyCode::Char('c') => {
@@ -1073,12 +1567,15 @@ pub fn run(args: &[String]) {
                             ColorMode::Mono => ColorMode::Full,
                         };
                     }
-                    KeyCode::Char('?') => app.show_help = true,
-                    KeyCode::Char('o') | KeyCode::Enter => {
-                        if app.focus == Panel::Completed || app.focus == Panel::Queue {
+                    KeyCode::Char('o') => {
+                        if !app.folder_view
+                            && (app.focus == Panel::Completed
+                                || app.focus == Panel::Queue)
+                        {
                             open_selected_file(&mut app, &mut terminal);
                         }
                     }
+                    KeyCode::Char('?') => app.show_help = true,
                     _ => {}
                 }
             }

@@ -1,0 +1,20 @@
+# Query classification dictionaries
+#
+# These lists control how queries are routed to Simple / Standard / Complex
+# pipelines.  Edit this file to add or remove markers without recompiling.
+#
+# Priority: values set in config.toml [query_classification] override this file.
+# This file is optional — if missing, hardcoded defaults are used.
+
+# Words that mark a query as Complex (question markers).
+question_markers = [
+    "what", "how", "why", "when",
+    "where", "which", "who", "whom",
+    "whose", "whether",
+    "comment", "pourquoi", "quand", "où",
+    "quel", "quelle", "quels", "quelles",
+    "qui",
+]
+
+# Boolean operators that mark a query as Complex.
+boolean_operators = ["AND", "OR", "et", "ou"]

@@ -14,6 +14,7 @@ pub mod chunk_counter;
 pub mod cancel;
 pub mod heat;
 pub mod tag_routing;
+pub mod chunk_heat;
 pub mod precheck;
 pub mod ingest;
 pub mod indexes;
@@ -25,6 +26,9 @@ pub use benchmark::{run_benchmark, get_graph_data};
 pub use tags::{create_chunk_tags_table, create_collection_tags_table, insert_chunk_tags, update_collection_tags, get_tags_for_chunk_ids};
 pub use heat::{create_collection_heat_table, HeatTracker, get_all_heat, collections_for_sources, get_chunk_qa_report};
 
+// Re-export from chunk_heat
+pub use chunk_heat::ChunkHeatTracker;
+
 // Re-export from ingest
 pub use ingest::{ingest_text, ingest_file};
 
@@ -32,7 +36,7 @@ pub use ingest::{ingest_text, ingest_file};
 pub use indexes::{add_embeddings_to_buffer, rebuild_and_save_indexes, reassign_source_collection, wal_checkpoint};
 
 // Re-export from precheck
-pub use precheck::{pre_check_document, check_duplicate_source, verify_chunks, update_chunk_heat};
+pub use precheck::{pre_check_document, check_duplicate_source, verify_chunks};
 
 /// Stored DB path so list_sources/stats can query across all collections.
 static DB_PATH: std::sync::OnceLock<String> = std::sync::OnceLock::new();

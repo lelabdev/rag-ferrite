@@ -138,6 +138,65 @@ fn default_boolean_operators() -> Vec<String> {
     vec!["AND".into(), "OR".into(), "et".into(), "ou".into()]
 }
 
+/// Dictionary file for query classification keywords.
+#[derive(Debug, Deserialize, Clone)]
+struct QueryClassificationDictionary {
+    question_markers: Vec<String>,
+    boolean_operators: Vec<String>,
+}
+
+/// Try to load query classification dictionaries from well-known locations.
+///
+/// Search order:
+/// 1. `<data_dir>/dictionaries/query_classification.toml`
+/// 2. `<config_dir>/dictionaries/query_classification.toml` (directory containing config.toml)
+///
+/// Returns `None` if no dictionary file is found (hardcoded defaults used).
+fn load_query_classification_dictionary(
+    data_dir: &std::path::Path,
+    config_path: Option<&std::path::Path>,
+) -> Option<QueryClassificationDictionary> {
+    let mut candidates: Vec<PathBuf> = vec![
+        data_dir.join("dictionaries").join("query_classification.toml"),
+    ];
+
+    if let Some(cfg) = config_path {
+        if let Some(parent) = cfg.parent() {
+            candidates.push(parent.join("dictionaries").join("query_classification.toml"));
+        }
+    }
+
+    for path in &candidates {
+        if path.exists() {
+            match std::fs::read_to_string(path) {
+                Ok(content) => match toml::from_str::<QueryClassificationDictionary>(&content) {
+                    Ok(dict) => {
+                        tracing::info!(
+                            "Loaded query classification dictionary from {}",
+                            path.display()
+                        );
+                        return Some(dict);
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            "Failed to parse dictionary {}: {e}",
+                            path.display()
+                        );
+                    }
+                },
+                Err(e) => {
+                    tracing::warn!(
+                        "Failed to read dictionary {}: {e}",
+                        path.display()
+                    );
+                }
+            }
+        }
+    }
+
+    None
+}
+
 fn default_complex_word_threshold() -> usize { 8 }
 fn default_simple_word_threshold() -> usize { 2 }
 
@@ -636,13 +695,16 @@ impl Config {
         // Try config.toml in current dir, then ~/.config/rag-ferrite/config.toml
         let paths = vec![
             PathBuf::from("config.toml"),
-            dirs::config_dir().unwrap_or_else(|| PathBuf::from(".")).join("rag-ferrite").join("config.toml"),
+            dirs::config_dir()
+                .unwrap_or_else(|| PathBuf::from("."))
+                .join("rag-ferrite")
+                .join("config.toml"),
         ];
 
         for path in &paths {
             if path.exists() {
                 let content = std::fs::read_to_string(path)?;
-                let config: Config = toml::from_str(&content)?;
+                let mut config: Config = toml::from_str(&content)?;
                 // Validate min_relevance_score
                 if config.llm.min_relevance_score.is_nan()
                     || config.llm.min_relevance_score < 0.0
@@ -653,13 +715,32 @@ impl Config {
                         config.llm.min_relevance_score
                     );
                 }
+
+                // Try loading query classification dictionaries (optional override)
+                if let Some(dict) =
+                    load_query_classification_dictionary(&config.data_dir, Some(path))
+                {
+                    config.query_classification.question_markers = dict.question_markers;
+                    config.query_classification.boolean_operators = dict.boolean_operators;
+                }
+
                 tracing::info!("Loaded config from {}", path.display());
                 return Ok(config);
             }
         }
 
         tracing::info!("No config file found, using defaults");
-        Ok(Config::default())
+        let mut config = Config::default();
+
+        // Even without a config file, try loading dictionaries from data_dir
+        if let Some(dict) =
+            load_query_classification_dictionary(&config.data_dir, None)
+        {
+            config.query_classification.question_markers = dict.question_markers;
+            config.query_classification.boolean_operators = dict.boolean_operators;
+        }
+
+        Ok(config)
     }
 }
 

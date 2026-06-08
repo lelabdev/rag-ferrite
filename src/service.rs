@@ -5,7 +5,7 @@ use crate::llm;
 use crate::params::IngestConfig;
 use crate::pipeline::QueryPipeline;
 use crate::types::{ChunkResult, HybridResult, SourceInfo};
-use crate::engine::HeatTracker;
+use crate::engine::{HeatTracker, ChunkHeatTracker};
 use serde_json::json;
 
 // ── Query ──────────────────────────────────────────────────────────────
@@ -18,6 +18,7 @@ pub async fn query_service(
     metadata_like: Option<String>,
     tags: Option<Vec<String>>,
     heat_tracker: Option<&HeatTracker>,
+    chunk_heat_tracker: Option<&ChunkHeatTracker>,
 ) -> serde_json::Value {
     let filter = if source_ids.is_some() || metadata_like.is_some() {
         Some(rag_engine::api::hybrid_search::SearchFilter {
@@ -55,10 +56,10 @@ pub async fn query_service(
             // Update doc_ids after tag filtering
             doc_ids = filtered_results.iter().map(|r| r.doc_id).collect();
 
-            // ── Heat tracking (#159): increment query_count + update last_queried_at ──
+            // ── Chunk heat tracking (#177): async batched, non-blocking ──
             if !doc_ids.is_empty() {
-                if let Err(e) = engine::update_chunk_heat(&doc_ids) {
-                    tracing::debug!("Failed to update chunk heat: {}", e);
+                if let Some(tracker) = chunk_heat_tracker {
+                    tracker.record_chunks(&doc_ids);
                 }
             }
 

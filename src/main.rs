@@ -43,6 +43,7 @@ struct RagFerriteServer {
     pub ingest_config: params::IngestConfig,
     pub ingestion_manager: ingestion::IngestionManager,
     pub heat_tracker: engine::HeatTracker,
+    pub chunk_heat_tracker: engine::ChunkHeatTracker,
     pub default_query_limit: usize,
     pub max_query_limit: usize,
     pub move_after_ingest: bool,
@@ -69,6 +70,7 @@ impl RagFerriteServer {
             p.metadata_like,
             p.tags,
             Some(&self.heat_tracker),
+            Some(&self.chunk_heat_tracker),
         )
         .await
         .to_string()
@@ -497,6 +499,7 @@ async fn main() -> Result<()> {
         ingestion_manager: ingestion::IngestionManager::new(pipeline, ingest_config.clone(), ingestion_llm),
         ingest_config,
         heat_tracker: engine::HeatTracker::new(),
+        chunk_heat_tracker: engine::ChunkHeatTracker::new(),
         default_query_limit: config.advanced.default_query_limit,
         max_query_limit: config.advanced.max_query_limit,
         move_after_ingest: config.advanced.move_after_ingest,
