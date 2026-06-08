@@ -158,6 +158,7 @@ struct App {
     spinner_idx: usize,
     pendulum_frames: Vec<String>,
     show_help: bool,
+    action_msg: Option<(String, Instant)>,
 }
 
 impl App {
@@ -172,6 +173,7 @@ impl App {
             spinner_idx: 0,
             pendulum_frames: generate_pendulum_frames(),
             show_help: false,
+            action_msg: None,
         }
     }
 }
@@ -191,6 +193,22 @@ fn fetch_json<T: serde::de::DeserializeOwned>(
     req.call()
         .map_err(|e| format!("{}: {}", url, e))?
         .into_json::<T>()
+        .map_err(|e| e.to_string())
+}
+
+fn post_action(
+    base_url: &str,
+    api_key: Option<&str>,
+    path: &str,
+) -> Result<String, String> {
+    let url = format!("{}{}", base_url.trim_end_matches('/'), path);
+    let mut req = ureq::post(&url).timeout(Duration::from_secs(5));
+    if let Some(key) = api_key {
+        req = req.set("Authorization", &format!("Bearer {}", key));
+    }
+    req.call()
+        .map_err(|e| format!("{}: {}", url, e))?
+        .into_string()
         .map_err(|e| e.to_string())
 }
 
@@ -628,20 +646,46 @@ fn ui(f: &mut Frame, app: &mut App) {
         .fg(Color::Cyan)
         .add_modifier(Modifier::BOLD);
     let dim_style = Style::default().fg(Color::DarkGray);
-    let footer = Line::from(vec![
-        Span::styled("TAB", key_style),
-        Span::styled(" switch ", dim_style),
-        Span::styled("•", dim_style),
-        Span::styled(" ↑↓", key_style),
-        Span::styled(" scroll ", dim_style),
-        Span::styled("•", dim_style),
-        Span::styled(" ?", key_style),
-        Span::styled(" help ", dim_style),
-        Span::styled("•", dim_style),
-        Span::styled(" q", key_style),
-        Span::styled(" quit", dim_style),
-    ]);
-    f.render_widget(Paragraph::new(footer), chunks[2]);
+    // Footer: action feedback or key hints
+    if let Some((msg, ts)) = &app.action_msg {
+        if ts.elapsed() < Duration::from_secs(5) {
+            let color = if msg.starts_with('✓') { Color::Green } else { Color::Red };
+            let footer = Line::from(vec![
+                Span::styled(msg.clone(), Style::default().fg(color)),
+            ]);
+            f.render_widget(Paragraph::new(footer), chunks[2]);
+        } else {
+            app.action_msg = None;
+        }
+    }
+    if app.action_msg.is_none() {
+        let footer = Line::from(vec![
+            Span::styled("TAB", key_style),
+            Span::styled(" switch ", dim_style),
+            Span::styled("•", dim_style),
+            Span::styled(" ↑↓", key_style),
+            Span::styled(" scroll ", dim_style),
+            Span::styled("•", dim_style),
+            Span::styled(" c", key_style),
+            Span::styled(" cancel ", dim_style),
+            Span::styled("•", dim_style),
+            Span::styled(" x", key_style),
+            Span::styled(" stop ", dim_style),
+            Span::styled("•", dim_style),
+            Span::styled(" r", key_style),
+            Span::styled(" rebuild ", dim_style),
+            Span::styled("•", dim_style),
+            Span::styled(" f", key_style),
+            Span::styled(" flush ", dim_style),
+            Span::styled("•", dim_style),
+            Span::styled(" ?", key_style),
+            Span::styled(" help ", dim_style),
+            Span::styled("•", dim_style),
+            Span::styled(" q", key_style),
+            Span::styled(" quit", dim_style),
+        ]);
+        f.render_widget(Paragraph::new(footer), chunks[2]);
+    }
 
     // ── Help popup ──
     if app.show_help {
@@ -828,6 +872,30 @@ fn main() {
                         }
                     },
                     KeyCode::Char('?') => app.show_help = true,
+                    KeyCode::Char('c') => {
+                        match post_action(&base_url, api_key.as_deref(), "/api/service/cancel-batch") {
+                            Ok(msg) => app.action_msg = Some((format!("✓ Cancel: {}", msg), Instant::now())),
+                            Err(e) => app.action_msg = Some((format!("✗ Cancel failed: {}", e), Instant::now())),
+                        }
+                    }
+                    KeyCode::Char('x') => {
+                        match post_action(&base_url, api_key.as_deref(), "/api/service/stop") {
+                            Ok(msg) => app.action_msg = Some((format!("✓ Stop: {}", msg), Instant::now())),
+                            Err(e) => app.action_msg = Some((format!("✗ Stop failed: {}", e), Instant::now())),
+                        }
+                    }
+                    KeyCode::Char('r') => {
+                        match post_action(&base_url, api_key.as_deref(), "/api/rebuild-indexes") {
+                            Ok(msg) => app.action_msg = Some((format!("✓ Rebuild: {}", msg), Instant::now())),
+                            Err(e) => app.action_msg = Some((format!("✗ Rebuild failed: {}", e), Instant::now())),
+                        }
+                    }
+                    KeyCode::Char('f') => {
+                        match post_action(&base_url, api_key.as_deref(), "/api/flush-indexes") {
+                            Ok(msg) => app.action_msg = Some((format!("✓ Flush: {}", msg), Instant::now())),
+                            Err(e) => app.action_msg = Some((format!("✗ Flush failed: {}", e), Instant::now())),
+                        }
+                    }
                     _ => {}
                 }
             }
