@@ -36,6 +36,11 @@ Key decisions:
 - Progress endpoint for monitoring active ingestions
 - Embedding dimensions: 512. Content is broad topics (books, transcripts, tech docs) where BM25 + tag routing compensate the minimal accuracy loss. Keeps RAM low and scales to 4× the data without OOM.
 - Fork of rag_engine under `lelabdev/rag-engine` — enables mmap for vector data loading (OS manages page cache, cold collections naturally evicted from RAM)
+- Async batched chunk heat (mpsc channel + 30s flush) vs old synchronous N UPDATEs
+- Global atomic patterns for cross-cutting signals (chunk_counter, cancel)
+- Delete instant (no synchronous index rebuild)
+- External query classification dictionary (optional TOML, `dictionaries/query_classification.toml`)
+- Standalone rag-monitor binary (client-side TUI via HTTP polling)
 
 ### Structure du code
 
@@ -47,20 +52,30 @@ src/
   api.rs         — HTTP endpoints (axum, optionnel)
   pipeline.rs    — Orchestration query (simple/standard/complex), cache
   engine/
-    mod.rs       — init(), ingest_text(), ingest_file(), get_conn(), data_dir()
+    mod.rs       — init(), config(), stats(), sanitize(), IngestOptions
+    ingest.rs    — ingest_text(), ingest_file(), pipeline parent-child
+    indexes.rs   — HNSW/BM25 rebuild, buffer, WAL checkpoint
+    precheck.rs  — pre-check, langue, doublons, vérification chunks
+    chunk_heat.rs — Chunk heat async batched (mpsc + 30s flush)
+    chunk_counter.rs — Compteur atomique global pour progression temps réel
+    cancel.rs    — Flag d'annulation global pour batch cancellation
     search.rs    — search_hybrid(), search_hybrid_with_expansion()
     query.rs     — get_section_paths, get_neighbors, delete_source, list_sources
     benchmark.rs — run_benchmark(), get_graph_data()
     tags.rs      — chunk_tags + collection_tags tables, insert/update/get tags
     tag_routing.rs — Keyword extraction, collection_tags matching, route_query()
     heat.rs      — Collection heat tracking: HeatTracker, EMA decay, chunk QA
+  bin/
+    rag-monitor.rs — Binaire TUI standalone, polling HTTP pour monitoring
   llm.rs         — LlmProvider (ollama + openai), contextual retrieval, scoring, tagging, profile builder
   reranker.rs    — Reranker (LLM + passthrough), rerank_hybrid()
   embedding.rs   — EmbeddingProvider (openai-compatible)
-  config.rs      — Config TOML parsing, LlmProfile struct, profile lookup
+  config.rs      — Config TOML parsing, LlmProfile struct, profile lookup, dictionary loader
   chunker.rs     — Recursive chunking, section extraction, language detection
   extractor.rs   — PDF/DOCX/text extraction
   types.rs       — Structs partagés + From impls
+dictionaries/
+  query_classification.toml — Dictionnaire externe de mots-clés pour classification de query
 ```
 
 ## Config actuelle
@@ -109,6 +124,8 @@ Document → Pre-ingestion check (qualité, doublons, langue)
 Ingestion is queued via mpsc channel — HTTP returns immediately.
 Progress: GET /api/ingest/progress
 
+**v5.0**: Le pipeline intègre désormais un compteur atomique global (`chunk_counter`) pour la progression temps réel et un check d'annulation (`cancel`) entre chaque fichier traité. Le suivi est consultable via le binaire `rag-monitor`.
+
 ## Pipeline de query
 
 ```
@@ -124,7 +141,7 @@ Query → MCP tool call
       → Top-k chunks avec tags
 ```
 
-## Outils MCP (14)
+## Outils MCP (16)
 
 | Outil | Description |
 |---|---|
@@ -142,6 +159,8 @@ Query → MCP tool call
 | suggest_collection | Tag routing : suggère la meilleure collection pour une query |
 | tag_map | Mapping complet tag → collection avec chunk counts |
 | reassign_collection | Déplace un source (et ses chunks) vers une autre collection |
+| rebuild_indexes | Reconstruction des indexes HNSW + BM25 + WAL checkpoint |
+| flush_indexes | Flush du buffer HNSW incrémental vers le disque |
 
 ## Build & Deploy
 
@@ -152,9 +171,9 @@ cargo build --release
 
 ### Déploiement via GitHub Releases
 
-1. Créer une release avec le binaire :
+1. Créer une release avec les binaires :
    ```bash
-   gh release create vX.Y.Z target/release/rag-ferrite
+   gh release create vX.Y.Z target/release/rag-ferrite target/release/rag-monitor
    ```
 2. Sur la machine cible (Nova ou aether) :
    ```bash
@@ -168,7 +187,8 @@ Le script : stop service → vérifie arrêt → télécharge depuis GitHub Rele
 
 ```
 ~/services/rag-ferrite/
-  rag-ferrite          ← binaire
+  rag-ferrite          ← binaire serveur
+  rag-monitor          ← binaire TUI monitoring
   rag-ferrite-mcp      ← wrapper (cd + exec)
   update.sh            ← script de mise à jour (appelé par `rag-ferrite update`)
   config.toml          ← config runtime

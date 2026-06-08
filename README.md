@@ -83,19 +83,26 @@ That's it. See [Configuration](#configuration) for LLM profiles, tag rules, and 
 
 ## Usage
 
-### MCP Tools
+### MCP Tools (16)
 
 | Tool | Description |
 |---|---|
-| `query_documents(query, limit?)` | Hybrid search with optional limit |
-| `ingest_file(file_path)` | Ingest PDF, DOCX, TXT, or MD |
-| `ingest_data(content, source, format?)` | Ingest raw text, HTML, or markdown |
-| `delete_file(source)` | Remove document and all its chunks |
+| `query_documents(query, collection?, limit?)` | Hybrid search with filters, reranking, expansion, cache |
+| `ingest_file(file_path, collection?)` | Ingest PDF, DOCX, TXT, or MD |
+| `ingest_data(content, source, collection?, format?)` | Ingest raw text, HTML, or markdown |
+| `delete_file(source)` | Remove document and all its chunks (instant, no synchronous index rebuild) |
 | `list_files()` | List indexed documents |
 | `status()` | Engine status and document count |
 | `read_chunk_neighbors(source_id, chunk_index)` | Expand context around a chunk |
 | `check_ingestion(file_path?, content?, source_name?)` | Preview document quality before ingestion |
-| `benchmark(file_path, limit?)` | Evaluate retrieval quality against a golden dataset |
+| `benchmark(file_path, collection?, limit?)` | Evaluate retrieval quality against a golden dataset |
+| `collection_heat()` | Collection heat tracking: heat_score, last_queried_at, query_count per collection |
+| `chunk_qa()` | Chunk-level QA: dead/cold chunks grouped by source, heat calculated on-the-fly |
+| `suggest_collection(query)` | Tag routing: extract keywords, match against collection_tags, suggest best collection |
+| `tag_map()` | Full tag → collection mapping with chunk counts |
+| `reassign_collection(source_id, collection)` | Move a source and its chunks to a different collection, rebuilds indexes |
+| `rebuild_indexes()` | Rebuild HNSW + BM25 indexes + WAL checkpoint |
+| `flush_indexes()` | Flush incremental HNSW buffer to disk |
 
 ### MCP client setup
 
@@ -186,15 +193,42 @@ ingested_dir = "ingested"   # default: "ingested"
 
 The batch runs in the background — the API returns immediately with a `batch_id`.
 
+### HTTP API reference
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/status` | Engine status, version, document count |
+| `POST` | `/api/ingest` | Unified ingest — `file_path` (single) or `paths` (batch), `move_after_ingest` |
+| `POST` | `/api/ingest/data` | Ingest raw text content |
+| `GET` | `/api/ingest/progress` | Batch progress: files, chunks, speed, ETA, errors, per-file results |
+| `POST` | `/api/query` | Hybrid search with reranking |
+| `GET` | `/api/documents` | List all sources |
+| `GET` | `/api/documents/{id}` | Get document details |
+| `DELETE` | `/api/documents/{id}` | Delete document |
+| `GET` | `/api/graph` | Source relationship graph |
+| `POST` | `/api/flush-indexes` | Rebuild HNSW + BM25 + WAL checkpoint |
+| `POST` | `/api/rebuild-indexes` | Full index rebuild |
+| `POST` | `/api/service/cancel-batch` | Cancel running batch (stops after current file) |
+| `POST` | `/api/service/stop` | Graceful server shutdown |
+
 ### Real-time monitor
 
+**Built-in monitor** (runs on server, needs TTY):
 ```bash
-# Default (2s refresh, localhost)
-rag-ferrite monitor
-
-# Custom refresh + remote server
-rag-ferrite monitor 1 http://100.x.x.x:4242
+rag-ferrite monitor [refresh_seconds] [url] [--demo] [--fade N]
 ```
+
+**Standalone monitor** (connects via HTTP, no SSH needed):
+```bash
+rag-monitor [refresh_seconds] [url]
+```
+
+Configuration via environment:
+- `RAG_MONITOR_URL` — server URL (default: `http://localhost:4242`)
+- `RAG_API_KEY` or `RAG_MONITOR_KEY` — API key
+- `RAG_MONITOR_REFRESH` — refresh interval in seconds
+
+API key lookup order: env vars → `~/.config/rag/api_key_nova`
 
 The monitor is a full TUI with a colored progress bar, real-time stats, file lists, and keyboard controls:
 
@@ -229,11 +263,18 @@ TAB switch • ↑↓ scroll • l list • c color • s stats • o open • ?
 | `TAB` | Switch panel |
 | `↑↓` | Scroll file list |
 | `l` | Toggle lists (full-screen progress bar) |
-| `c` | Cycle color modes (Full → Stats only → Mono) |
+| `c` | Cycle color modes / cancel batch |
 | `s` | Toggle stats |
+| `r` | Rebuild indexes |
+| `f` | Flush indexes |
 | `o` | Open selected file in `less` |
+| `x` | Stop server |
 | `?` | Show/hide help popup |
 | `q` / `Esc` | Quit |
+
+Modes (built-in only):
+- `--demo`: simulate a batch without ingestion (for testing animations)
+- `--fade N`: fade length (0 = no fade, default 5)
 
 ---
 
@@ -266,6 +307,22 @@ Query → Classify (simple / standard / complex)
       → [standard/complex] Rerank (LLM scores top results)
       → Quality gate → [weak?] Reformulate + retry
       → Return top chunks with tags
+```
+
+**Query classification:**
+
+- **Simple**: direct keyword match (e.g. "what is X?")
+- **Standard**: needs expansion + reranking (e.g. "compare X and Y")
+- **Complex**: multi-step reasoning (e.g. "how does X relate to Y given Z?")
+
+Classification is automatic. Keywords and thresholds are configurable via `[query_classification]` in config.toml. Keywords can also be loaded from an external dictionary file `dictionaries/query_classification.toml` (optional — falls back to hardcoded defaults if absent).
+
+```toml
+[query_classification]
+question_markers = ["what", "how", "why", "comment", "pourquoi", ...]
+boolean_operators = ["AND", "OR", "et", "ou"]
+complex_word_threshold = 8   # >8 words → complex
+simple_word_threshold = 2    # ≤2 words → simple
 ```
 
 > **Note:** Ingestion with contextual retrieval enabled can take 5–15 minutes per document. The monitor (`rag-ferrite monitor`) shows real-time progress. If your MCP client has a request timeout, set it high (e.g. 9999 seconds).
@@ -349,6 +406,13 @@ parent_max_chars = 2000
 child_max_chars = 200
 child_overlap = 20
 auto_threshold = 5000                        # switch to parent_child above this
+
+[query_classification]
+# Keywords can also be loaded from dictionaries/query_classification.toml
+question_markers = ["what", "how", "why", "comment", "pourquoi"]
+boolean_operators = ["AND", "OR", "et", "ou"]
+complex_word_threshold = 8
+simple_word_threshold = 2
 
 [advanced]
 chunk_size = 800

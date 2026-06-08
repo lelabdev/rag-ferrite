@@ -60,14 +60,14 @@ When running with `http_port > 0`, rag-ferrite supports multi-tier API authentic
 
 Clients pass the key via `Authorization: Bearer <key>` header.
 
-## MCP Tools (9)
+## MCP Tools (16)
 
 | Tool | Description |
 |---|---|
 | `query_documents(query, collection?, limit?)` | Hybrid search with filters, reranking, expansion, cache |
 | `ingest_file(file_path, collection?)` | Ingest PDF, DOCX, TXT, MD |
 | `ingest_data(content, source, collection?, format?)` | Ingest raw text, HTML, or markdown |
-| `delete_file(source)` | Remove document and all its chunks |
+| `delete_file(source)` | Remove document and all its chunks (instant, no synchronous index rebuild) |
 | `list_files()` | List indexed documents |
 | `status()` | Engine status and document count |
 | `read_chunk_neighbors(source_id, chunk_index)` | Expand context around a chunk |
@@ -78,6 +78,8 @@ Clients pass the key via `Authorization: Bearer <key>` header.
 | `suggest_collection(query)` | Tag routing: extract keywords, match against collection_tags, suggest best collection |
 | `tag_map()` | Full tag → collection mapping with chunk counts |
 | `reassign_collection(source_id, collection)` | Move a source and its chunks to a different collection, rebuilds indexes |
+| `rebuild_indexes()` | Rebuild HNSW + BM25 indexes + WAL checkpoint |
+| `flush_indexes()` | Flush incremental HNSW buffer to disk |
 
 ## Ingestion Pipeline
 
@@ -124,7 +126,7 @@ Query → Classify (simple / standard / complex)
 - **Standard**: needs expansion + reranking (e.g. "compare X and Y")
 - **Complex**: multi-step reasoning (e.g. "how does X relate to Y given Z?")
 
-Classification is automatic. Keywords and thresholds are configurable via `[query_classification]` in config.toml.
+Classification is automatic. Keywords and thresholds are configurable via `[query_classification]` in config.toml. Keywords can also be loaded from an external dictionary file `dictionaries/query_classification.toml` (optional — falls back to hardcoded defaults if the file is absent).
 
 ```toml
 [query_classification]
@@ -157,7 +159,7 @@ WHERE tag = 'rust';
 -- → rust | general | 8
 ```
 
-Heat tracking columns on `chunks` table: `query_count` (incremented on query hit) and `last_queried_at` (timestamp). Used for future lazy loading and cold storage decisions.
+Heat tracking columns on `chunks` table: `query_count` (incremented on query hit) and `last_queried_at` (timestamp). Used for future lazy loading and cold storage decisions. Chunk heat updates use an async batched pattern (mpsc channel + 30s flush) to avoid blocking queries.
 
 Use cases: separate work docs from personal notes, per-project knowledge bases, language-based splits.
 
@@ -180,26 +182,38 @@ rag-ferrite (single binary, 15 MB)
 
 ```
 src/
-├── main.rs        — MCP server entry point
+├── main.rs        — MCP server + HTTP server entry point
 ├── service.rs     — shared service layer (MCP + HTTP)
 ├── api.rs         — HTTP REST endpoints (axum)
 ├── pipeline.rs    — query orchestration, classification, cache
 ├── ingestion.rs   — background ingestion queue + batch progress monitoring
+├── monitor.rs     — built-in TUI monitor (ratatui)
 ├── engine/
-│   ├── mod.rs     — engine init, ingest_text, ingest_file, incremental buffer
+│   ├── mod.rs     — engine init, config, stats, sanitize, IngestOptions
+│   ├── ingest.rs  — ingest_text, ingest_file, parent-child pipeline
+│   ├── indexes.rs — HNSW/BM25 rebuild, buffer, WAL checkpoint
+│   ├── precheck.rs — pre-check, language detection, duplicate detection, chunk heat, verify
 │   ├── search.rs  — hybrid search with RRF fusion
 │   ├── query.rs   — list, delete, neighbors, sources
 │   ├── benchmark.rs — quality evaluation
-│   └── tags.rs    — chunk tagging
-│   └── heat.rs    — collection heat tracking (v5 Phase 1)
+│   ├── tags.rs    — chunk tagging
+│   ├── heat.rs    — collection heat tracking
+│   ├── chunk_heat.rs — async batched chunk heat (mpsc + 30s flush)
+│   ├── chunk_counter.rs — global atomic counter for real-time progress
+│   ├── cancel.rs  — global cancel flag for batch cancellation
+│   └── tag_routing.rs — tag-based collection routing
 ├── llm.rs         — LLM provider (Ollama + OpenAI), scoring, tagging, context
 ├── tag_rules.rs   — Tag normalization rules loaded from tag-rules.toml
 ├── reranker.rs    — reranker (LLM, Cohere, passthrough)
 ├── embedding.rs   — embedding provider (OpenAI-compatible)
-├── config.rs      — TOML config parsing
+├── config.rs      — TOML config + query classification dictionary loader
 ├── chunker.rs     — recursive + parent-child chunking, section extraction, language detection
 ├── extractor.rs   — PDF/DOCX/text extraction
-└── types.rs       — shared structs
+├── types.rs       — shared structs
+├── bin/
+│   └── rag-monitor.rs — standalone TUI monitor binary (HTTP polling)
+└── dictionaries/
+    └── query_classification.toml — external keyword dictionary
 ```
 
 ## HTTP API Endpoints
@@ -217,6 +231,8 @@ src/
 | GET | `/api/graph` | Source relationship graph |
 | POST | `/api/flush-indexes` | Rebuild HNSW + BM25 + WAL checkpoint |
 | POST | `/api/rebuild-indexes` | Full index rebuild |
+| POST | `/api/service/cancel-batch` | Cancel running batch (stops after current file) |
+| POST | `/api/service/stop` | Graceful server shutdown |
 
 ### Batch Ingest
 
@@ -243,24 +259,37 @@ Files already ingested (matched by filename) are automatically skipped. Combined
 
 ### Monitor (TUI)
 
+**Built-in monitor** (runs on server, needs TTY):
 ```bash
 rag-ferrite monitor [refresh_seconds] [url] [--demo] [--fade N]
 ```
 
-Real-time TUI with ratatui: cyan progress bar (█ fill → ▓▒░ fade → ⡀→⣿ braille transition → pendulum braille wave), stats panel, file lists.
+**Standalone monitor** (connects via HTTP, no SSH needed):
+```bash
+rag-monitor [refresh_seconds] [url]
+```
 
-Modes:
+Configuration via environment:
+- `RAG_MONITOR_URL` — server URL (default: `http://localhost:4242`)
+- `RAG_API_KEY` or `RAG_MONITOR_KEY` — API key
+- `RAG_MONITOR_REFRESH` — refresh interval in seconds
+
+API key lookup order: env vars → `~/.config/rag/api_key_nova`
+
+Real-time TUI with ratatui: cyan progress bar (█ fill → ▓▒░ fade → ⡀→⣿ braille transition → pendulum braille wave), stats panel, file lists. Only shows progress bar when a batch is running.
+
+Modes (built-in only):
 - `--demo`: simulate a batch without ingestion (for testing animations)
 - `--fade N`: fade length (0 = no fade, default 5)
 
-Keyboard: `TAB` switch • `↑↓` scroll • `l` toggle lists • `c` cycle colors • `s` toggle stats • `o` open in less • `?` help • `q` quit.
+Keyboard: `TAB` switch • `↑↓` scroll • `l` toggle lists • `c` cycle colors / cancel batch • `s` toggle stats • `x` stop server • `r` rebuild indexes • `f` flush indexes • `o` open in less • `?` help • `q` quit.
 
 ### Update (deployment)
 
 ```bash
 # On dev machine:
 cargo build --release
-gh release create vX.Y.Z target/release/rag-ferrite
+gh release create vX.Y.Z target/release/rag-ferrite target/release/rag-monitor
 
 # On target (aether, Nova, etc.):
 rag-ferrite update

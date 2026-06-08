@@ -393,7 +393,8 @@ fn ui(f: &mut Frame, app: &mut App) {
     ]);
     f.render_widget(Paragraph::new(status_line), inner[0]);
 
-    // Progress bar
+    // Progress bar + stats — only when a batch is running
+    if batch.is_some() {
     let bar_spans = render_progress_bar(pct, app.spinner_idx, 50, &app.pendulum_frames);
     let mut bar_line_spans = vec![Span::raw("  [")];
     bar_line_spans.extend(bar_spans);
@@ -467,6 +468,7 @@ fn ui(f: &mut Frame, app: &mut App) {
         )]);
         f.render_widget(Paragraph::new(err_line), inner[3]);
     }
+    } // end if batch.is_some()
 
     // Server status line (version + doc count)
     if let Some(s) = &app.status {
