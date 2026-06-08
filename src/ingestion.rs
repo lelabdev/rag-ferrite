@@ -167,8 +167,9 @@ impl IngestionManager {
 
         let worker_progress = progress.clone();
         let worker_llm = ingestion_llm.clone();
+        let worker_sender = sender.clone();
         tokio::spawn(async move {
-            background_worker(receiver, pipeline, ingest_config, worker_progress, worker_llm).await;
+            background_worker(receiver, pipeline, ingest_config, worker_progress, worker_llm, worker_sender).await;
         });
 
         IngestionManager { progress, sender, ingestion_llm }
@@ -246,14 +247,18 @@ async fn background_worker(
     ingest_config: IngestConfig,
     progress: Arc<Mutex<IngestProgress>>,
     ingestion_llm: Option<LlmProvider>,
+    sender: mpsc::UnboundedSender<IngestJob>,
 ) {
     while let Some(job) = receiver.recv().await {
         match job {
             IngestJob::File { file_path } => {
                 process_file_job(&pipeline, &ingest_config, &progress, &ingestion_llm, &file_path).await;
+                // Auto-flush index after single-file ingestion so content is immediately searchable
+                let _ = sender.send(IngestJob::FlushIndexes);
             }
             IngestJob::Data { content, source } => {
                 process_data_job(&pipeline, &ingest_config, &progress, &ingestion_llm, &content, &source).await;
+                let _ = sender.send(IngestJob::FlushIndexes);
             }
             IngestJob::Batch { batch_id, files, move_after_ingest } => {
                 process_batch_job(&pipeline, &ingest_config, &progress, &ingestion_llm, &batch_id, &files, move_after_ingest).await;
