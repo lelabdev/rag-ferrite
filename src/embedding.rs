@@ -55,11 +55,6 @@ impl EmbeddingProvider {
         }
     }
 
-    /// Get the effective dimensions: configured or detected from API response.
-    pub fn dimensions(&self) -> Option<usize> {
-        self.dimensions.or(self.detected_dimensions.get().copied())
-    }
-
     /// Get embedding for a single text
     pub async fn embed(&self, text: &str) -> Result<Vec<f32>> {
         let vecs = self.embed_batch(&[text.to_string()]).await?;

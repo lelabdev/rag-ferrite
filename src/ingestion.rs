@@ -554,7 +554,7 @@ async fn process_batch_job(
 
         let file_duration = file_start.elapsed().as_secs_f64();
         let done = result.is_ok();
-        let chunks = result.as_ref().map(|(_, r)| r.total_chunks).unwrap_or(0);
+        let _chunks = result.as_ref().map(|(_, r)| r.total_chunks).unwrap_or(0);
 
         {
             let now_secs = std::time::SystemTime::now()

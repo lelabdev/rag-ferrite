@@ -826,7 +826,7 @@ fn parse_context_response(response: &str) -> (Option<f32>, Option<String>, Vec<S
         }
         if trimmed_line.starts_with("METADATA:") {
             let json_str = trimmed_line["METADATA:".len()..].trim();
-            if let Ok(val) = serde_json::from_str::<serde_json::Value>(json_str) {
+            if let Ok(_val) = serde_json::from_str::<serde_json::Value>(json_str) {
                 // metadata line skipped
             }
             continue;

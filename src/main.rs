@@ -1,6 +1,5 @@
 use anyhow::Result;
 use std::sync::Arc;
-use std::fmt::Write;
 use rmcp::{
     ServiceExt,
     handler::server::wrapper::Parameters,

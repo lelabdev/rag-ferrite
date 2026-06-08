@@ -8,7 +8,6 @@ use axum::{
 use serde::Deserialize;
 use std::sync::Arc;
 use tower_http::cors::CorsLayer;
-use tower::ServiceExt;
 
 use crate::engine;
 use crate::params::*;

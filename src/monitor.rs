@@ -463,7 +463,7 @@ fn ui(f: &mut Frame, app: &mut App) {
             let err_rate = b.error_rate.unwrap_or(0.0);
             let size_mb = b.total_size_mb.unwrap_or(0.0);
             let chunks_done = b.completed_chunks;
-            let chunks_total = b.total_chunks;
+            let _chunks_total = b.total_chunks;
 
             let speed_color_raw = if speed >= 100.0 {
                 Color::Green

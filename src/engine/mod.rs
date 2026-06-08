@@ -28,7 +28,7 @@ pub use search::{search_hybrid, search_hybrid_with_expansion};
 pub use query::{get_section_paths_for_chunk_ids, get_neighbors, delete_source, list_sources};
 pub use benchmark::{run_benchmark, get_graph_data};
 pub use tags::{create_chunk_tags_table, create_collection_tags_table, insert_chunk_tags, update_collection_tags, get_tags_for_chunk_ids};
-pub use heat::{create_collection_heat_table, HeatTracker, CollectionHeat, get_all_heat, collections_for_sources, get_chunk_qa_report, ChunkQaSource};
+pub use heat::{create_collection_heat_table, HeatTracker, get_all_heat, collections_for_sources, get_chunk_qa_report};
 
 /// Stored DB path so list_sources/stats can query across all collections.
 static DB_PATH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
@@ -625,7 +625,7 @@ async fn process_parent(
     child_min_chars: usize,
     relevance_scoring: bool,
     min_relevance_score: f64,
-    collection_id: String,
+    _collection_id: String,
 ) -> Result<ParentProcessResult> {
     if children.is_empty() {
         return Ok(ParentProcessResult {
@@ -1210,23 +1210,6 @@ fn verify_chunks(chunks: &[String], source: &str) -> ChunkVerification {
 }
 
 /// Rebuild and persist HNSW + BM25 indexes for a collection.
-pub fn list_collections() -> Vec<String> {
-    let conn = match get_conn() {
-        Ok(c) => c,
-        Err(_) => return Vec::new(),
-    };
-    let mut stmt = match conn.prepare("SELECT DISTINCT collection_id FROM chunks") {
-        Ok(s) => s,
-        Err(_) => return Vec::new(),
-    };
-    let mut collections = Vec::new();
-    let rows = stmt.query_map([], |row| row.get::<_, String>(0));
-    if let Ok(mapped) = rows {
-        for c in mapped.flatten() { collections.push(c); }
-    }
-    collections
-}
-
 /// Add all embeddings for a source to the incremental buffer (immediately searchable).
 fn add_embeddings_to_buffer(source_id: i64) {
     let conn = match get_conn() {
@@ -1310,7 +1293,7 @@ pub fn reassign_source_collection(source_id: i64, new_collection: &str) -> Resul
     ).ok();
 
     // Update sources
-    let updated = conn.execute(
+    let _updated = conn.execute(
         "UPDATE sources SET collection_id = ?1 WHERE id = ?2",
         rusqlite::params![new_collection, source_id],
     )?;
