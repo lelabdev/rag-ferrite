@@ -353,7 +353,8 @@ fn ui(f: &mut Frame, app: &mut App) {
     // Top: header(1) + blank(1) + filename(1) + bar(1) + phase(1) + blank(1) + stats(2) + blank(1) = 9
     // Idle: header(1) + idle line(1) = 2
     let top_h: u16 = if has_batch { 9 } else { 2 };
-    let fl_h: u16 = if app.show_files && has_batch {
+    // File lists always visible at bottom when batch running
+    let fl_h: u16 = if has_batch {
         std::cmp::min(10, size.height.saturating_sub(top_h + 4))
     } else {
         0
@@ -363,8 +364,8 @@ fn ui(f: &mut Frame, app: &mut App) {
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(top_h),
-            Constraint::Length(fl_h),
             Constraint::Min(2), // activity log (separator + at least 1 event)
+            Constraint::Length(fl_h),
             Constraint::Length(1), // footer
         ])
         .split(size);
@@ -591,11 +592,11 @@ fn ui(f: &mut Frame, app: &mut App) {
     // ══════════════════════════════════════════════════════════════════
     // ── File lists (toggled with 'l') ──
     // ══════════════════════════════════════════════════════════════════
-    if app.show_files && has_batch && fl_h > 0 {
+    if has_batch && fl_h > 0 {
         let list_area = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([Constraint::Percentage(55), Constraint::Percentage(45)])
-            .split(outer[1]);
+            .split(outer[2]);
 
         // ── Completed files ──
         let completed_items: Vec<ListItem> = batch
@@ -721,7 +722,7 @@ fn ui(f: &mut Frame, app: &mut App) {
     // ── Activity log ──
     // ══════════════════════════════════════════════════════════════════
     {
-        let act_area = outer[2];
+        let act_area = outer[1];
         if act_area.height < 1 {
             // skip if no space
         } else {

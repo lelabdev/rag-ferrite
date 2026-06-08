@@ -232,6 +232,12 @@ impl IngestionManager {
         let live_chunks = engine::chunk_counter::get();
         if let Some(ref mut batch) = p.batch {
             batch.completed_chunks = live_chunks;
+            // Recalculate elapsed from started_at (live, not stored)
+            let now_secs = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+            batch.elapsed_seconds = now_secs.saturating_sub(batch.started_at);
             // Recalculate speed and ETA with live data
             if batch.elapsed_seconds > 0 {
                 batch.speed_chunks_per_min = (live_chunks as f64 / batch.elapsed_seconds as f64) * 60.0;
