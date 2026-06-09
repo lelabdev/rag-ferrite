@@ -499,7 +499,7 @@ pub fn print_usage() {
         r#"ragfer — rag-ferrite CLI client
 
 Usage:
-    ragfer                            Show this help
+    ragfer                            Launch monitor (default)
     ragfer serve  (-d)                Launch server (daemon)
     ragfer status (-s)                Engine status
     ragfer progress (-p)             Batch ingestion progress
@@ -623,7 +623,7 @@ pub fn parse_args() -> Result<CliArgs> {
         i += 1;
     }
 
-    let subcmd = positional.first().map(|s| s.as_str()).unwrap_or("help");
+    let subcmd = positional.first().map(|s| s.as_str()).unwrap_or("monitor");
     let args = if positional.len() > 1 { &positional[1..] } else { &[] };
 
     let command = match subcmd {
