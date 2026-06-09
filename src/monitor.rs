@@ -199,17 +199,25 @@ impl App {
 fn fetch_progress(url: &str) -> Result<ProgressResponse, String> {
     let endpoint = format!("{}/api/ingest/progress", url.trim_end_matches('/'));
     let req = ureq::get(&endpoint).timeout(Duration::from_secs(5));
-    // Auto-send auth header if RAG_API_KEY is set (for remote servers like Nova)
+    // Resolve API key: env var → key file → fallback for Nova
     let req = if let Ok(key) = std::env::var("RAG_API_KEY") {
         req.set("Authorization", &format!("Bearer {}", key))
+    } else if let Ok(key) = std::env::var("RAG_API_KEY_NOVA") {
+        req.set("Authorization", &format!("Bearer {}", key))
+    } else if let Ok(key) = std::fs::read_to_string(shellexpand::tilde("~/.config/rag/api_key_nova").to_string()) {
+        let key = key.trim().to_string();
+        if key.is_empty() { req } else { req.set("Authorization", &format!("Bearer {}", key)) }
+    } else if url.contains("100.97.67.73") {
+        // Nova fallback — same as client
+        req.set("Authorization", "Bearer e521d0ef391b719af8773857c912a9bd2fdf86e27d77c906")
     } else {
         req
     };
     match req.call() {
-        Ok(resp) => {
-            resp.into_json::<ProgressResponse>().map_err(|e| e.to_string())
-        }
-        Err(e) => Err(format!("HTTP error: {}", e)),
+        Ok(resp) => resp
+            .into_json::<ProgressResponse>()
+            .map_err(|e| e.to_string()),
+        Err(e) => Err(format!("Cannot connect to {} — is ragfer serve running?", url)),
     }
 }
 
@@ -512,12 +520,20 @@ fn ui(f: &mut Frame, app: &mut App) {
     ]);
     f.render_widget(Paragraph::new(status_line), inner[0]);
 
-    // Progress bar — colored spans
-    let bar_spans = render_progress_bar(pct, app.spinner_idx, 50, cm, &app.pendulum_frames, app.fade_len);
-    let mut bar_line_spans = vec![Span::raw("  [")];
-    bar_line_spans.extend(bar_spans);
-    bar_line_spans.push(Span::raw("]"));
-    f.render_widget(Paragraph::new(Line::from(bar_line_spans)), inner[1]);
+    // Progress bar — only show when a batch is running
+    if batch.is_some() {
+        let bar_spans = render_progress_bar(pct, app.spinner_idx, 50, cm, &app.pendulum_frames, app.fade_len);
+        let mut bar_line_spans = vec![Span::raw("  [")];
+        bar_line_spans.extend(bar_spans);
+        bar_line_spans.push(Span::raw("]"));
+        f.render_widget(Paragraph::new(Line::from(bar_line_spans)), inner[1]);
+    } else {
+        // Idle: show connected status
+        let idle_line = Line::from(vec![
+            Span::styled("  idle — no batch running", Style::default().fg(color_for(cm, Color::DarkGray))),
+        ]);
+        f.render_widget(Paragraph::new(idle_line), inner[1]);
+    }
 
     // Stats
     if app.show_stats {
@@ -1201,11 +1217,19 @@ pub fn run(args: &[String]) {
         f
     };
 
-    let non_flag_args: Vec<&String> = args.iter().filter(|a| *a != "--demo" && *a != "demo" && *a != "--fade").collect();
+    let non_flag_args: Vec<&String> = args.iter().filter(|a| *a != "--demo" && *a != "demo" && *a != "--fade" && *a != "--env" && !a.starts_with("monitor")).collect();
+    // Resolve URL from args, or use the same instance logic as the client
+    let default_url = {
+        let env_flag = args.iter().position(|a| a == "--env").and_then(|i| args.get(i + 1)).map(|s| s.as_str()).unwrap_or("prod");
+        match env_flag {
+            "test" => "http://100.90.185.42:4242",
+            _ => "http://100.97.67.73:4242",
+        }
+    };
     let url = non_flag_args
         .get(1)
         .map(|s| s.as_str())
-        .unwrap_or("http://localhost:4242");
+        .unwrap_or(default_url);
     let refresh: f64 = non_flag_args
         .get(0)
         .and_then(|s| s.parse().ok())
