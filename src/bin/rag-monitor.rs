@@ -1,7 +1,7 @@
 //! rag-monitor — Standalone TUI that connects to a rag-ferrite HTTP API
 //!
 //! Config via env vars:
-//!   RAG_MONITOR_URL     — base URL (default: http://100.97.67.73:4242)
+//!   RAG_MONITOR_URL     — base URL (default: http://localhost:4242)
 //!   RAG_MONITOR_KEY     — API key, sent as Authorization: Bearer ***
 //!   RAG_MONITOR_REFRESH — poll interval in seconds (default: 5)
 
@@ -952,17 +952,20 @@ fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
 fn main() {
     // Config from env, falling back to same locations as CLI `rag`
     let base_url =
-        std::env::var("RAG_MONITOR_URL").unwrap_or_else(|_| "http://100.97.67.73:4242".to_string());
+        std::env::var("RAG_MONITOR_URL").unwrap_or_else(|_| "http://localhost:4242".to_string());
     let api_key = std::env::var("RAG_MONITOR_KEY")
         .ok()
         .or_else(|| std::env::var("RAG_API_KEY").ok())
-        .or_else(|| std::env::var("RAG_API_KEY_NOVA").ok())
         .or_else(|| {
-            let path = std::path::PathBuf::from(
-                std::env::var("HOME").unwrap_or_else(|_| "/home/loops".to_string()),
-            )
-            .join(".config/rag/api_key_nova");
-            std::fs::read_to_string(path).ok().map(|s| s.trim().to_string())
+            let home = std::env::var("HOME").unwrap_or_else(|_| "/home/loops".to_string());
+            let path = std::path::PathBuf::from(home).join(".config/ragfer/.env");
+            if path.exists() {
+                std::fs::read_to_string(path).ok().and_then(|s| {
+                    s.lines().find_map(|line| line.strip_prefix("RAG_API_KEY=").map(|v| v.trim().to_string()))
+                })
+            } else {
+                None
+            }
         });
     let refresh_secs: f64 = std::env::var("RAG_MONITOR_REFRESH")
         .ok()

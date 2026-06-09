@@ -199,17 +199,9 @@ impl App {
 fn fetch_progress(url: &str) -> Result<ProgressResponse, String> {
     let endpoint = format!("{}/api/ingest/progress", url.trim_end_matches('/'));
     let req = ureq::get(&endpoint).timeout(Duration::from_secs(5));
-    // Resolve API key: env var → key file → fallback for Nova
-    let req = if let Ok(key) = std::env::var("RAG_API_KEY") {
+    // Use client config for API key
+    let req = if let Some(key) = crate::client::resolve_api_key() {
         req.set("Authorization", &format!("Bearer {}", key))
-    } else if let Ok(key) = std::env::var("RAG_API_KEY_NOVA") {
-        req.set("Authorization", &format!("Bearer {}", key))
-    } else if let Ok(key) = std::fs::read_to_string(shellexpand::tilde("~/.config/rag/api_key_nova").to_string()) {
-        let key = key.trim().to_string();
-        if key.is_empty() { req } else { req.set("Authorization", &format!("Bearer {}", key)) }
-    } else if url.contains("100.97.67.73") {
-        // Nova fallback — same as client
-        req.set("Authorization", "Bearer e521d0ef391b719af8773857c912a9bd2fdf86e27d77c906")
     } else {
         req
     };
@@ -1217,19 +1209,10 @@ pub fn run(args: &[String]) {
         f
     };
 
-    let non_flag_args: Vec<&String> = args.iter().filter(|a| *a != "--demo" && *a != "demo" && *a != "--fade" && *a != "--env" && !a.starts_with("monitor")).collect();
-    // Resolve URL from args, or use the same instance logic as the client
-    let default_url = {
-        let env_flag = args.iter().position(|a| a == "--env").and_then(|i| args.get(i + 1)).map(|s| s.as_str()).unwrap_or("prod");
-        match env_flag {
-            "test" => "http://100.90.185.42:4242",
-            _ => "http://100.97.67.73:4242",
-        }
-    };
-    let url = non_flag_args
-        .get(1)
-        .map(|s| s.as_str())
-        .unwrap_or(default_url);
+    let non_flag_args: Vec<&String> = args.iter().filter(|a| *a != "--demo" && *a != "demo" && *a != "--fade" && !a.starts_with("monitor")).collect();
+    // Use client config for URL, allow override via positional arg
+    let default_url = crate::client::get_server_url();
+    let url = non_flag_args.get(1).map(|s| s.as_str()).unwrap_or(&default_url);
     let refresh: f64 = non_flag_args
         .get(0)
         .and_then(|s| s.parse().ok())
