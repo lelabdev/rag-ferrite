@@ -201,34 +201,6 @@ pub fn sanitize_collection(collection: &str) -> Result<String> {
     Ok(sanitized)
 }
 
-/// Options for ingestion controlling concurrency and relevance filtering.
-pub struct IngestOptions {
-    pub max_concurrent: usize,
-    pub relevance_scoring: bool,
-    pub min_relevance_score: f64,
-    pub chunk_size: usize,
-    pub context_batch_size: usize,
-    pub context_max_retries: usize,
-    pub chunk_overlap_ratio: f64,
-    pub merge_last_chunk_threshold: usize,
-    /// Chunking strategy: "recursive", "parent_child", or "auto"
-    pub chunking_strategy: String,
-    /// Parent chunk max chars (for parent_child mode)
-    pub parent_max_chars: usize,
-    /// Child chunk max chars (for parent_child mode)
-    pub child_max_chars: usize,
-    /// Child chunk overlap (for parent_child mode)
-    pub child_overlap: usize,
-    /// Auto-switch threshold (for "auto" mode)
-    pub auto_threshold: usize,
-    /// Min child chars — consecutive children below this are merged
-    pub child_min_chars: usize,
-    /// Defer HNSW + BM25 index rebuild to explicit flush (saves RAM during batch ingestion)
-    pub defer_index_rebuild: bool,
-    /// WAL checkpoint every N parents committed (0 = disabled)
-    pub wal_checkpoint_interval: usize,
-}
-
 /// Get stats across all collections.
 pub fn stats() -> Result<Stats> {
     let conn = get_conn()?;

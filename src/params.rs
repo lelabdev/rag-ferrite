@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 pub struct IngestConfig {
     pub max_concurrent: usize,
     pub relevance_scoring: bool,
-    pub min_relevance_score: f32,
+    pub min_relevance_score: f64,
     pub chunk_size: usize,
     pub context_batch_size: usize,
     pub context_max_retries: usize,
@@ -24,29 +24,6 @@ pub struct IngestConfig {
     pub defer_index_rebuild: bool,
     pub wal_checkpoint_interval: usize,
     pub ingested_dir: String,
-}
-
-impl IngestConfig {
-    pub fn to_engine_options(&self) -> crate::engine::IngestOptions {
-        crate::engine::IngestOptions {
-            max_concurrent: self.max_concurrent,
-            relevance_scoring: self.relevance_scoring,
-            min_relevance_score: self.min_relevance_score as f64,
-            chunk_size: self.chunk_size,
-            context_batch_size: self.context_batch_size,
-            context_max_retries: self.context_max_retries,
-            chunk_overlap_ratio: self.chunk_overlap_ratio,
-            merge_last_chunk_threshold: self.merge_last_chunk_threshold,
-            chunking_strategy: self.chunking_strategy.clone(),
-            parent_max_chars: self.parent_max_chars,
-            child_max_chars: self.child_max_chars,
-            child_overlap: self.child_overlap,
-            auto_threshold: self.auto_threshold,
-            child_min_chars: self.child_min_chars,
-            defer_index_rebuild: self.defer_index_rebuild,
-            wal_checkpoint_interval: self.wal_checkpoint_interval,
-        }
-    }
 }
 
 // ── Shared parameter structs ─────────────────────────────────────────

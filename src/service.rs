@@ -123,7 +123,7 @@ pub async fn ingest_file_service(
         llm,
         file_path,
         Some("general"),
-        cfg.to_engine_options(),
+        cfg.clone(),
     )
     .await
     {
@@ -155,7 +155,7 @@ pub async fn ingest_data_service(
         source,
         None,
         Some("general"),
-        cfg.to_engine_options(),
+        cfg.clone(),
     )
     .await
     {

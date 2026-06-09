@@ -348,7 +348,7 @@ async fn process_file_job(
         llm,
         file_path,
         Some("general"),
-        cfg.to_engine_options(),
+        cfg.clone(),
     )
     .await;
 
@@ -398,7 +398,7 @@ async fn process_data_job(
         source,
         None,
         Some("general"),
-        cfg.to_engine_options(),
+        cfg.clone(),
     )
     .await;
 
@@ -562,7 +562,7 @@ async fn process_batch_job(
             llm,
             file_path,
             Some("general"),
-            cfg.to_engine_options(),
+            cfg.clone(),
         )
         .await;
 

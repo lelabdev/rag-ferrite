@@ -7,7 +7,7 @@
 use anyhow::Result;
 
 use super::get_conn;
-use crate::llm::get_tag_rules;
+use crate::tag_rules::get_tag_rules;
 
 /// Result of routing a query.
 #[derive(Debug, Clone)]

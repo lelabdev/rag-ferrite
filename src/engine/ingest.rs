@@ -8,10 +8,11 @@ use crate::chunker;
 use crate::embedding::EmbeddingProvider;
 use crate::extractor;
 use crate::llm::{ContextResult, LlmProvider};
+use crate::params::IngestConfig;
 use crate::types::IngestionReport;
 
 use super::{
-    get_conn, sanitize_collection, IngestOptions,
+    get_conn, sanitize_collection,
     add_embeddings_to_buffer, rebuild_and_save_indexes, wal_checkpoint,
     insert_chunk_tags, update_collection_tags,
     verify_chunks,
@@ -27,7 +28,7 @@ pub async fn ingest_text(
     source_name: &str,
     metadata: Option<&str>,
     collection: Option<&str>,
-    options: IngestOptions,
+    options: IngestConfig,
 ) -> Result<(i64, IngestionReport)> {
     let total_start = Instant::now();
     if content.trim().is_empty() {
@@ -257,7 +258,7 @@ pub async fn ingest_file(
     llm: Option<&LlmProvider>,
     file_path: &str,
     collection: Option<&str>,
-    options: IngestOptions,
+    options: IngestConfig,
 ) -> Result<(i64, IngestionReport)> {
     // Use our custom extractor instead of rag_engine's document_parser
     let text = extractor::extract_text(file_path)?;
@@ -584,7 +585,7 @@ async fn ingest_text_parent_child(
     source_name: &str,
     metadata: Option<&str>,
     collection: Option<&str>,
-    options: IngestOptions,
+    options: IngestConfig,
 ) -> Result<(i64, IngestionReport)> {
     let total_start = Instant::now();
     if content.trim().is_empty() {
