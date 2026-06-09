@@ -6,6 +6,7 @@ use axum::{
     Json, Router,
 };
 use serde::Deserialize;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tower_http::cors::CorsLayer;
 
@@ -49,11 +50,15 @@ pub fn check_api_key(
         }
     }
 
-    // Guest key → read-only
+    // Guest key → read-only (excluding key management endpoints)
     if let Some(guest) = guest_key {
         if token == guest {
             let is_read = method == axum::http::Method::GET
                 || path == "/api/query"; // POST query is read-only
+            // Key management requires admin key regardless of method
+            if path.starts_with("/api/keys") {
+                return Err((StatusCode::FORBIDDEN, "Key management requires admin key"));
+            }
             if is_read {
                 return Ok(());
             }
@@ -293,6 +298,144 @@ async fn get_history() -> impl IntoResponse {
     })))
 }
 
+// --- API Key management handlers ---
+
+/// Generate a new random hex API key (64 chars = 32 bytes).
+fn generate_random_key() -> String {
+    use rand::Rng;
+    let mut rng = rand::rng();
+    let bytes: [u8; 32] = rng.random();
+    bytes.iter().map(|b| format!("{:02x}", b)).collect()
+}
+
+/// Find the .env file path used by the server.
+/// The server loads from the directory of the running executable.
+fn server_env_path() -> PathBuf {
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            let env = dir.join(".env");
+            if env.exists() {
+                return env;
+            }
+        }
+    }
+    // Fallback: ~/.config/ragfer/.env
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
+    PathBuf::from(format!("{}/.config/ragfer/.env", home))
+}
+
+/// Read current RAG_API_KEY from .env file (disk).
+fn read_key_from_env(env_path: &PathBuf) -> Option<String> {
+    if env_path.exists() {
+        if let Ok(contents) = std::fs::read_to_string(env_path) {
+            for line in contents.lines() {
+                if let Some(val) = line.strip_prefix("RAG_API_KEY=") {
+                    let key = val.trim().trim_matches(|c: char| c == '"').to_string();
+                    if !key.is_empty() {
+                        return Some(key);
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Write RAG_API_KEY=<key> to the .env file, preserving other lines.
+fn write_key_to_env(env_path: &PathBuf, new_key: &str) -> Result<(), String> {
+    let mut lines = Vec::new();
+    let mut found = false;
+
+    if env_path.exists() {
+        if let Ok(contents) = std::fs::read_to_string(env_path) {
+            for line in contents.lines() {
+                if line.starts_with("RAG_API_KEY=") {
+                    lines.push(format!("RAG_API_KEY={}", new_key));
+                    found = true;
+                } else {
+                    lines.push(line.to_string());
+                }
+            }
+        }
+    }
+    if !found {
+        lines.push(format!("RAG_API_KEY={}", new_key));
+    }
+
+    if let Some(parent) = env_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("Failed to create dir: {}", e))?;
+    }
+    std::fs::write(env_path, lines.join("\n") + "\n")
+        .map_err(|e| format!("Failed to write .env: {}", e))?;
+    Ok(())
+}
+
+async fn keys_generate() -> impl IntoResponse {
+    let env_path = server_env_path();
+    let new_key = generate_random_key();
+
+    match write_key_to_env(&env_path, &new_key) {
+        Ok(()) => {
+            tracing::info!("API key regenerated via /api/keys/generate");
+            // Also update the env var so the NEXT request uses the new key
+            // SAFETY: single-threaded admin operation during key rotation
+            unsafe { std::env::set_var("RAG_API_KEY", &new_key); }
+            (StatusCode::OK, Json(serde_json::json!({
+                "key": new_key,
+                "message": "New API key generated. The next request must use this key."
+            })))
+        }
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e })),
+        ),
+    }
+}
+
+async fn keys_list() -> impl IntoResponse {
+    let env_path = server_env_path();
+    let mut keys = Vec::new();
+
+    if let Some(key) = read_key_from_env(&env_path) {
+        if key.len() > 16 {
+            let masked = format!("{}...{}", &key[..8], &key[key.len()-8..]);
+            keys.push(serde_json::json!({ "masked": masked, "type": "admin" }));
+        } else {
+            keys.push(serde_json::json!({ "masked": format!("{}...{}", &key[..4], &key[key.len()-4..]), "type": "admin" }));
+        }
+    }
+
+    // Also check guest key
+    if let Ok(guest) = std::env::var("RAG_GUEST_API_KEY") {
+        if !guest.is_empty() {
+            if guest.len() > 16 {
+                let masked = format!("{}...{}", &guest[..8], &guest[guest.len()-8..]);
+                keys.push(serde_json::json!({ "masked": masked, "type": "guest" }));
+            } else {
+                keys.push(serde_json::json!({ "masked": format!("{}...{}", &guest[..4], &guest[guest.len()-4..]), "type": "guest" }));
+            }
+        }
+    }
+
+    (StatusCode::OK, Json(serde_json::json!({
+        "keys": keys,
+        "total": keys.len()
+    })))
+}
+
+async fn keys_current() -> impl IntoResponse {
+    let env_path = server_env_path();
+    match read_key_from_env(&env_path) {
+        Some(key) => (StatusCode::OK, Json(serde_json::json!({
+            "key": key,
+            "type": "admin"
+        }))),
+        None => (StatusCode::NOT_FOUND, Json(serde_json::json!({
+            "error": "No API key found in .env file"
+        }))),
+    }
+}
+
 // --- Server startup ---
 
 pub async fn serve(server: Arc<RagFerriteServer>, port: u16, bind_address: String, admin_key: Option<String>, guest_key: Option<String>) -> anyhow::Result<()> {
@@ -346,6 +489,10 @@ pub async fn serve(server: Arc<RagFerriteServer>, port: u16, bind_address: Strin
         .route("/api/service/stop", post(stop_service))
         .route("/api/reload", post(reload_config))
         .route("/api/history", get(get_history))
+        // API key management
+        .route("/api/keys/generate", post(keys_generate))
+        .route("/api/keys", get(keys_list))
+        .route("/api/keys/current", get(keys_current))
         .layer(CorsLayer::permissive())
         .with_state(server);
 

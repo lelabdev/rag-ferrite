@@ -316,6 +316,54 @@ pub fn cmd_stop(_json: bool) -> Result<()> { let r = api_call("POST", "/api/serv
 
 pub fn cmd_reload(_json: bool) -> Result<()> { let r = api_call("POST", "/api/reload", None)?; println!("{}", serde_json::to_string_pretty(&r)?); Ok(()) }
 
+// ─── API Key management ──────────────────────────────────────────────────
+
+pub fn cmd_key_generate() -> Result<()> {
+    let r = api_call("POST", "/api/keys/generate", None)?;
+    if let Some(error) = r.get("error").and_then(|v| v.as_str()) {
+        bail!("Failed to generate key: {}", error);
+    }
+    let key = r.get("key").and_then(|v| v.as_str()).unwrap_or("?");
+    println!("New API key: {}", key);
+    eprintln!("\n⚠  WARNING: Update your client config with this new key!");
+    eprintln!("   The previous key is no longer valid.");
+    eprintln!("   Run 'ragfer setup' to update, or edit ~/.config/ragfer/.env");
+    Ok(())
+}
+
+pub fn cmd_key_list() -> Result<()> {
+    let r = api_call("GET", "/api/keys", None)?;
+    if let Some(error) = r.get("error").and_then(|v| v.as_str()) {
+        bail!("Failed to list keys: {}", error);
+    }
+    let empty = Vec::new();
+    let keys = r.get("keys").and_then(|v| v.as_array()).unwrap_or(&empty);
+    if keys.is_empty() {
+        println!("No API keys configured.");
+        return Ok(());
+    }
+    println!("{:<50} {:<10}", "Key (masked)", "Type");
+    println!("{}", "─".repeat(62));
+    for k in keys {
+        let masked = k.get("masked").and_then(|v| v.as_str()).unwrap_or("?");
+        let key_type = k.get("type").and_then(|v| v.as_str()).unwrap_or("?");
+        println!("{:<50} {:<10}", masked, key_type);
+    }
+    Ok(())
+}
+
+pub fn cmd_key_show() -> Result<()> {
+    let r = api_call("GET", "/api/keys/current", None)?;
+    if let Some(error) = r.get("error").and_then(|v| v.as_str()) {
+        bail!("Failed to get current key: {}", error);
+    }
+    let key = r.get("key").and_then(|v| v.as_str()).unwrap_or("?");
+    let key_type = r.get("type").and_then(|v| v.as_str()).unwrap_or("admin");
+    println!("{}", key);
+    eprintln!("(type: {})", key_type);
+    Ok(())
+}
+
 pub fn cmd_history(json: bool) -> Result<()> {
     let r = api_call("GET", "/api/history", None)?;
     if json { println!("{}", serde_json::to_string_pretty(&r)?); return Ok(()); }
@@ -381,6 +429,7 @@ pub enum CliCommand {
     IngestData { name: String, collection: Option<String> },
     Delete { source_id: String },
     Flush, Rebuild, Cancel, Stop, Restart, Reload, History,
+    KeyGenerate, KeyList, KeyShow,
 }
 
 pub fn print_usage() {
@@ -404,6 +453,9 @@ Usage:
     ragfer restart (-r)              Stop and wait for server restart
     ragfer reload                    Hot-reload config.toml
     ragfer history                   Show ingestion batch history
+    ragfer key generate              Generate new API key
+    ragfer key list                  List active API keys (masked)
+    ragfer key show                  Show current API key (full)
     ragfer setup                     Configure server URL + API key
     ragfer help (-h)                 Show this help
 
@@ -463,6 +515,15 @@ pub fn parse_args() -> Result<CliArgs> {
         "monitor" | "-m" => CliCommand::Monitor,
         "update" => CliCommand::Update,
         "setup" => CliCommand::Setup,
+        "key" => {
+            let key_sub = args.first().map(|s| s.as_str()).unwrap_or("");
+            match key_sub {
+                "generate" => CliCommand::KeyGenerate,
+                "list" => CliCommand::KeyList,
+                "show" => CliCommand::KeyShow,
+                _ => { bail!("key requires a subcommand: generate, list, show"); }
+            }
+        }
         "help" | "-h" | "--help" => { print_usage(); std::process::exit(0); }
         _ => { eprintln!("Unknown command: {}", subcmd); print_usage(); std::process::exit(1); }
     };
@@ -487,6 +548,9 @@ pub fn execute(args: CliArgs) -> Result<()> {
         CliCommand::Reload => cmd_reload(args.json),
         CliCommand::History => cmd_history(args.json),
         CliCommand::Setup => cmd_setup(),
+        CliCommand::KeyGenerate => cmd_key_generate(),
+        CliCommand::KeyList => cmd_key_list(),
+        CliCommand::KeyShow => cmd_key_show(),
         CliCommand::Serve | CliCommand::Monitor | CliCommand::Update => unreachable!("handled by main.rs"),
     }
 }
