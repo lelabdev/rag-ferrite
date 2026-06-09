@@ -113,7 +113,7 @@ Just `ragfer` without args launches the TUI monitor (see [CLI](#cli)).
 # Hermes
 mcp_servers:
   rag-ferrite:
-    command: /path/to/ragfer
+    command: /path/to/rag-ferrite
     args: ["serve"]
     timeout: 9999
     env:
@@ -126,7 +126,7 @@ mcp_servers:
 {
   "mcpServers": {
     "rag-ferrite": {
-      "command": "/path/to/ragfer",
+      "command": "/path/to/rag-ferrite",
       "args": ["serve"],
       "env": {
         "LLM_API_KEY": "...",
@@ -284,19 +284,15 @@ ragfer setup
 # Writes ~/.config/ragfer/config.toml and ~/.config/ragfer/.env
 ```
 
-> **Note:** The Cargo package name is `rag-ferrite`; the compiled binary is `ragfer`. This is set via `[[bin]] name = "ragfer"` in `Cargo.toml`.
+> **Note:** The Cargo package name is `rag-ferrite`; the compiled binary is `ragfer`. The install script installs it to `~/.local/bin/rag-ferrite`.
 
 ### Real-time monitor
 
-**Built-in TUI** (default — just run `ragfer` with no args):
+Built-in TUI — just run `ragfer` with no args (or `ragfer monitor`):
+
 ```bash
 ragfer                              # launches monitor (default)
 ragfer monitor [refresh_seconds] [url] [--demo] [--fade N]
-```
-
-**Standalone monitor** (separate binary, connects via HTTP, no SSH needed):
-```bash
-rag-monitor [refresh_seconds] [url]
 ```
 
 Configuration via environment:
@@ -304,9 +300,7 @@ Configuration via environment:
 - `RAG_API_KEY` or `RAGFER_KEY` — API key
 - `RAGFER_REFRESH` — refresh interval in seconds
 
-API key lookup order: `RAG_API_KEY` env var → `~/.config/ragfer/.env` → `.env` next to binary (same as the `ragfer` CLI client)
-
-The standalone `rag-monitor` is a full TUI with a colored progress bar, real-time stats, activity log with timestamps, and always-visible file lists (same UI as the built-in `ragfer` monitor):
+API key lookup order: `RAG_API_KEY` env var → `~/.config/ragfer/.env` → `.env` next to binary (same as the `ragfer` CLI client).
 
 ```
  rag-ferrite v5.1.0 • 132 docs  ⠹
@@ -330,7 +324,7 @@ The standalone `rag-monitor` is a full TUI with a colored progress bar, real-tim
 │ ✓ file2.txt      237 ch  101s │                         │
 │ ✓ file3.txt      101 ch  126s │                         │
 └────────────────────────────────┴─────────────────────────┘
-[c]ancel [r]ebuild [f]lush [x]top [?]help [q]uit
+[C]ancel [r]ebuild [f]lush [x]top [?]help [q]uit
 ```
 
 **Progress bar zones:**
@@ -346,16 +340,20 @@ The standalone `rag-monitor` is a full TUI with a colored progress bar, real-tim
 |-----|--------|
 | `TAB` | Switch panel (Completed ↔ Queue) |
 | `↑↓` | Scroll file list |
-| `c` | Cancel running batch |
+| `Enter` | Open selected file (in folder view: expand/collapse; normal: open in `less`) |
+| `c` | Cycle color modes (Full → StatsOnly → Mono) |
+| `C` | Cancel running batch |
+| `x` | Stop server |
 | `r` | Rebuild indexes |
 | `f` | Flush indexes |
-| `x` | Stop server |
+| `l` | Toggle file lists |
+| `s` | Toggle stats panel |
+| `g` | Toggle folder grouping |
+| `o` | Open selected file in `less` |
 | `?` | Show/hide help popup |
 | `q` / `Esc` | Quit |
 
-The built-in monitor (`ragfer` / `ragfer monitor`) has additional shortcuts: `l` toggle lists, `s` toggle stats, `c` cycle color modes, `o` open file in `less`.
-
-Modes (built-in only):
+Modes (built-in monitor only):
 - `--demo`: simulate a batch without ingestion (for testing animations)
 - `--fade N`: fade length (0 = no fade, default 5)
 

@@ -1,106 +1,56 @@
 # rag-ferrite — Hybrid RAG engine (Rust) — binary: `ragfer`
 
-> Personal RAG engine — simple, fast, Rust. Binary `ragfer` (15 MB), one DB, native collections. MCP-native + integrated CLI.
+> Personal RAG engine — simple, fast, Rust. Single binary `ragfer` (15 MB), one DB, native collections. MCP-native + integrated CLI + TUI monitor.
 
 ## What it does
 
 Turns documents (PDF, DOCX, TXT, MD, HTML) into queryable knowledge with semantic understanding.
 Single Rust binary, SQLite storage, multi-collection, hybrid search with LLM-powered intelligence.
 
-## Quick start
+## Source structure
 
-```bash
-# One-line install (Linux x86_64) — installs `ragfer` + `rag-monitor`
-curl -fsSL https://raw.githubusercontent.com/lelabdev/rag-ferrite/main/install.sh | bash
-
-# Or build from source
-git clone https://github.com/lelabdev/rag-ferrite.git
-cd rag-ferrite && cargo build --release
+```
+src/
+├── main.rs (359 lines) — entry point, CLI dispatch, server startup
+├── server.rs (191 lines) — RagFerriteServer struct + MCP tool methods
+├── client.rs (384 lines) — CLI client (subcommands via ureq HTTP)
+├── config.rs (884 lines) — TOML config loading
+├── llm.rs (802 lines) — LLM provider, context generation, response parsing
+├── chunker.rs (837 lines) — text chunking (recursive + parent-child)
+├── ingestion.rs (680 lines) — ingestion queue + progress
+├── pipeline.rs (470 lines) — query pipeline, classification, cache
+├── api.rs (392 lines) — HTTP routes (axum)
+├── service.rs (302 lines) — shared business logic (MCP + HTTP)
+├── reranker.rs (330 lines) — reranker (LLM, Cohere, Disabled)
+├── embedding.rs (246 lines) — embedding provider
+├── types.rs (228 lines) — shared types
+├── params.rs (141 lines) — parameter structs (IngestConfig, QueryParams, etc.)
+├── extractor.rs (119 lines) — PDF/DOCX/text extraction
+├── tag_rules.rs (181 lines) — tag rules + sanitize + global state
+├── monitor/
+│   ├── mod.rs (630 lines) — App struct, event loop, key handling
+│   ├── ui.rs (947 lines) — ratatui rendering
+│   └── api.rs (128 lines) — HTTP fetch for monitor
+├── engine/
+│   ├── mod.rs (221 lines) — DB init, schema migrations, stats
+│   ├── ingest.rs (829 lines) — core ingestion
+│   ├── search.rs (137 lines) — hybrid search
+│   ├── query.rs (199 lines) — query helpers
+│   ├── benchmark.rs (225 lines) — benchmarks
+│   ├── indexes.rs (129 lines) — HNSW/BM25 index management
+│   ├── heat.rs (348 lines) — collection heat tracking
+│   ├── tag_routing.rs (163 lines) — tag-based routing
+│   ├── tags.rs (129 lines) — tag DB operations
+│   ├── precheck.rs (145 lines) — pre-ingestion check
+│   ├── chunk_heat.rs (109 lines) — chunk heat tracking
+│   ├── activity_log.rs (68 lines) — activity log ring buffer
+│   ├── chunk_counter.rs (22 lines) — atomic chunk counter
+│   └── cancel.rs (20 lines) — cancel flag
 ```
 
-Requires: `poppler-utils` for PDF, an LLM provider, an embedding provider.
+No `bin/` directory. No standalone `rag-monitor`. Monitor is `src/monitor/`.
 
-## Configuration
-
-`ragfer` uses file-based configuration with an interactive first-run setup:
-
-```bash
-ragfer setup    # interactive — prompts for server URL and API key
-```
-
-### Config files
-
-| File | Purpose |
-|------|---------|
-| `~/.config/ragfer/config.toml` | Server URL and all engine settings |
-| `~/.config/ragfer/.env` | API key (written by `ragfer setup`) |
-
-API key resolution order:
-1. Environment variable `RAG_API_KEY`
-2. `~/.config/ragfer/.env`
-3. `.env` file next to the binary
-
-### config.toml — minimal example
-
-```toml
-data_dir = "./data"
-
-[embedding]
-provider = "openai"                    # any OpenAI-compatible API
-model = "qwen/qwen3-embedding-8b"
-dimensions = 512                      # sweet spot for broad content. BM25 + tag routing compensate the <1.5% accuracy loss vs 4096
-base_url = "https://openrouter.ai/api/v1"
-
-[llm]
-provider = "ollama"                    # ollama, openai, openrouter
-model = "gemma4:31b"
-base_url = "https://api.ollama.com"
-context_enabled = true                 # contextual retrieval
-relevance_scoring = true               # filter junk at ingestion
-min_relevance_score = 5.0              # 1-10, chunks below are discarded
-
-[reranker]
-reranker_type = "llm"                  # disabled, llm, or cohere
-top_k = 10
-preview_chars = 300
-```
-
-Provider API keys (`LLM_API_KEY`, `EMBEDDING_API_KEY`) are resolved via the order above (env var → ~/.config/ragfer/.env → .env next to binary). No `--env` flag or hardcoded instances.
-
-### API Authentication (Streamable HTTP mode)
-
-When running with `http_port > 0`, rag-ferrite supports multi-tier API authentication:
-
-| Env var | Access level |
-|---------|-------------|
-| `RAG_API_KEY` | Admin — full access (read + write + manage) |
-| `RAG_GUEST_API_KEY` | Guest — read-only (query, list, status) |
-| (neither set) | Local dev — everything open, no auth |
-
-Clients pass the key via `Authorization: Bearer <key>` header.
-
-## MCP Tools (16)
-
-| Tool | Description |
-|---|---|
-| `query_documents(query, collection?, limit?)` | Hybrid search with filters, reranking, expansion, cache |
-| `ingest_file(file_path, collection?)` | Ingest PDF, DOCX, TXT, MD |
-| `ingest_data(content, source, collection?, format?)` | Ingest raw text, HTML, or markdown |
-| `delete_file(source)` | Remove document and all its chunks (instant, no synchronous index rebuild) |
-| `list_files()` | List indexed documents |
-| `status()` | Engine status and document count |
-| `read_chunk_neighbors(source_id, chunk_index)` | Expand context around a chunk |
-| `check_ingestion(file_path?, content?, source_name?)` | Preview document quality before ingestion |
-| `benchmark(file_path, collection?, limit?)` | Evaluate retrieval quality against a golden dataset |
-| `collection_heat()` | Collection heat tracking: heat_score, last_queried_at, query_count per collection |
-| `chunk_qa()` | Chunk-level QA: dead/cold chunks grouped by source, heat calculated on-the-fly |
-| `suggest_collection(query)` | Tag routing: extract keywords, match against collection_tags, suggest best collection |
-| `tag_map()` | Full tag → collection mapping with chunk counts |
-| `reassign_collection(source_id, collection)` | Move a source and its chunks to a different collection, rebuilds indexes |
-| `rebuild_indexes()` | Rebuild HNSW + BM25 indexes + WAL checkpoint |
-| `flush_indexes()` | Flush incremental HNSW buffer to disk |
-
-## Ingestion Pipeline
+## Ingestion pipeline
 
 ```
 Document → Extract text (pdftotext / docx-lite / raw)
@@ -110,6 +60,8 @@ Document → Extract text (pdftotext / docx-lite / raw)
          → Auto-tagging (LLM generates 2-3 tags per chunk)
          → Embed batch → Store in SQLite + HNSW index + BM25
 ```
+
+Engine uses `params::IngestConfig` (not IngestOptions — deleted). Constructed from `Config` in `main.rs`, passed to engine methods.
 
 ### What gets filtered at ingestion
 
@@ -126,7 +78,7 @@ Before ingesting, use `check_ingestion()` to preview:
 - Duplicate detection against existing documents
 - Warnings for very large or very small documents
 
-## Query Pipeline
+## Query pipeline
 
 ```
 Query → Classify (simple / standard / complex)
@@ -139,135 +91,26 @@ Query → Classify (simple / standard / complex)
       → Return top-k chunks with tags and scores
 ```
 
-### Query classification
+## MCP Tools (16)
 
-- **Simple**: direct keyword match (e.g. "what is X?")
-- **Standard**: needs expansion + reranking (e.g. "compare X and Y")
-- **Complex**: multi-step reasoning (e.g. "how does X relate to Y given Z?")
-
-Classification is automatic. Keywords and thresholds are configurable via `[query_classification]` in config.toml. Keywords can also be loaded from an external dictionary file `dictionaries/query_classification.toml` (optional — falls back to hardcoded defaults if the file is absent).
-
-```toml
-[query_classification]
-question_markers = ["what", "how", "why", "comment", "pourquoi", ...]
-boolean_operators = ["AND", "OR", "et", "ou"]
-complex_word_threshold = 8   # >8 words → complex
-simple_word_threshold = 2    # ≤2 words → simple
-```
-
-### Reranking options
-
-- `disabled`: no reranking, fast
-- `llm`: uses configured LLM to score results (0-1)
-- `cohere`: Cohere Rerank API (configurable model and URL)
-
-## Collections
-
-Multi-collection in the same SQLite database. Each MCP tool accepts an optional `collection` parameter.
-Collections are created on-the-fly — no setup needed.
-
-### Tag Routing (v5)
-
-The `collection_tags` table maps each tag to the collections where it appears, with chunk counts:
-
-```sql
--- Auto-populated during ingestion
-SELECT tag, collection, chunk_count FROM collection_tags
-WHERE tag = 'rust';
--- → rust | code | 120
--- → rust | general | 8
-```
-
-Heat tracking columns on `chunks` table: `query_count` (incremented on query hit) and `last_queried_at` (timestamp). Used for future lazy loading and cold storage decisions. Chunk heat updates use an async batched pattern (mpsc channel + 30s flush) to avoid blocking queries.
-
-Use cases: separate work docs from personal notes, per-project knowledge bases, language-based splits.
-
-## Architecture
-
-```
-ragfer (single binary, 15 MB)
-├── MCP server (rmcp, stdio) — for Hermes, Claude Desktop, any MCP client
-├── HTTP API (axum, optional) — REST endpoints for web dashboards
-├── Embedding provider — OpenAI-compatible APIs, Ollama local models
-├── LLM provider — Ollama, OpenAI, OpenRouter, any OpenAI-compatible
-├── Reranker — LLM-based or Cohere
-├── Chunker — recursive + parent-child, section-aware, markdown-aware
-├── Extractor — PDF (pdftotext), DOCX (docx-lite), TXT, MD
-├── Incremental index — dual-buffer (HNSW + in-memory) for instant searchability
-└── Storage — SQLite + HNSW (persistent to disk) + BM25
-```
-
-### Source structure
-
-```
-src/
-├── main.rs        — MCP server + HTTP server + CLI entry point
-├── client.rs      — integrated CLI (ureq HTTP client, all subcommands)
-├── service.rs     — shared service layer (MCP + HTTP)
-├── api.rs         — HTTP REST endpoints (axum)
-├── pipeline.rs    — query orchestration, classification, cache
-├── ingestion.rs   — background ingestion queue + batch progress monitoring
-├── monitor.rs     — built-in TUI monitor (ratatui)
-├── engine/
-│   ├── mod.rs     — engine init, config, stats, sanitize, IngestOptions
-│   ├── ingest.rs  — ingest_text, ingest_file, parent-child pipeline
-│   ├── indexes.rs — HNSW/BM25 rebuild, buffer, WAL checkpoint
-│   ├── precheck.rs — pre-check, language detection, duplicate detection, chunk heat, verify
-│   ├── search.rs  — hybrid search with RRF fusion
-│   ├── query.rs   — list, delete, neighbors, sources
-│   ├── benchmark.rs — quality evaluation
-│   ├── tags.rs    — chunk tagging
-│   ├── heat.rs    — collection heat tracking
-│   ├── chunk_heat.rs — async batched chunk heat (mpsc + 30s flush)
-│   ├── chunk_counter.rs — global atomic counter for real-time progress
-│   ├── cancel.rs  — global cancel flag for batch cancellation
-│   └── tag_routing.rs — tag-based collection routing
-├── llm.rs         — LLM provider (Ollama + OpenAI), scoring, tagging, context
-├── tag_rules.rs   — Tag normalization rules loaded from tag-rules.toml
-├── reranker.rs    — reranker (LLM, Cohere, passthrough)
-├── embedding.rs   — embedding provider (OpenAI-compatible)
-├── config.rs      — TOML config + query classification dictionary loader
-├── chunker.rs     — recursive + parent-child chunking, section extraction, language detection
-├── extractor.rs   — PDF/DOCX/text extraction
-├── types.rs       — shared structs
-├── bin/
-│   └── rag-monitor.rs — standalone TUI monitor binary (HTTP polling)
-└── dictionaries/
-    └── query_classification.toml — external keyword dictionary
-```
-
-## CLI (`ragfer`)
-
-The `ragfer` binary includes an integrated CLI client that communicates with a running server via HTTP (ureq).
-
-### Default behavior
-
-- `ragfer` (no arguments) → launches the TUI monitor
-- `ragfer -d` or `ragfer serve` → starts the daemon (MCP + HTTP server)
-
-### Subcommands
-
-| Command | Short | Description |
-|---|---|---|
-| `setup` | | Interactive first-run: configure server URL + API key |
-| `serve` | `-d` | Start daemon (MCP server + HTTP API) |
-| `status` | `-s` | Show engine status and document count |
-| `list` | `-l` | List indexed documents |
-| `query <text>` | `-q` | Hybrid search query |
-| `progress` | `-p` | Show batch ingestion progress |
-| `monitor` | `-m` | Launch TUI monitor |
-| `ingest-file <path>` | | Ingest a single file |
-| `ingest-batch <paths...>` | | Ingest multiple files (batch) |
-| `ingest-data <content>` | | Ingest raw text/HTML/markdown |
-| `delete <source>` | | Delete a document and its chunks |
-| `flush` | | Flush incremental HNSW buffer to disk |
-| `rebuild` | | Full HNSW + BM25 index rebuild |
-| `cancel` | | Cancel running batch |
-| `stop` | | Graceful server shutdown |
-| `update` | | Download latest binary from GitHub Releases |
-| `help` | | Show help |
-
-All commands hit the HTTP API. The server must be running (`ragfer serve` or `ragfer -d`) for CLI commands to work.
+| Tool | Description |
+|---|---|
+| `query_documents(query, collection?, limit?)` | Hybrid search with filters, reranking, expansion, cache |
+| `ingest_file(file_path, collection?)` | Ingest PDF, DOCX, TXT, MD |
+| `ingest_data(content, source, collection?, format?)` | Ingest raw text, HTML, or markdown |
+| `delete_file(source)` | Remove document and all its chunks |
+| `list_files()` | List indexed documents |
+| `status()` | Engine status and document count |
+| `read_chunk_neighbors(source_id, chunk_index)` | Expand context around a chunk |
+| `check_ingestion(file_path?, content?, source_name?)` | Preview document quality before ingestion |
+| `benchmark(file_path, collection?, limit?)` | Evaluate retrieval quality against a golden dataset |
+| `collection_heat()` | Collection heat tracking |
+| `chunk_qa()` | Chunk-level QA: dead/cold chunks grouped by source |
+| `suggest_collection(query)` | Tag routing: suggest best collection for a query |
+| `tag_map()` | Full tag → collection mapping with chunk counts |
+| `reassign_collection(source_id, collection)` | Move a source and its chunks to a different collection |
+| `rebuild_indexes()` | Rebuild HNSW + BM25 indexes + WAL checkpoint |
+| `flush_indexes()` | Flush incremental HNSW buffer to disk |
 
 ## HTTP API Endpoints
 
@@ -282,240 +125,102 @@ All commands hit the HTTP API. The server must be running (`ragfer serve` or `ra
 | GET | `/api/documents/{id}` | Get document details |
 | DELETE | `/api/documents/{id}` | Delete document |
 | GET | `/api/graph` | Source relationship graph |
-| POST | `/api/flush-indexes` | Rebuild HNSW + BM25 + WAL checkpoint |
+| POST | `/api/flush-indexes` | Flush HNSW + BM25 + WAL checkpoint |
 | POST | `/api/rebuild-indexes` | Full index rebuild |
-| POST | `/api/service/cancel-batch` | Cancel running batch (stops after current file) |
+| POST | `/api/service/cancel-batch` | Cancel running batch |
 | POST | `/api/service/stop` | Graceful server shutdown |
 
-### Batch Ingest
+## CLI (`ragfer`)
 
-```json
-POST /api/ingest
-{
-  "paths": ["/path/file1.txt", "/path/file2.txt"],
-  "move_after_ingest": true
-}
-```
+- `ragfer` (no args) → TUI monitor (default)
+- `ragfer serve` / `-d` → daemon (MCP + HTTP)
+- Client subcommands: `status`, `list`, `query`, `progress`, `ingest-file`, `ingest-batch`, `ingest-data`, `delete`, `flush`, `rebuild`, `cancel`, `stop`, `update`, `setup`, `monitor`
 
-Progress response includes: total/completed files, current file + phase, live `elapsed_seconds` (calculated from `started_at` in real-time), speed (chunks/min), ETA, error rate, per-file results array, and `activity_log.events[]` (ring buffer of last 20 events: embedding, llm, chunking, error, info with timestamps).
+All client commands hit the HTTP API. Server must be running.
 
-### Batch Dedup
+Client config: `~/.config/ragfer/config.toml` (url key) + `~/.config/ragfer/.env` (RAG_API_KEY).
 
-Files already ingested (matched by filename) are automatically skipped. Combined with `move_after_ingest` (inbox → ingested), batches are naturally resumable:
+## Collections
 
-```
-# If batch crashes at 140/220:
-# 1. Already-ingested files are in ingested/ folder
-# 2. Remaining files stay in inbox/
-# 3. Relaunch the same batch → skips 140 done → continues 80 remaining
-```
+Multi-collection in the same SQLite database. Each MCP tool accepts an optional `collection` parameter.
+Collections are created on-the-fly — no setup needed.
 
-### Monitor (TUI)
+### Tag routing
 
-**Built-in / default** — `ragfer` without args launches the TUI monitor:
-```bash
-ragfer                          # monitor (default, no args)
-ragfer -m                       # monitor (explicit flag)
-ragfer [refresh_seconds] [url]  # monitor with options
-ragfer --demo [--fade N]        # demo mode (simulate batch, no ingestion)
-```
+The `collection_tags` table maps each tag to the collections where it appears, with chunk counts. Auto-populated during ingestion. Heat tracking columns on `chunks` table: `query_count` (incremented on query hit) and `last_queried_at` (timestamp). Chunk heat updates use an async batched pattern (mpsc channel + 30s flush) to avoid blocking queries.
 
-**Standalone binary** (connects via HTTP, no SSH needed):
-```bash
-rag-monitor [refresh_seconds] [url]
-```
+## Config
 
-Configuration via environment and config files:
-- `RAGFER_URL` — server URL (default: `http://localhost:4242`)
-- `RAG_API_KEY` or `RAGFER_KEY` — API key
-- `RAGFER_REFRESH` — refresh interval in seconds
+Server config: `config.toml` alongside the binary. Client config: `~/.config/ragfer/config.toml`.
 
-API key lookup order: env var `RAG_API_KEY` → `~/.config/ragfer/.env` → `.env` next to binary
+API keys resolved via: env var → `~/.config/ragfer/.env` → `.env` next to binary. No hardcoded URLs or API keys.
 
-Real-time TUI with ratatui: cyan progress bar (█ fill → ▓▒░ fade → ⡀→⣿ braille transition → pendulum braille wave), stats panel, file lists. Only shows progress bar when a batch is running.
+### API Authentication (Streamable HTTP mode)
 
-Layout: header (version + docs link) → progress bar → stats panel → activity log with timestamps → file lists (completed + queue) always visible at bottom when batch is running → footer.
+| Env var | Access level |
+|---------|-------------|
+| `RAG_API_KEY` | Admin — full access (read + write + manage) |
+| `RAG_GUEST_API_KEY` | Guest — read-only (query, list, status) |
+| (neither set) | Local dev — everything open, no auth |
 
-Activity log shows the last 20 server-pushed events (embedding, llm, chunking, error, info) in a ring buffer with timestamps.
-
-Modes (built-in only):
-- `--demo`: simulate a batch without ingestion (for testing animations)
-- `--fade N`: fade length (0 = no fade, default 5)
-
-Keyboard: `TAB` switch • `↑↓` scroll • `c` cycle colors / cancel batch • `s` toggle stats • `x` stop server • `r` rebuild indexes • `f` flush indexes • `o` open in less • `?` help • `q` quit.
-
-### Update (deployment)
-
-```bash
-# On dev machine:
-cargo build --release
-gh release create vX.Y.Z target/release/ragfer target/release/rag-monitor
-
-# On target (aether, Nova, etc.):
-ragfer update
-```
-
-Downloads latest binary from GitHub Releases, stops service, replaces binary, restarts.
-
-## Advanced Configuration
-
-### LLM tuning
+### Modular LLM profiles
 
 ```toml
+[[llm_profile]]
+name = "fast"
+provider = "ollama"
+model = "ministral-3:3b"
+base_url = "https://api.ollama.com"
+
 [llm]
-temperature = 0.3                # scoring/tagging consistency
-max_tokens = 150                 # per LLM call
-expansion_temperature = 0.7      # query expansion creativity
-expansion_max_tokens = 200
-max_expansion_queries = 4        # alternative queries per original
-max_document_prompt_chars = 8000 # context window for prompts
-max_chunk_prompt_chars = 2000
-context_batch_size = 20          # parallel chunks during ingestion
-max_concurrent = 3               # concurrent LLM calls
+ingestion_profile = "fast"
+query_profile = "smart"
+reranker_profile = "fast"
 ```
 
-### Chunking
-
-Three strategies via `[chunking]` config:
-
-| Strategy | How | Best for |
-|---|---|---|
-| `recursive` | Fixed-size chunks (~800 chars) with overlap | Short docs, notes, FAQ |
-| `parent_child` | Large parents (~2000 chars) → small children (~200 chars). Children embedded for search, parents returned for context | Books, manuals, long-form |
-| `auto` (default) | parent_child for docs ≥ 5000 chars, recursive for smaller | Mixed collections |
-
-```toml
-[chunking]
-strategy = "auto"                    # recursive, parent_child, or auto
-parent_max_chars = 2000              # parent chunk size (parent_child mode)
-child_max_chars = 200                # child chunk size (parent_child mode)
-child_overlap = 20                   # overlap between child chunks
-auto_threshold = 5000                # switch to parent_child above this size
-```
-
-### Query pipeline
-
-```toml
-[advanced]
-quality_threshold = 0.3           # minimum confidence to accept
-max_retries = 1                   # corrective RAG retries
-high_confidence_threshold = 0.7   # above = high confidence
-query_limit = 10                  # default result count
-```
-
-### Database
-
-```toml
-[advanced]
-db_pool_size = 4                  # SQLite connection pool
-db_busy_timeout_ms = 5000
-embedding_batch_size = 20         # embeddings per API call
-# RAM optimization
-defer_index_rebuild = true        # skip HNSW rebuild after each file, flush once at end
-wal_checkpoint_interval = 50      # WAL checkpoint every N children committed
-```
+Without profiles, all actions use the single `[llm]` provider (backward compatible).
 
 ### Tag rules (`tag-rules.toml`)
 
-Auto-generated tags are cleaned through a configurable pipeline. Create `tag-rules.toml` alongside `config.toml`:
+Pipeline: strip chars → lowercase → synonym lookup → stop word filter → length filter → singular normalization → dedup. Loaded at startup, hot-reloadable via restart.
 
-```toml
-[synonyms]
-"advertising" = "copywriting"
-"social media" = "social media strategy"
-"props" = "svelte"
+### Reranker options
 
-[stop_words]
-words = ["creative", "general", "basic", "success", "example"]
-meta = ["introduction", "conclusion", "references", "glossary"]
-technical = ["syntax", "configuration", "installation", "deployment"]
-emotional = ["fear", "stress", "passion", "ambition"]
-noise = ["anecdote", "humor", "placeholder", "guide", "tutorial"]
+- `disabled`: no reranking
+- `llm`: uses configured LLM to score results (0-1)
+- `cohere`: Cohere Rerank API
 
-[rules]
-min_length = 3           # minimum tag length in characters
-max_words = 3            # maximum words per tag
-strip_chars = "*$`\"<>|={}[]/"  # characters removed before processing
-```
+## Monitor (TUI)
 
-**Pipeline:** strip chars → lowercase → synonym lookup → stop word filter → length filter → singular normalization → dedup.
+Built into the binary at `src/monitor/` (3 files: `mod.rs`, `ui.rs`, `api.rs`). Connects to server via HTTP.
 
-No recompilation needed — edit the file and restart the service.
+Env vars: `RAGFER_URL`, `RAGFER_KEY`, `RAGFER_REFRESH`.
 
-### Reranker (Cohere)
+Keyboard: `TAB` switch panel · `↑↓` scroll · `Enter` open/expand · `c` cycle colors · `C` cancel batch · `x` stop server · `r` rebuild indexes · `f` flush indexes · `l` toggle lists · `s` toggle stats · `g` folder grouping · `o` open in less · `?` help · `q` quit.
 
-```toml
-[reranker]
-reranker_type = "cohere"
-model = "rerank-v3.5"                          # optional, defaults to rerank-v3.5
-base_url = "https://api.cohere.ai/v2/rerank"   # optional, defaults to Cohere API
-api_key = "your-cohere-api-key"                 # or set COHERE_API_KEY env var
-top_k = 10
-preview_chars = 300
-```
-
-### Logging and HTTP
-
-```toml
-[advanced]
-log_file = "rag-ferrite.log"
-log_filter = "rag_ferrite=debug,rag_engine=debug"
-http_bind_address = "0.0.0.0"    # for REST API (if http_port > 0)
-```
+Modes: `--demo` (simulate batch), `--fade N` (fade length, default 5).
 
 ## Hermes / MCP Client Setup
 
-### Option A — stdio (local, simple)
+### stdio (local)
 
 ```yaml
 mcp_servers:
   rag-ferrite:
-    command: /path/to/ragfer
-    timeout: 9999        # large files can take 10+ min with contextual retrieval
+    command: /path/to/rag-ferrite
+    timeout: 9999
 ```
 
-API keys are resolved via the config file chain (env var → ~/.config/ragfer/.env → .env next to binary) — no need to pass them in the MCP config.
+API keys resolved via config file chain — no `env` block needed.
 
-### Option B — Streamable HTTP (recommended for production / remote)
-
-Set `http_port = 4242` in config.toml. rag-ferrite serves MCP over HTTP at `/mcp`.
+### Streamable HTTP (remote/production)
 
 ```yaml
-# Hermes — local or remote
 mcp_servers:
   rag-ferrite:
     url: "http://localhost:4242/mcp"
     timeout: 9999
 ```
-
-**Why Streamable HTTP:**
-- Independent service — survives client restarts
-- Works over the network — run on any server
-- Multiple clients can connect
-- Long ingestions decoupled from client lifecycle
-
-### Claude Desktop / any MCP client
-
-```json
-{
-  "mcpServers": {
-    "rag-ferrite": {
-      "command": "/path/to/ragfer"
-    }
-  }
-}
-```
-
-API keys are resolved via the config file chain — no `env` block needed.
-
-## Performance
-
-- Single binary, no Docker, no GPU required
-- SQLite file-based storage (backup = `cp`)
-- HNSW index persisted to disk, lazy-loaded per collection
-- Query cache with 300s TTL
-- Batch embedding (configurable batch size)
-- Concurrent LLM calls (configurable max)
 
 ## Comparison with alternatives
 
@@ -534,10 +239,6 @@ API keys are resolved via the config file chain — no `env` block needed.
 | LLM reranking | LLM + Cohere | No | No | No |
 | Install | `curl \| bash` | Docker Compose | npm install | npm install |
 | Dependencies | Zero | Docker, Python, ChromaDB | Node.js | Node.js |
-
-## Acknowledgements
-
-The ingestion pipeline was heavily inspired by [Jonas Roman's video on production RAG workflows](https://www.youtube.com/watch?v=phZ_iqu1gN0) — specifically contextual retrieval, pre-ingestion quality checks, post-chunking verification, query expansion, LLM reranking, and golden dataset benchmarking.
 
 ## Links
 

@@ -1,6 +1,6 @@
-# rag-ferrite — Custom RAG Engine (Rust)
+# rag-ferrite — Moteur RAG personnel (Rust)
 
-Moteur RAG personnel, en Rust. MCP server exposé via stdio ou Streamable HTTP.
+Moteur RAG personnel, en Rust. Binaire unique `rag-ferrite`, MCP server (stdio ou Streamable HTTP), CLI intégré, TUI monitor intégré.
 
 ## Stack
 
@@ -10,18 +10,19 @@ Moteur RAG personnel, en Rust. MCP server exposé via stdio ou Streamable HTTP.
 | MCP Server | rmcp | Exposition stdio + Streamable HTTP |
 | Embeddings | OpenRouter (Qwen3 8B) | 512 dims (sweet spot perf/RAM) |
 | LLM | Ollama Cloud (Gemma4 31B) | Scoring, contextual retrieval, tagging, reranking |
-| LLM Profiles | Modular per action | Ingestion, query, reranker can use different providers/models |
+| LLM Profiles | Modular per action | Ingestion, query, reranker peuvent utiliser des providers/models différents |
 | Stockage | SQLite + HNSW | 1 fichier DB, backup = cp |
+| TUI Monitor | ratatui | Intégré dans le binaire (src/monitor/) |
 
 ## Architecture
 
-Binaire `ragfer` (Cargo.toml: `name = "ragfer"`). CLI intégré (`src/client.rs`) + daemon en un seul binaire.
+Binaire unique `ragfer` (Cargo.toml: package name `rag-ferrite`).
 
-Deux modes d'exécution :
+Trois modes d'exécution :
 
 - **`ragfer`** (sans args) = monitor TUI (défaut)
-- **`ragfer serve`** / **`ragfer -d`** = daemon MCP (stdio ou HTTP)
-- **`ragfer <commande>`** = commande client (status, list, query, progress, ingest, delete, flush, rebuild, cancel, stop, monitor, update, help)
+- **`ragfer serve`** / **`-d`** = daemon MCP (stdio ou HTTP)
+- **`ragfer <commande>`** = commande client (status, list, query, progress, ingest, delete, flush, rebuild, cancel, stop, monitor, update, setup, help)
 
 Flags courts : `-s` status, `-l` list, `-q` query, `-p` progress, `-m` monitor, `-d` serve.
 
@@ -29,72 +30,79 @@ Le daemon expose :
 - **stdio** (défaut) : MCP sur stdin/stdout, Hermes spawn le process
 - **Streamable HTTP** (`http_port > 0`) : MCP sur HTTP `/mcp`, service indépendant, accessible à distance
 
-### Architecture decisions
+### Décisions d'architecture
 
-All technical decisions are documented as ADR files in `docs/adr/`.
-See `docs/DECISIONS.md` for the index.
+ADR dans `docs/adr/`. Index dans `docs/DECISIONS.md`.
 
-Key decisions:
-- Single binary, Rust, SQLite + HNSW (no external DB, no Python)
-- Parent-child chunking with contextual retrieval
-- Parallel parents (JoinSet) + batch children for ingestion speed
-- Modular LLM profiles: different models for ingestion, query, reranker (see `[[llm_profile]]` in config)
-- Non-blocking ingestion queue (mpsc channel + background worker)
-- Merge consecutive small children (<100 chars) for technical docs
-- Skip small chunks before LLM call (saves tokens, accurate stats)
-- Progress endpoint for monitoring active ingestions
-- Embedding dimensions: 512. Content is broad topics (books, transcripts, tech docs) where BM25 + tag routing compensate the minimal accuracy loss. Keeps RAM low and scales to 4× the data without OOM.
-- Fork of rag_engine under `lelabdev/rag-engine` — enables mmap for vector data loading (OS manages page cache, cold collections naturally evicted from RAM)
-- Async batched chunk heat (mpsc channel + 30s flush) vs old synchronous N UPDATEs
-- Global atomic patterns for cross-cutting signals (chunk_counter, cancel)
-- Delete instant (no synchronous index rebuild)
-- External query classification dictionary (optional TOML, `dictionaries/query_classification.toml`)
-- CLI intégré dans le binaire `ragfer` (src/client.rs) — remplace l'ancien CLI Python
-- Standalone rag-monitor binary (client-side TUI via HTTP polling)
-- Activity log: global ring buffer (last 20 events) with OnceLock + Mutex; engine pushes events during ingestion (embedding, llm, chunking, error, info); exposed in progress API for real-time monitoring
-- Live elapsed/speed/ETA: `get_progress()` recalculates `elapsed_seconds` from `started_at` timestamp on every call — no stale counters, always up-to-date
+Décisions clés :
+- Binaire unique, Rust, SQLite + HNSW (pas de DB externe, pas de Python)
+- Parent-child chunking avec contextual retrieval
+- Parents parallèles (JoinSet) + enfants en batch pour la vitesse d'ingestion
+- LLM profiles modulaires : modèles différents pour ingestion, query, reranker (`[[llm_profile]]` dans config)
+- Queue d'ingestion non-bloquante (canal mpsc + worker en arrière-plan)
+- Merge des children consécutifs trop petits (<100 chars) pour les docs techniques
+- Skip des petits chunks avant l'appel LLM (économise les tokens, stats précises)
+- Endpoint de progression pour monitorer les ingestions actives
+- Dimensions embedding : 512. Contenu broad (livres, transcriptions, docs tech) où BM25 + tag routing compensent la perte minime. RAM basse, 4× plus de données sans OOM
+- Fork de rag_engine sous `lelabdev/rag-engine` — mmap pour le chargement vectoriel (l'OS gère le page cache, collections froides naturellement évitées de la RAM)
+- Chunk heat async batched (canal mpsc + flush 30s) vs anciens N UPDATEs synchrones
+- Patterns atomiques globaux pour signaux transversaux (chunk_counter, cancel)
+- Delete instantané (pas de rebuild synchrone des indexes)
+- Dictionnaire externe de classification de query (TOML optionnel, `dictionaries/query_classification.toml`)
+- CLI intégré dans le binaire (src/client.rs) — remplace l'ancien CLI Python
+- Monitor TUI intégré au binaire (src/monitor/) — remplace l'ancien binaire standalone rag-monitor
+- Server struct extraite de main.rs → src/server.rs
+- Tags consolidés dans src/tag_rules.rs (sanitize + global state)
+- IngestOptions éliminé — le moteur utilise params::IngestConfig directement
+- Activity log : ring buffer global (20 derniers events) avec OnceLock + Mutex ; le moteur pousse des événements pendant l'ingestion (embedding, llm, chunking, error, info) ; exposé dans la progress API
+- Live elapsed/speed/ETA : `get_progress()` recalcule `elapsed_seconds` depuis `started_at` à chaque appel — pas de compteurs périmés
 
 ### Structure du code
 
 ```
 src/
-  main.rs        — MCP server (rmcp), initialise pipeline + reranker
-  client.rs      — CLI intégré : commandes client (status, list, query, progress, ingest, delete, flush, rebuild, cancel, stop, monitor, update, help)
-  service.rs     — Couche service partagée MCP + HTTP
-  ingestion.rs   — Queue d'ingestion non-bloquante (mpsc + background worker)
-  api.rs         — HTTP endpoints (axum, optionnel)
-  pipeline.rs    — Orchestration query (simple/standard/complex), cache
-  engine/
-    mod.rs       — init(), config(), stats(), sanitize(), IngestOptions
-    ingest.rs    — ingest_text(), ingest_file(), pipeline parent-child
-    indexes.rs   — HNSW/BM25 rebuild, buffer, WAL checkpoint
-    precheck.rs  — pre-check, langue, doublons, vérification chunks
-    chunk_heat.rs — Chunk heat async batched (mpsc + 30s flush)
-    chunk_counter.rs — Compteur atomique global pour progression temps réel
-    cancel.rs    — Flag d'annulation global pour batch cancellation
-    activity_log.rs — Ring buffer global (20 events), push/snapshot/clear, exposé dans progress API
-    search.rs    — search_hybrid(), search_hybrid_with_expansion()
-    query.rs     — get_section_paths, get_neighbors, delete_source, list_sources
-    benchmark.rs — run_benchmark(), get_graph_data()
-    tags.rs      — chunk_tags + collection_tags tables, insert/update/get tags
-    tag_routing.rs — Keyword extraction, collection_tags matching, route_query()
-    heat.rs      — Collection heat tracking: HeatTracker, EMA decay, chunk QA
-  bin/
-    rag-monitor.rs — Binaire TUI standalone, polling HTTP pour monitoring
-  llm.rs         — LlmProvider (ollama + openai), contextual retrieval, scoring, tagging, profile builder
-  reranker.rs    — Reranker (LLM + passthrough), rerank_hybrid()
-  embedding.rs   — EmbeddingProvider (openai-compatible)
-  config.rs      — Config TOML parsing, LlmProfile struct, profile lookup, dictionary loader
-  chunker.rs     — Recursive chunking, section extraction, language detection
-  extractor.rs   — PDF/DOCX/text extraction
-  types.rs       — Structs partagés + From impls
-dictionaries/
-  query_classification.toml — Dictionnaire externe de mots-clés pour classification de query
+├── main.rs (359 lines) — entry point, CLI dispatch, server startup
+├── server.rs (191 lines) — RagFerriteServer struct + MCP tool methods
+├── client.rs (384 lines) — CLI client (subcommands via ureq HTTP)
+├── config.rs (884 lines) — TOML config loading
+├── llm.rs (802 lines) — LLM provider, context generation, response parsing
+├── chunker.rs (837 lines) — text chunking (recursive + parent-child)
+├── ingestion.rs (680 lines) — ingestion queue + progress
+├── pipeline.rs (470 lines) — query pipeline, classification, cache
+├── api.rs (392 lines) — HTTP routes (axum)
+├── service.rs (302 lines) — shared business logic (MCP + HTTP)
+├── reranker.rs (330 lines) — reranker (LLM, Cohere, Disabled)
+├── embedding.rs (246 lines) — embedding provider
+├── types.rs (228 lines) — shared types
+├── params.rs (141 lines) — parameter structs (IngestConfig, QueryParams, etc.)
+├── extractor.rs (119 lines) — PDF/DOCX/text extraction
+├── tag_rules.rs (181 lines) — tag rules + sanitize + global state
+├── monitor/
+│   ├── mod.rs (630 lines) — App struct, event loop, key handling
+│   ├── ui.rs (947 lines) — ratatui rendering
+│   └── api.rs (128 lines) — HTTP fetch for monitor
+├── engine/
+│   ├── mod.rs (221 lines) — DB init, schema migrations, stats
+│   ├── ingest.rs (829 lines) — core ingestion
+│   ├── search.rs (137 lines) — hybrid search
+│   ├── query.rs (199 lines) — query helpers
+│   ├── benchmark.rs (225 lines) — benchmarks
+│   ├── indexes.rs (129 lines) — HNSW/BM25 index management
+│   ├── heat.rs (348 lines) — collection heat tracking
+│   ├── tag_routing.rs (163 lines) — tag-based routing
+│   ├── tags.rs (129 lines) — tag DB operations
+│   ├── precheck.rs (145 lines) — pre-ingestion check
+│   ├── chunk_heat.rs (109 lines) — chunk heat tracking
+│   ├── activity_log.rs (68 lines) — activity log ring buffer
+│   ├── chunk_counter.rs (22 lines) — atomic chunk counter
+│   └── cancel.rs (20 lines) — cancel flag
 ```
+
+Pas de `bin/`. Pas de `rag-monitor` standalone. Monitor = `src/monitor/` (3 fichiers).
 
 ## Config actuelle
 
-Config **serveur** : `~/services/rag-ferrite/config.toml` (inchangé, voir exemple ci-dessous).
+Config **serveur** : `~/services/rag-ferrite/config.toml`.
 
 Config **client** (`ragfer` CLI) : `~/.config/ragfer/config.toml` :
 
@@ -106,34 +114,7 @@ Clé API client : `~/.config/ragfer/.env` avec `RAG_API_KEY=…`, ou variable d'
 
 Premier lancement : `ragfer setup` — prompt interactif qui crée `~/.config/ragfer/config.toml` + `.env`.
 
-Le flag `--env` et les instances codées en dur ont été supprimés ; tout passe par le fichier config.
-
-Exemple config serveur (`~/services/rag-ferrite/config.toml`) :
-
-```toml
-data_dir = "/home/loops/services/rag-ferrite/data"
-
-[embedding]
-provider = "openai"
-model = "qwen/qwen3-embedding-8b"
-dimensions = 512
-base_url = "https://openrouter.ai/api/v1"
-
-[llm]
-provider = "ollama"
-model = "gemma4:31b"
-base_url = "https://api.ollama.com"
-context_enabled = true
-relevance_scoring = true
-min_relevance_score = 5.0
-max_concurrent = 3
-
-[reranker]
-reranker_type = "llm"
-top_k = 10
-```
-
-API keys serveur via `.env` : `LLM_API_KEY` (Ollama Cloud), `EMBEDDING_API_KEY` (OpenRouter).
+Pas de flag `--env`, pas d'instances codées en dur ; tout passe par le fichier config et les env vars.
 
 ## Pipeline d'ingestion
 
@@ -149,12 +130,8 @@ Document → Pre-ingestion check (qualité, doublons, langue)
          → Embedding batch → SQLite + HNSW + BM25
 ```
 
-Ingestion is queued via mpsc channel — HTTP returns immediately.
-Progress: GET /api/ingest/progress
-
-**v5.0**: Le pipeline intègre désormais un compteur atomique global (`chunk_counter`) pour la progression temps réel et un check d'annulation (`cancel`) entre chaque fichier traité. Le suivi est consultable via le binaire `rag-monitor`.
-
-**v5.1**: Instrumentation activity log — chaque étape du pipeline pousse un événement typé (`embedding`, `llm`, `chunking`, `error`, `info`) dans un ring buffer global (`activity_log`). `get_progress()` recalcule `elapsed_seconds` depuis `started_at` à chaque appel (live elapsed, speed, ETA). Le TUI `rag-monitor` affiche l'historique d'activité avec timestamps et les fichiers traités en bas permanent.
+Ingestion mise en queue via canal mpsc — HTTP retourne immédiatement.
+Progression : GET /api/ingest/progress
 
 ## Pipeline de query
 
@@ -171,45 +148,22 @@ Query → MCP tool call
       → Top-k chunks avec tags
 ```
 
-## Outils MCP (16)
-
-| Outil | Description |
-|---|---|
-| query_documents | Recherche hybride avec filtres, reranking, expansion, cache |
-| ingest_file | Ingest un fichier (PDF, DOCX, TXT, MD) |
-| ingest_data | Ingest du contenu brut (texte, HTML, markdown) |
-| delete_file | Supprime un document + ses chunks + tags |
-| list_files | Liste les documents indexés |
-| status | Stats : nombre de documents |
-| read_chunk_neighbors | Chunks adjacents pour expansion de contexte |
-| check_ingestion | Preview qualité avant ingestion |
-| benchmark | Évaluation qualité vs dataset golden |
-| collection_heat | Heat tracking par collection (heat_score, last_queried_at, query_count) |
-| chunk_qa | QA chunk-level : chunks morts/froids par source (heat calculé à la volée) |
-| suggest_collection | Tag routing : suggère la meilleure collection pour une query |
-| tag_map | Mapping complet tag → collection avec chunk counts |
-| reassign_collection | Déplace un source (et ses chunks) vers une autre collection |
-| rebuild_indexes | Reconstruction des indexes HNSW + BM25 + WAL checkpoint |
-| flush_indexes | Flush du buffer HNSW incrémental vers le disque |
-
 ## Build & Deploy
 
 ```bash
 cd ~/dev/rag-ferrite-hub/rag-ferrite
-cargo build --release --bin ragfer
+cargo build --release
 ```
 
 ### Déploiement via GitHub Releases
 
-1. Créer une release avec les binaires :
+1. Créer une release avec le binaire :
    ```bash
-   gh release create vX.Y.Z target/release/ragfer target/release/rag-monitor
+   gh release create vX.Y.Z target/release/ragfer
    ```
 2. Sur la machine cible (Nova ou aether) :
    ```bash
    ragfer update
-   # ou via le wrapper :
-   ~/services/rag-ferrite/rag-ferrite update
    ```
 3. Sur chaque machine cliente, créer le config client :
    ```bash
@@ -227,18 +181,17 @@ Le script : stop service → vérifie arrêt → télécharge depuis GitHub Rele
 | TufTux | `~/.local/bin/ragfer` → `~/services/rag-ferrite/ragfer` |
 | Nova | `rag-ferrite-mcp` (wrapper) appelle `exec ./ragfer serve` |
 
-Chaque machine cliente doit aussi avoir `~/.config/ragfer/config.toml` + `.env` (créés via `ragfer setup`).
+Chaque machine cliente doit avoir `~/.config/ragfer/config.toml` + `.env` (créés via `ragfer setup`).
 
 ### Fichiers de déploiement
 
 ```
 ~/services/rag-ferrite/
-  ragfer              ← binaire unique (CLI + daemon)
-  rag-monitor          ← binaire TUI monitoring standalone
-  rag-ferrite-mcp      ← wrapper Nova (exec ./ragfer serve)
-  update.sh            ← script de mise à jour (appelé par `ragfer update`)
-  config.toml          ← config runtime
-  .env                 ← LLM_API_KEY, EMBEDDING_API_KEY, RAG_API_KEY
+  ragfer              ← binaire unique (CLI + daemon + monitor)
+  rag-ferrite-mcp     ← wrapper Nova (exec ./ragfer serve)
+  update.sh           ← script de mise à jour (appelé par `ragfer update`)
+  config.toml         ← config runtime
+  .env                ← LLM_API_KEY, EMBEDDING_API_KEY, RAG_API_KEY
   data/
     rag.sqlite3
     hnsw_*.hnsw.data   ← index vectoriels persistés
@@ -249,16 +202,16 @@ Chaque machine cliente doit aussi avoir `~/.config/ragfer/config.toml` + `.env` 
 ## Tests
 
 ```bash
-cargo test    # 50 tests unitaires (chunker, extractor, config, llm, tags, pipeline, tag_routing)
+cargo test    # tests unitaires (chunker, extractor, config, llm, tags, pipeline, tag_routing)
 ```
 
 ## ⚠️ Mise à jour des docs — OBLIGATOIRE
 
 Après chaque changement de fonctionnalité, mettre à jour CES 3 FICHIERS :
 
-1. **llms.txt** — doc publique (API, config, features)
-2. **AGENTS.md** — conventions, architecture, structure du code (ce fichier)
-3. **README.md** — si changements visibles pour l'utilisateur final
+1. **README.md** — si changements visibles pour l'utilisateur final
+2. **llms.txt** — doc technique complète (API, config, features, architecture)
+3. **AGENTS.md** — conventions, architecture, structure du code (ce fichier)
 
 Pas d'exception. Si on ajoute/supprime/modifie une feature → on update les docs dans le même commit.
 
