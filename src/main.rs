@@ -103,17 +103,10 @@ async fn main() -> Result<()> {
     let tag_rules = tag_rules::TagRules::load()?;
     tag_rules::init_tag_rules(tag_rules);
 
-    // Log to file AND stderr so systemd journal captures errors
-    let log_file = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&config.advanced.log_file)?;
-    use tracing_subscriber::fmt::writer::Tee;
-    let file_writer = std::sync::Mutex::new(log_file);
-    let stderr_writer = std::io::stderr;
+    // Log to stderr (captured by systemd journal)
     tracing_subscriber::fmt()
         .with_env_filter(&config.advanced.log_filter)
-        .with_writer(Tee::new(file_writer, stderr_writer))
+        .with_writer(std::io::stderr)
         .with_timer(LocalTimer)
         .init();
 
