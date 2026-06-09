@@ -129,6 +129,19 @@ pub fn list_sources() -> Result<Vec<source_rag::SourceEntry>> {
     Ok(entries)
 }
 
+/// Count chunks per source — used by list to show chunk_count.
+pub fn count_chunks_per_source() -> Result<std::collections::HashMap<i64, i64>> {
+    let conn = get_conn()?;
+    let mut stmt = conn.prepare(
+        "SELECT source_id, COUNT(*) as cnt FROM chunks GROUP BY source_id",
+    )?;
+    let counts: std::collections::HashMap<i64, i64> = stmt
+        .query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)))?
+        .filter_map(|r| r.ok())
+        .collect();
+    Ok(counts)
+}
+
 /// Parent info resolved from a child chunk.
 pub struct ParentInfo {
     pub content: String,

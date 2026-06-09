@@ -162,6 +162,48 @@ pub fn cmd_progress(json: bool) -> Result<()> {
     Ok(())
 }
 
+/// Poll batch progress until complete, then print summary with errors.
+fn poll_batch_result() -> Result<()> {
+    let max_wait_secs = 120;
+    let start = std::time::Instant::now();
+    loop {
+        std::thread::sleep(std::time::Duration::from_secs(2));
+        let r = api_call("GET", "/api/ingest/progress", None)?;
+        let status = r.get("status").and_then(|v| v.as_str()).unwrap_or("idle");
+        let batch = r.get("batch");
+        if status == "idle" || batch.is_none() {
+            // Batch finished — progress reset to idle
+            println!("  Done.");
+            return Ok(());
+        }
+        let b = batch.unwrap();
+        let batch_status = b.get("status").and_then(|v| v.as_str()).unwrap_or("?");
+        if batch_status == "Completed" || batch_status == "Cancelled" {
+            let done = b.get("completed_files").and_then(|v| v.as_u64()).unwrap_or(0);
+            let failed = b.get("failed_files").and_then(|v| v.as_u64()).unwrap_or(0);
+            let chunks = b.get("completed_chunks").and_then(|v| v.as_u64()).unwrap_or(0);
+            println!("  Result: {} files done, {} failed, {} chunks", done, failed, chunks);
+            if failed > 0 {
+                if let Some(errors) = b.get("errors").and_then(|v| v.as_array()) {
+                    for e in errors.iter().take(5) {
+                        let file = e.get("file").and_then(|v| v.as_str()).unwrap_or("?");
+                        let err = e.get("error").and_then(|v| v.as_str()).unwrap_or("?");
+                        eprintln!("  ERROR — {}: {}", file, err);
+                    }
+                    if errors.len() > 5 {
+                        eprintln!("  ... and {} more errors", errors.len() - 5);
+                    }
+                }
+            }
+            return Ok(());
+        }
+        if start.elapsed().as_secs() > max_wait_secs {
+            eprintln!("  Timeout waiting for batch to complete ({}s). Check 'ragfer progress'.", max_wait_secs);
+            return Ok(());
+        }
+    }
+}
+
 fn fmt_dur(secs: f64) -> String {
     if secs <= 0.0 { return String::from("—"); }
     let h = (secs / 3600.0) as u64;
@@ -230,7 +272,11 @@ pub fn cmd_ingest_file(json: bool, path: &str, collection: Option<&str>, force: 
     let mut data = serde_json::json!({"file_path": full_path.to_string_lossy()});
     if let Some(c) = collection { data["collection"] = Value::String(c.to_string()); }
     let r = api_call("POST", "/api/ingest", Some(data))?;
-    if json { println!("{}", serde_json::to_string_pretty(&r)?); } else { println!("Ingestion started. Batch ID: {}", r.get("batch_id").unwrap_or(&Value::Null)); }
+    if json { println!("{}", serde_json::to_string_pretty(&r)?); return Ok(()); }
+    println!("Ingestion started. Batch ID: {}", r.get("batch_id").unwrap_or(&Value::Null));
+
+    // Poll progress until batch completes, then report result
+    poll_batch_result()?;
     Ok(())
 }
 

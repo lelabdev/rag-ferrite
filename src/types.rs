@@ -124,6 +124,7 @@ pub struct SourceInfo {
     pub metadata: Option<String>,
     pub status: Option<String>,
     pub collection_id: String,
+    pub chunk_count: i64,
 }
 
 impl From<rag_engine::api::source_rag::SourceEntry> for SourceInfo {
@@ -135,6 +136,7 @@ impl From<rag_engine::api::source_rag::SourceEntry> for SourceInfo {
             metadata: s.metadata,
             status: s.status,
             collection_id: s.collection_id,
+            chunk_count: 0, // populated by list_sources_service
         }
     }
 }

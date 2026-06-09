@@ -187,7 +187,16 @@ pub fn delete_service(source: &str) -> serde_json::Value {
 pub fn list_sources_service() -> serde_json::Value {
     match engine::list_sources() {
         Ok(sources) => {
-            let out: Vec<SourceInfo> = sources.into_iter().map(SourceInfo::from).collect();
+            // Get chunk counts per source
+            let chunk_counts = engine::query::count_chunks_per_source().unwrap_or_default();
+            let out: Vec<SourceInfo> = sources
+                .into_iter()
+                .map(|s| {
+                    let mut info = SourceInfo::from(s);
+                    info.chunk_count = chunk_counts.get(&info.id).copied().unwrap_or(0);
+                    info
+                })
+                .collect();
             json!({ "files": out })
         }
         Err(e) => json!({ "error": e.to_string() }),

@@ -302,6 +302,8 @@ async fn background_worker(
             }
             IngestJob::Batch { batch_id, files, move_after_ingest } => {
                 process_batch_job(&pipeline, &ingest_config, &progress, &ingestion_llm, &batch_id, &files, move_after_ingest).await;
+                // Flush indexes after batch so new chunks are immediately searchable
+                let _ = sender.send(IngestJob::FlushIndexes);
             }
             IngestJob::FlushIndexes => {
                 tracing::info!("FlushIndexes: rebuilding indexes + WAL checkpoint...");
