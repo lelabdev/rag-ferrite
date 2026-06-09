@@ -776,8 +776,17 @@ fn ui(f: &mut Frame, app: &mut App) {
                     .iter()
                     .map(|ev| {
                         let color = event_color(&ev.event_type);
+                        // Format timestamp as HH:MM:SS
+                        let secs = ev.timestamp / 1000;
+                        let h = (secs / 3600) % 24;
+                        let m = (secs / 60) % 60;
+                        let s = secs % 60;
+                        let ts = format!("{:02}:{:02}:{:02}", h, m, s);
                         Line::from(vec![
-                            Span::styled(" → ", Style::default().fg(color)),
+                            Span::styled(
+                                format!(" {} ", ts),
+                                Style::default().fg(Color::DarkGray),
+                            ),
                             Span::styled(&ev.message, Style::default().fg(color)),
                         ])
                     })
