@@ -223,7 +223,7 @@ src/
 | GET | `/api/status` | Engine status, version, document count |
 | POST | `/api/ingest` | Unified ingest — `file_path` (single) or `paths` (batch), `move_after_ingest` |
 | POST | `/api/ingest/data` | Ingest raw text content |
-| GET | `/api/ingest/progress` | Batch progress: files, chunks, speed, ETA, errors, per-file results |
+| GET | `/api/ingest/progress` | Batch progress: files, chunks, live elapsed/speed/ETA, activity log, errors, per-file results |
 | POST | `/api/query` | Hybrid search with reranking |
 | GET | `/api/documents` | List all sources |
 | GET | `/api/documents/{id}` | Get document details |
@@ -244,7 +244,7 @@ POST /api/ingest
 }
 ```
 
-Progress response includes: total/completed files, current file + phase, chunks/min, ETA, error rate, per-file results array.
+Progress response includes: total/completed files, current file + phase, live `elapsed_seconds` (calculated from `started_at` in real-time), speed (chunks/min), ETA, error rate, per-file results array, and `activity_log.events[]` (ring buffer of last 20 events: embedding, llm, chunking, error, info with timestamps).
 
 ### Batch Dedup
 
@@ -278,11 +278,15 @@ API key lookup order: env vars → `~/.config/rag/api_key_nova`
 
 Real-time TUI with ratatui: cyan progress bar (█ fill → ▓▒░ fade → ⡀→⣿ braille transition → pendulum braille wave), stats panel, file lists. Only shows progress bar when a batch is running.
 
+Layout: header (version + docs link) → progress bar → stats panel → activity log with timestamps → file lists (completed + queue) always visible at bottom when batch is running → footer.
+
+Activity log shows the last 20 server-pushed events (embedding, llm, chunking, error, info) in a ring buffer with timestamps.
+
 Modes (built-in only):
 - `--demo`: simulate a batch without ingestion (for testing animations)
 - `--fade N`: fade length (0 = no fade, default 5)
 
-Keyboard: `TAB` switch • `↑↓` scroll • `l` toggle lists • `c` cycle colors / cancel batch • `s` toggle stats • `x` stop server • `r` rebuild indexes • `f` flush indexes • `o` open in less • `?` help • `q` quit.
+Keyboard: `TAB` switch • `↑↓` scroll • `c` cycle colors / cancel batch • `s` toggle stats • `x` stop server • `r` rebuild indexes • `f` flush indexes • `o` open in less • `?` help • `q` quit.
 
 ### Update (deployment)
 

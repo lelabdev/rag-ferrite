@@ -41,6 +41,8 @@ Key decisions:
 - Delete instant (no synchronous index rebuild)
 - External query classification dictionary (optional TOML, `dictionaries/query_classification.toml`)
 - Standalone rag-monitor binary (client-side TUI via HTTP polling)
+- Activity log: global ring buffer (last 20 events) with OnceLock + Mutex; engine pushes events during ingestion (embedding, llm, chunking, error, info); exposed in progress API for real-time monitoring
+- Live elapsed/speed/ETA: `get_progress()` recalculates `elapsed_seconds` from `started_at` timestamp on every call — no stale counters, always up-to-date
 
 ### Structure du code
 
@@ -59,6 +61,7 @@ src/
     chunk_heat.rs — Chunk heat async batched (mpsc + 30s flush)
     chunk_counter.rs — Compteur atomique global pour progression temps réel
     cancel.rs    — Flag d'annulation global pour batch cancellation
+    activity_log.rs — Ring buffer global (20 events), push/snapshot/clear, exposé dans progress API
     search.rs    — search_hybrid(), search_hybrid_with_expansion()
     query.rs     — get_section_paths, get_neighbors, delete_source, list_sources
     benchmark.rs — run_benchmark(), get_graph_data()
@@ -125,6 +128,8 @@ Ingestion is queued via mpsc channel — HTTP returns immediately.
 Progress: GET /api/ingest/progress
 
 **v5.0**: Le pipeline intègre désormais un compteur atomique global (`chunk_counter`) pour la progression temps réel et un check d'annulation (`cancel`) entre chaque fichier traité. Le suivi est consultable via le binaire `rag-monitor`.
+
+**v5.1**: Instrumentation activity log — chaque étape du pipeline pousse un événement typé (`embedding`, `llm`, `chunking`, `error`, `info`) dans un ring buffer global (`activity_log`). `get_progress()` recalcule `elapsed_seconds` depuis `started_at` à chaque appel (live elapsed, speed, ETA). Le TUI `rag-monitor` affiche l'historique d'activité avec timestamps et les fichiers traités en bas permanent.
 
 ## Pipeline de query
 

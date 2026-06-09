@@ -200,7 +200,7 @@ The batch runs in the background — the API returns immediately with a `batch_i
 | `GET` | `/api/status` | Engine status, version, document count |
 | `POST` | `/api/ingest` | Unified ingest — `file_path` (single) or `paths` (batch), `move_after_ingest` |
 | `POST` | `/api/ingest/data` | Ingest raw text content |
-| `GET` | `/api/ingest/progress` | Batch progress: files, chunks, speed, ETA, errors, per-file results |
+| `GET` | `/api/ingest/progress` | Batch progress: files, chunks, speed, ETA, errors, per-file results, `activity_log.events[]` |
 | `POST` | `/api/query` | Hybrid search with reranking |
 | `GET` | `/api/documents` | List all sources |
 | `GET` | `/api/documents/{id}` | Get document details |
@@ -230,25 +230,31 @@ Configuration via environment:
 
 API key lookup order: env vars → `~/.config/rag/api_key_nova`
 
-The monitor is a full TUI with a colored progress bar, real-time stats, file lists, and keyboard controls:
+The standalone `rag-monitor` is a full TUI with a colored progress bar, real-time stats, activity log with timestamps, and always-visible file lists:
 
 ```
-  ⠹ RUNNING — batch 82446255                    28%
-  [████████████▓▓▒░⣷⣧⣇⡇⡆▁ ⠹⠸⠼⠴⠦⠧⠇⠏⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏⠋⠙⠹⠸⠼⠴]
-  70/247 files
+ rag-ferrite v5.1.0 • 132 docs  ⠹
 
-  Chunks    12439 / 12439     Size           1.7 MB
-  Speed      115 chunks/min      Avg/file     92.5s
-  Elapsed   1h47m          ETA          4h32m
-  Errors        0 (0.0%)
+ prompt-engineering.txt
+  28%  70/247
+ [████████████▓▓▒░⣷⣧⣇⡇⡆▁ ⠹⠸⠼⠴⠦⠧⠇⠏⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏⠋⠙⠹⠸⠼⠴]
+   phase: embed+llm
 
-┌─ Completed (70) ──────────────┬─ Current ──────────────┐
-│ ✓ file1.txt        41 ch  34s│ ▶ prompt-engineering...│
-│ ✓ file2.txt       237 ch 101s│   phase: embed+llm     │
-│ ✓ file3.txt       101 ch 126s├─ Queue ────────────────┤
-│ ↑↓ scroll • TAB switch       │ 127 files pending      │
-└──────────────────────────────┴────────────────────────┘
-TAB switch • ↑↓ scroll • l list • c color • s stats • o open • ? help • q quit
+ Chunks  12439/12439   Size   1.7 MB   Elapsed  1h47m
+ Speed   115 ch/min    Avg    92.5s    ETA      4h32m   Errors  0
+
+─── Activity ─────────────────────────────────────────────
+ 14:32:07 Embedding 48 texts...
+ 14:32:09 Embedding done in 2340ms (48 texts)
+ 14:32:09 Parent 3/8: contextual retrieval for 12 children
+ 14:32:15 Parent 3/8: context done in 5812ms (12 ok, 0 skip, 0 fail)
+
+┌─ Completed (70) ───────────────┬─ Queue ─────────────────┐
+│ ✓ file1.txt       41 ch   34s │ 127 files pending       │
+│ ✓ file2.txt      237 ch  101s │                         │
+│ ✓ file3.txt      101 ch  126s │                         │
+└────────────────────────────────┴─────────────────────────┘
+[c]ancel [r]ebuild [f]lush [x]top [?]help [q]uit
 ```
 
 **Progress bar zones:**
@@ -256,21 +262,22 @@ TAB switch • ↑↓ scroll • l list • c color • s stats • o open • ?
 - `⡀→⣿` **Yellow** — current file (braille 1-8 dots = per-file progress)
 - `⠋⠙⠹...` **Color wave** — pending files (animated, traveling gradient)
 
+**Activity log:** Shows the last 20 ingestion events (embedding, LLM, chunking, error, info) with timestamps, sourced from the progress API's `activity_log.events[]` ring buffer. Elapsed time, speed, and ETA are recalculated live from `started_at` on every refresh — no stale counters.
+
 **Keyboard shortcuts:**
 
 | Key | Action |
 |-----|--------|
-| `TAB` | Switch panel |
+| `TAB` | Switch panel (Completed ↔ Queue) |
 | `↑↓` | Scroll file list |
-| `l` | Toggle lists (full-screen progress bar) |
-| `c` | Cycle color modes / cancel batch |
-| `s` | Toggle stats |
+| `c` | Cancel running batch |
 | `r` | Rebuild indexes |
 | `f` | Flush indexes |
-| `o` | Open selected file in `less` |
 | `x` | Stop server |
 | `?` | Show/hide help popup |
 | `q` / `Esc` | Quit |
+
+The built-in monitor (`rag-ferrite monitor`) has additional shortcuts: `l` toggle lists, `s` toggle stats, `c` cycle color modes, `o` open file in `less`.
 
 Modes (built-in only):
 - `--demo`: simulate a batch without ingestion (for testing animations)
