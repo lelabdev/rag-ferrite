@@ -499,27 +499,28 @@ pub fn print_usage() {
         r#"ragfer — rag-ferrite CLI client
 
 Usage:
-    ragfer                          Launch server (daemon)
-    ragfer serve                    Launch server (daemon)
-    ragfer status                   Engine status
-    ragfer progress                 Batch ingestion progress
-    ragfer query "text"             Search documents
-    ragfer list                     List documents
+    ragfer                            Show this help
+    ragfer serve  (-d)                Launch server (daemon)
+    ragfer status (-s)                Engine status
+    ragfer progress (-p)             Batch ingestion progress
+    ragfer query (-q) "text"         Search documents
+    ragfer list (-l)                  List documents
+    ragfer monitor (-m)              Launch TUI monitor
     ragfer ingest-file <path>       Ingest a file
     ragfer ingest-batch <paths...>  Ingest multiple files
     ragfer ingest-data <name>       Ingest from stdin
     ragfer delete <source_id>       Delete a document
-    ragfer flush                    Flush HNSW indexes
-    ragfer rebuild                  Rebuild indexes
-    ragfer cancel                   Cancel running batch
-    ragfer stop                     Stop the server
-    ragfer monitor                  Launch TUI monitor
+    ragfer flush                     Flush HNSW indexes
+    ragfer rebuild                   Rebuild indexes
+    ragfer cancel                    Cancel running batch
+    ragfer stop                      Stop the server
+    ragfer update                    Download latest + restart
 
 Options:
     --env <env>      Instance: prod (default) | test
     --json           Raw JSON output
     -c <collection>  Collection name
-    -l <limit>       Result limit (default 10)
+    -n <limit>       Result limit (default 10)
     -t <tags>        Tag filter (comma-separated)
     --force          Force reingest (delete existing first)
 "#
@@ -602,7 +603,7 @@ pub fn parse_args() -> Result<CliArgs> {
                 }
                 collection = Some(raw[i].clone());
             }
-            "-l" => {
+            "-n" => {
                 i += 1;
                 if i >= raw.len() {
                     bail!("-l requires a number");
@@ -622,14 +623,14 @@ pub fn parse_args() -> Result<CliArgs> {
         i += 1;
     }
 
-    let subcmd = positional.first().map(|s| s.as_str()).unwrap_or("serve");
+    let subcmd = positional.first().map(|s| s.as_str()).unwrap_or("help");
     let args = if positional.len() > 1 { &positional[1..] } else { &[] };
 
     let command = match subcmd {
-        "serve" => CliCommand::Serve,
-        "status" => CliCommand::Status,
-        "progress" => CliCommand::Progress,
-        "query" => {
+        "serve" | "-d" | "--serve" => CliCommand::Serve,
+        "status" | "-s" => CliCommand::Status,
+        "progress" | "-p" => CliCommand::Progress,
+        "query" | "-q" => {
             if args.is_empty() {
                 bail!("query requires a text argument");
             }
@@ -640,7 +641,7 @@ pub fn parse_args() -> Result<CliArgs> {
                 tags,
             }
         }
-        "list" => CliCommand::List { collection },
+        "list" | "-l" => CliCommand::List { collection },
         "ingest-file" | "ingest_file" => {
             if args.is_empty() {
                 bail!("ingest-file requires a file path");
@@ -681,7 +682,7 @@ pub fn parse_args() -> Result<CliArgs> {
         "rebuild" => CliCommand::Rebuild,
         "cancel" => CliCommand::Cancel,
         "stop" => CliCommand::Stop,
-        "monitor" => CliCommand::Monitor,
+        "monitor" | "-m" => CliCommand::Monitor,
         "update" => CliCommand::Update,
         "help" | "-h" | "--help" => {
             print_usage();
