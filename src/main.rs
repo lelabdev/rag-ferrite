@@ -103,14 +103,17 @@ async fn main() -> Result<()> {
     let tag_rules = tag_rules::TagRules::load()?;
     tag_rules::init_tag_rules(tag_rules);
 
-    // Log to file for debugging MCP issues
+    // Log to file AND stderr so systemd journal captures errors
     let log_file = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
         .open(&config.advanced.log_file)?;
+    use tracing_subscriber::fmt::writer::Tee;
+    let file_writer = std::sync::Mutex::new(log_file);
+    let stderr_writer = std::io::stderr;
     tracing_subscriber::fmt()
         .with_env_filter(&config.advanced.log_filter)
-        .with_writer(std::sync::Mutex::new(log_file))
+        .with_writer(Tee::new(file_writer, stderr_writer))
         .with_timer(LocalTimer)
         .init();
 
@@ -201,6 +204,16 @@ async fn main() -> Result<()> {
         tracing::info!("Contextual retrieval disabled");
         None
     };
+
+    // --- Health check: verify ingestion LLM is reachable ---
+    if let Some(ref llm) = ingestion_llm {
+        tracing::info!("LLM health check: testing ingestion LLM connection...");
+        let test_messages = vec![llm::ChatMessage { role: "user".into(), content: "ping".into() }];
+        match llm.chat(test_messages).await {
+            Ok(_) => tracing::info!("LLM health check: OK"),
+            Err(e) => tracing::error!("LLM health check FAILED — ingestion will not work: {}", e),
+        }
+    }
 
     // --- Resolve query LLM ---
     let query_llm: Option<llm::LlmProvider> = if let Some(ref profile_name) = config.llm.query_profile {
