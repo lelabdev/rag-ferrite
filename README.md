@@ -23,6 +23,7 @@ Or build from source:
 ```bash
 git clone https://github.com/lelabdev/rag-ferrite.git
 cd rag-ferrite && cargo build --release
+# → produces target/release/ragfer
 ```
 
 **Prerequisites:** `poppler-utils` for PDF support (`apt install poppler-utils`).
@@ -57,11 +58,11 @@ base_url = "https://api.ollama.com"
 Run:
 
 ```bash
-rag-ferrite
+ragfer serve
 # → MCP on stdio + HTTP API on http://0.0.0.0:4242
 ```
 
-That's it. See [Configuration](#configuration) for LLM profiles, tag rules, and advanced tuning.
+Just `ragfer` without args launches the TUI monitor (see [CLI](#cli)).
 
 ---
 
@@ -112,7 +113,8 @@ That's it. See [Configuration](#configuration) for LLM profiles, tag rules, and 
 # Hermes
 mcp_servers:
   rag-ferrite:
-    command: /path/to/rag-ferrite
+    command: /path/to/ragfer
+    args: ["serve"]
     timeout: 9999
     env:
       LLM_API_KEY: "..."
@@ -124,7 +126,8 @@ mcp_servers:
 {
   "mcpServers": {
     "rag-ferrite": {
-      "command": "/path/to/rag-ferrite",
+      "command": "/path/to/ragfer",
+      "args": ["serve"],
       "env": {
         "LLM_API_KEY": "...",
         "EMBEDDING_API_KEY": "..."
@@ -140,7 +143,7 @@ Set `http_port = 4242` in `config.toml`, then run as a systemd service:
 
 ```bash
 sudo cp rag-ferrite.service /etc/systemd/system/
-sudo systemctl enable rag-ferrite
+sudo systemctl enable --now rag-ferrite
 ```
 
 Connect from any MCP client:
@@ -155,7 +158,7 @@ mcp_servers:
 
 **Why Streamable HTTP?**
 - Runs as an **independent service** — survives client restarts
-- Works over the **network** — run rag-ferrite on any server
+- Works over the **network** — run ragfer on any server
 - **Multiple clients** can connect simultaneously
 - Long ingestions are **decoupled** from client lifecycle
 
@@ -211,14 +214,60 @@ The batch runs in the background — the API returns immediately with a `batch_i
 | `POST` | `/api/service/cancel-batch` | Cancel running batch (stops after current file) |
 | `POST` | `/api/service/stop` | Graceful server shutdown |
 
-### Real-time monitor
+### CLI
 
-**Built-in monitor** (runs on server, needs TTY):
+The `ragfer` binary includes a built-in CLI client. All commands hit the HTTP API of a running server.
+
 ```bash
-rag-ferrite monitor [refresh_seconds] [url] [--demo] [--fade N]
+ragfer                            # Launch TUI monitor (default)
+ragfer serve            (-d)      # Launch server (daemon)
+ragfer status           (-s)      # Engine status
+ragfer progress         (-p)      # Batch ingestion progress
+ragfer query (-q) "text"         # Search documents
+ragfer list             (-l)      # List documents
+ragfer monitor          (-m)      # Launch TUI monitor
+ragfer ingest-file <path>        # Ingest a file
+ragfer ingest-batch <paths...>   # Ingest multiple files
+ragfer ingest-data <name>        # Ingest from stdin
+ragfer delete <source_id>        # Delete a document
+ragfer flush                     # Flush HNSW indexes
+ragfer rebuild                   # Rebuild indexes
+ragfer cancel                    # Cancel running batch
+ragfer stop                      # Stop the server
+ragfer update                    # Download latest + restart
 ```
 
-**Standalone monitor** (connects via HTTP, no SSH needed):
+| Short flag | Long form | Description |
+|:----------:|-----------|-------------|
+| `-d` | `serve` | Start the server daemon (MCP stdio + HTTP) |
+| `-s` | `status` | Show engine status and document count |
+| `-l` | `list` | List indexed documents |
+| `-q` | `query` | Search documents (requires query text) |
+| `-p` | `progress` | Show batch ingestion progress |
+| `-m` | `monitor` | Launch TUI monitor |
+
+**Common options:**
+
+| Option | Description |
+|--------|-------------|
+| `--env <env>` | Instance: `prod` (default) or `test` |
+| `--json` | Raw JSON output |
+| `-c <collection>` | Target collection name |
+| `-n <limit>` | Result limit (default 10) |
+| `-t <tags>` | Tag filter (comma-separated) |
+| `--force` | Force re-ingest (delete existing first) |
+
+> **Note:** The Cargo package name is `rag-ferrite`; the compiled binary is `ragfer`. This is set via `[[bin]] name = "ragfer"` in `Cargo.toml`.
+
+### Real-time monitor
+
+**Built-in TUI** (default — just run `ragfer` with no args):
+```bash
+ragfer                              # launches monitor (default)
+ragfer monitor [refresh_seconds] [url] [--demo] [--fade N]
+```
+
+**Standalone monitor** (separate binary, connects via HTTP, no SSH needed):
 ```bash
 rag-monitor [refresh_seconds] [url]
 ```
@@ -230,7 +279,7 @@ Configuration via environment:
 
 API key lookup order: env vars → `~/.config/rag/api_key_nova`
 
-The standalone `rag-monitor` is a full TUI with a colored progress bar, real-time stats, activity log with timestamps, and always-visible file lists:
+The standalone `rag-monitor` is a full TUI with a colored progress bar, real-time stats, activity log with timestamps, and always-visible file lists (same UI as the built-in `ragfer` monitor):
 
 ```
  rag-ferrite v5.1.0 • 132 docs  ⠹
@@ -277,7 +326,7 @@ The standalone `rag-monitor` is a full TUI with a colored progress bar, real-tim
 | `?` | Show/hide help popup |
 | `q` / `Esc` | Quit |
 
-The built-in monitor (`rag-ferrite monitor`) has additional shortcuts: `l` toggle lists, `s` toggle stats, `c` cycle color modes, `o` open file in `less`.
+The built-in monitor (`ragfer` / `ragfer monitor`) has additional shortcuts: `l` toggle lists, `s` toggle stats, `c` cycle color modes, `o` open file in `less`.
 
 Modes (built-in only):
 - `--demo`: simulate a batch without ingestion (for testing animations)
@@ -332,7 +381,7 @@ complex_word_threshold = 8   # >8 words → complex
 simple_word_threshold = 2    # ≤2 words → simple
 ```
 
-> **Note:** Ingestion with contextual retrieval enabled can take 5–15 minutes per document. The monitor (`rag-ferrite monitor`) shows real-time progress. If your MCP client has a request timeout, set it high (e.g. 9999 seconds).
+> **Note:** Ingestion with contextual retrieval enabled can take 5–15 minutes per document. The monitor (`ragfer`) shows real-time progress. If your MCP client has a request timeout, set it high (e.g. 9999 seconds).
 
 ---
 

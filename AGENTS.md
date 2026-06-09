@@ -15,8 +15,17 @@ Moteur RAG personnel, en Rust. MCP server exposé via stdio ou Streamable HTTP.
 
 ## Architecture
 
-Binaire unique. Deux modes :
+Binaire `ragfer` (Cargo.toml: `name = "ragfer"`). CLI intégré (`src/client.rs`) + daemon en un seul binaire.
 
+Deux modes d'exécution :
+
+- **`ragfer`** (sans args) = monitor TUI (défaut)
+- **`ragfer serve`** / **`ragfer -d`** = daemon MCP (stdio ou HTTP)
+- **`ragfer <commande>`** = commande client (status, list, query, progress, ingest, delete, flush, rebuild, cancel, stop, monitor, update, help)
+
+Flags courts : `-s` status, `-l` list, `-q` query, `-p` progress, `-m` monitor, `-d` serve.
+
+Le daemon expose :
 - **stdio** (défaut) : MCP sur stdin/stdout, Hermes spawn le process
 - **Streamable HTTP** (`http_port > 0`) : MCP sur HTTP `/mcp`, service indépendant, accessible à distance
 
@@ -40,6 +49,7 @@ Key decisions:
 - Global atomic patterns for cross-cutting signals (chunk_counter, cancel)
 - Delete instant (no synchronous index rebuild)
 - External query classification dictionary (optional TOML, `dictionaries/query_classification.toml`)
+- CLI intégré dans le binaire `ragfer` (src/client.rs) — remplace l'ancien CLI Python
 - Standalone rag-monitor binary (client-side TUI via HTTP polling)
 - Activity log: global ring buffer (last 20 events) with OnceLock + Mutex; engine pushes events during ingestion (embedding, llm, chunking, error, info); exposed in progress API for real-time monitoring
 - Live elapsed/speed/ETA: `get_progress()` recalculates `elapsed_seconds` from `started_at` timestamp on every call — no stale counters, always up-to-date
@@ -49,6 +59,7 @@ Key decisions:
 ```
 src/
   main.rs        — MCP server (rmcp), initialise pipeline + reranker
+  client.rs      — CLI intégré : commandes client (status, list, query, progress, ingest, delete, flush, rebuild, cancel, stop, monitor, update, help)
   service.rs     — Couche service partagée MCP + HTTP
   ingestion.rs   — Queue d'ingestion non-bloquante (mpsc + background worker)
   api.rs         — HTTP endpoints (axum, optionnel)
@@ -171,31 +182,41 @@ Query → MCP tool call
 
 ```bash
 cd ~/dev/rag-ferrite-hub/rag-ferrite
-cargo build --release
+cargo build --release --bin ragfer
 ```
 
 ### Déploiement via GitHub Releases
 
 1. Créer une release avec les binaires :
    ```bash
-   gh release create vX.Y.Z target/release/rag-ferrite target/release/rag-monitor
+   gh release create vX.Y.Z target/release/ragfer target/release/rag-monitor
    ```
 2. Sur la machine cible (Nova ou aether) :
    ```bash
+   ragfer update
+   # ou via le wrapper :
    ~/services/rag-ferrite/rag-ferrite update
    ```
 
 Le binaire appelle `update.sh` (à côté de lui dans `~/services/rag-ferrite/`).
 Le script : stop service → vérifie arrêt → télécharge depuis GitHub Releases → remplace binaire → restart.
 
+### Symlinks
+
+| Machine | Chemin |
+|---|---|
+| aether | `~/bin/ragfer` → `~/services/rag-ferrite/ragfer` |
+| TufTux | `~/.local/bin/ragfer` → `~/services/rag-ferrite/ragfer` |
+| Nova | `rag-ferrite-mcp` (wrapper) appelle `exec ./ragfer serve` |
+
 ### Fichiers de déploiement
 
 ```
 ~/services/rag-ferrite/
-  rag-ferrite          ← binaire serveur
-  rag-monitor          ← binaire TUI monitoring
-  rag-ferrite-mcp      ← wrapper (cd + exec)
-  update.sh            ← script de mise à jour (appelé par `rag-ferrite update`)
+  ragfer              ← binaire unique (CLI + daemon)
+  rag-monitor          ← binaire TUI monitoring standalone
+  rag-ferrite-mcp      ← wrapper Nova (exec ./ragfer serve)
+  update.sh            ← script de mise à jour (appelé par `ragfer update`)
   config.toml          ← config runtime
   .env                 ← LLM_API_KEY, EMBEDDING_API_KEY, RAG_API_KEY
   data/

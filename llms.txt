@@ -1,6 +1,6 @@
-# rag-ferrite — Hybrid RAG engine (Rust)
+# rag-ferrite — Hybrid RAG engine (Rust) — binary: `ragfer`
 
-> Personal RAG engine — simple, fast, Rust. One binary (15 MB), one DB, native collections. MCP-native.
+> Personal RAG engine — simple, fast, Rust. Binary `ragfer` (15 MB), one DB, native collections. MCP-native + integrated CLI.
 
 ## What it does
 
@@ -10,7 +10,7 @@ Single Rust binary, SQLite storage, multi-collection, hybrid search with LLM-pow
 ## Quick start
 
 ```bash
-# One-line install (Linux x86_64)
+# One-line install (Linux x86_64) — installs `ragfer` + `rag-monitor`
 curl -fsSL https://raw.githubusercontent.com/lelabdev/rag-ferrite/main/install.sh | bash
 
 # Or build from source
@@ -166,7 +166,7 @@ Use cases: separate work docs from personal notes, per-project knowledge bases, 
 ## Architecture
 
 ```
-rag-ferrite (single binary, 15 MB)
+ragfer (single binary, 15 MB)
 ├── MCP server (rmcp, stdio) — for Hermes, Claude Desktop, any MCP client
 ├── HTTP API (axum, optional) — REST endpoints for web dashboards
 ├── Embedding provider — OpenAI-compatible APIs, Ollama local models
@@ -182,7 +182,8 @@ rag-ferrite (single binary, 15 MB)
 
 ```
 src/
-├── main.rs        — MCP server + HTTP server entry point
+├── main.rs        — MCP server + HTTP server + CLI entry point
+├── client.rs      — integrated CLI (ureq HTTP client, all subcommands)
 ├── service.rs     — shared service layer (MCP + HTTP)
 ├── api.rs         — HTTP REST endpoints (axum)
 ├── pipeline.rs    — query orchestration, classification, cache
@@ -215,6 +216,38 @@ src/
 └── dictionaries/
     └── query_classification.toml — external keyword dictionary
 ```
+
+## CLI (`ragfer`)
+
+The `ragfer` binary includes an integrated CLI client that communicates with a running server via HTTP (ureq).
+
+### Default behavior
+
+- `ragfer` (no arguments) → launches the TUI monitor
+- `ragfer -d` or `ragfer serve` → starts the daemon (MCP + HTTP server)
+
+### Subcommands
+
+| Command | Short | Description |
+|---|---|---|
+| `serve` | `-d` | Start daemon (MCP server + HTTP API) |
+| `status` | `-s` | Show engine status and document count |
+| `list` | `-l` | List indexed documents |
+| `query <text>` | `-q` | Hybrid search query |
+| `progress` | `-p` | Show batch ingestion progress |
+| `monitor` | `-m` | Launch TUI monitor |
+| `ingest-file <path>` | | Ingest a single file |
+| `ingest-batch <paths...>` | | Ingest multiple files (batch) |
+| `ingest-data <content>` | | Ingest raw text/HTML/markdown |
+| `delete <source>` | | Delete a document and its chunks |
+| `flush` | | Flush incremental HNSW buffer to disk |
+| `rebuild` | | Full HNSW + BM25 index rebuild |
+| `cancel` | | Cancel running batch |
+| `stop` | | Graceful server shutdown |
+| `update` | | Download latest binary from GitHub Releases |
+| `help` | | Show help |
+
+All commands hit the HTTP API. The server must be running (`ragfer serve` or `ragfer -d`) for CLI commands to work.
 
 ## HTTP API Endpoints
 
@@ -259,12 +292,15 @@ Files already ingested (matched by filename) are automatically skipped. Combined
 
 ### Monitor (TUI)
 
-**Built-in monitor** (runs on server, needs TTY):
+**Built-in / default** — `ragfer` without args launches the TUI monitor:
 ```bash
-rag-ferrite monitor [refresh_seconds] [url] [--demo] [--fade N]
+ragfer                          # monitor (default, no args)
+ragfer -m                       # monitor (explicit flag)
+ragfer [refresh_seconds] [url]  # monitor with options
+ragfer --demo [--fade N]        # demo mode (simulate batch, no ingestion)
 ```
 
-**Standalone monitor** (connects via HTTP, no SSH needed):
+**Standalone binary** (connects via HTTP, no SSH needed):
 ```bash
 rag-monitor [refresh_seconds] [url]
 ```
@@ -293,10 +329,10 @@ Keyboard: `TAB` switch • `↑↓` scroll • `c` cycle colors / cancel batch �
 ```bash
 # On dev machine:
 cargo build --release
-gh release create vX.Y.Z target/release/rag-ferrite target/release/rag-monitor
+gh release create vX.Y.Z target/release/ragfer target/release/rag-monitor
 
 # On target (aether, Nova, etc.):
-rag-ferrite update
+ragfer update
 ```
 
 Downloads latest binary from GitHub Releases, stops service, replaces binary, restarts.
@@ -414,7 +450,7 @@ http_bind_address = "0.0.0.0"    # for REST API (if http_port > 0)
 ```yaml
 mcp_servers:
   rag-ferrite:
-    command: /path/to/rag-ferrite
+    command: /path/to/ragfer
     timeout: 9999        # large files can take 10+ min with contextual retrieval
     env:
       LLM_API_KEY: "..."
@@ -445,7 +481,7 @@ mcp_servers:
 {
   "mcpServers": {
     "rag-ferrite": {
-      "command": "/path/to/rag-ferrite",
+      "command": "/path/to/ragfer",
       "env": {
         "LLM_API_KEY": "...",
         "EMBEDDING_API_KEY": "..."
