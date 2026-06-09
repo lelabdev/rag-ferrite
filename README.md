@@ -235,6 +235,7 @@ ragfer rebuild                   # Rebuild indexes
 ragfer cancel                    # Cancel running batch
 ragfer stop                      # Stop the server
 ragfer update                    # Download latest + restart
+ragfer setup                     # Configure server URL + API key
 ```
 
 | Short flag | Long form | Description |
@@ -250,12 +251,38 @@ ragfer update                    # Download latest + restart
 
 | Option | Description |
 |--------|-------------|
-| `--env <env>` | Instance: `prod` (default) or `test` |
 | `--json` | Raw JSON output |
 | `-c <collection>` | Target collection name |
 | `-n <limit>` | Result limit (default 10) |
 | `-t <tags>` | Tag filter (comma-separated) |
 | `--force` | Force re-ingest (delete existing first) |
+
+### Client configuration
+
+The `ragfer` CLI reads its config from `~/.config/ragfer/`:
+
+| File | Purpose |
+|------|---------|
+| `config.toml` | Server URL (`url = "http://localhost:4242"`) |
+| `.env` | API key (`RAG_API_KEY=...`) |
+
+**Resolution order (server URL):**
+1. `~/.config/ragfer/config.toml` → `url` key
+2. If missing → `ragfer setup` launches automatically (first run)
+
+**Resolution order (API key):**
+1. `RAG_API_KEY` environment variable
+2. `~/.config/ragfer/.env` → `RAG_API_KEY=` line
+3. `.env` file next to the `ragfer` binary
+4. If missing → `ragfer setup` prompts for it
+
+**Interactive setup:**
+
+```bash
+ragfer setup
+# Prompts for server URL (default: http://localhost:4242) and API key
+# Writes ~/.config/ragfer/config.toml and ~/.config/ragfer/.env
+```
 
 > **Note:** The Cargo package name is `rag-ferrite`; the compiled binary is `ragfer`. This is set via `[[bin]] name = "ragfer"` in `Cargo.toml`.
 
@@ -277,7 +304,7 @@ Configuration via environment:
 - `RAG_API_KEY` or `RAG_MONITOR_KEY` — API key
 - `RAG_MONITOR_REFRESH` — refresh interval in seconds
 
-API key lookup order: env vars → `~/.config/rag/api_key_nova`
+API key lookup order: `RAG_API_KEY` env var → `~/.config/ragfer/.env` → `.env` next to binary (same as the `ragfer` CLI client)
 
 The standalone `rag-monitor` is a full TUI with a colored progress bar, real-time stats, activity log with timestamps, and always-visible file lists (same UI as the built-in `ragfer` monitor):
 

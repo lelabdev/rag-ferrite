@@ -94,7 +94,21 @@ dictionaries/
 
 ## Config actuelle
 
-`~/services/rag-ferrite/config.toml` :
+Config **serveur** : `~/services/rag-ferrite/config.toml` (inchangé, voir exemple ci-dessous).
+
+Config **client** (`ragfer` CLI) : `~/.config/ragfer/config.toml` :
+
+```toml
+server_url = "http://127.0.0.1:8080"
+```
+
+Clé API client : `~/.config/ragfer/.env` avec `RAG_API_KEY=…`, ou variable d'environnement `RAG_API_KEY`.
+
+Premier lancement : `ragfer setup` — prompt interactif qui crée `~/.config/ragfer/config.toml` + `.env`.
+
+Le flag `--env` et les instances codées en dur ont été supprimés ; tout passe par le fichier config.
+
+Exemple config serveur (`~/services/rag-ferrite/config.toml`) :
 
 ```toml
 data_dir = "/home/loops/services/rag-ferrite/data"
@@ -119,7 +133,7 @@ reranker_type = "llm"
 top_k = 10
 ```
 
-API keys via `.env` : `LLM_API_KEY` (Ollama Cloud), `EMBEDDING_API_KEY` (OpenRouter).
+API keys serveur via `.env` : `LLM_API_KEY` (Ollama Cloud), `EMBEDDING_API_KEY` (OpenRouter).
 
 ## Pipeline d'ingestion
 
@@ -197,6 +211,10 @@ cargo build --release --bin ragfer
    # ou via le wrapper :
    ~/services/rag-ferrite/rag-ferrite update
    ```
+3. Sur chaque machine cliente, créer le config client :
+   ```bash
+   ragfer setup   # crée ~/.config/ragfer/config.toml + .env
+   ```
 
 Le binaire appelle `update.sh` (à côté de lui dans `~/services/rag-ferrite/`).
 Le script : stop service → vérifie arrêt → télécharge depuis GitHub Releases → remplace binaire → restart.
@@ -208,6 +226,8 @@ Le script : stop service → vérifie arrêt → télécharge depuis GitHub Rele
 | aether | `~/bin/ragfer` → `~/services/rag-ferrite/ragfer` |
 | TufTux | `~/.local/bin/ragfer` → `~/services/rag-ferrite/ragfer` |
 | Nova | `rag-ferrite-mcp` (wrapper) appelle `exec ./ragfer serve` |
+
+Chaque machine cliente doit aussi avoir `~/.config/ragfer/config.toml` + `.env` (créés via `ragfer setup`).
 
 ### Fichiers de déploiement
 

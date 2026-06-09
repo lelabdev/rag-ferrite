@@ -22,8 +22,27 @@ Requires: `poppler-utils` for PDF, an LLM provider, an embedding provider.
 
 ## Configuration
 
+`ragfer` uses file-based configuration with an interactive first-run setup:
+
+```bash
+ragfer setup    # interactive — prompts for server URL and API key
+```
+
+### Config files
+
+| File | Purpose |
+|------|---------|
+| `~/.config/ragfer/config.toml` | Server URL and all engine settings |
+| `~/.config/ragfer/.env` | API key (written by `ragfer setup`) |
+
+API key resolution order:
+1. Environment variable `RAG_API_KEY`
+2. `~/.config/ragfer/.env`
+3. `.env` file next to the binary
+
+### config.toml — minimal example
+
 ```toml
-# config.toml — minimal config
 data_dir = "./data"
 
 [embedding]
@@ -46,7 +65,7 @@ top_k = 10
 preview_chars = 300
 ```
 
-API keys via environment: `LLM_API_KEY`, `EMBEDDING_API_KEY`, or `.env` file.
+Provider API keys (`LLM_API_KEY`, `EMBEDDING_API_KEY`) are resolved via the order above (env var → ~/.config/ragfer/.env → .env next to binary). No `--env` flag or hardcoded instances.
 
 ### API Authentication (Streamable HTTP mode)
 
@@ -230,6 +249,7 @@ The `ragfer` binary includes an integrated CLI client that communicates with a r
 
 | Command | Short | Description |
 |---|---|---|
+| `setup` | | Interactive first-run: configure server URL + API key |
 | `serve` | `-d` | Start daemon (MCP server + HTTP API) |
 | `status` | `-s` | Show engine status and document count |
 | `list` | `-l` | List indexed documents |
@@ -305,12 +325,12 @@ ragfer --demo [--fade N]        # demo mode (simulate batch, no ingestion)
 rag-monitor [refresh_seconds] [url]
 ```
 
-Configuration via environment:
+Configuration via environment and config files:
 - `RAG_MONITOR_URL` — server URL (default: `http://localhost:4242`)
 - `RAG_API_KEY` or `RAG_MONITOR_KEY` — API key
 - `RAG_MONITOR_REFRESH` — refresh interval in seconds
 
-API key lookup order: env vars → `~/.config/rag/api_key_nova`
+API key lookup order: env var `RAG_API_KEY` → `~/.config/ragfer/.env` → `.env` next to binary
 
 Real-time TUI with ratatui: cyan progress bar (█ fill → ▓▒░ fade → ⡀→⣿ braille transition → pendulum braille wave), stats panel, file lists. Only shows progress bar when a batch is running.
 
@@ -452,10 +472,9 @@ mcp_servers:
   rag-ferrite:
     command: /path/to/ragfer
     timeout: 9999        # large files can take 10+ min with contextual retrieval
-    env:
-      LLM_API_KEY: "..."
-      EMBEDDING_API_KEY: "..."
 ```
+
+API keys are resolved via the config file chain (env var → ~/.config/ragfer/.env → .env next to binary) — no need to pass them in the MCP config.
 
 ### Option B — Streamable HTTP (recommended for production / remote)
 
@@ -481,15 +500,13 @@ mcp_servers:
 {
   "mcpServers": {
     "rag-ferrite": {
-      "command": "/path/to/ragfer",
-      "env": {
-        "LLM_API_KEY": "...",
-        "EMBEDDING_API_KEY": "..."
-      }
+      "command": "/path/to/ragfer"
     }
   }
 }
 ```
+
+API keys are resolved via the config file chain — no `env` block needed.
 
 ## Performance
 
