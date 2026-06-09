@@ -19,6 +19,7 @@ pub mod chunk_heat;
 pub mod precheck;
 pub mod ingest;
 pub mod indexes;
+pub mod history;
 
 // Re-export public items from sub-modules
 pub use search::{search_hybrid, search_hybrid_with_expansion};

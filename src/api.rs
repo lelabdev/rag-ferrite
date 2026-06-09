@@ -281,6 +281,18 @@ async fn stop_service() -> impl IntoResponse {
     }))
 }
 
+async fn reload_config() -> impl IntoResponse {
+    json_response(crate::service::reload_config_service())
+}
+
+async fn get_history() -> impl IntoResponse {
+    let entries = crate::engine::history::snapshot();
+    (StatusCode::OK, Json(serde_json::json!({
+        "history": entries,
+        "total": entries.len()
+    })))
+}
+
 // --- Server startup ---
 
 pub async fn serve(server: Arc<RagFerriteServer>, port: u16, bind_address: String, admin_key: Option<String>, guest_key: Option<String>) -> anyhow::Result<()> {
@@ -332,6 +344,8 @@ pub async fn serve(server: Arc<RagFerriteServer>, port: u16, bind_address: Strin
         .route("/api/flush-indexes", post(flush_indexes))
         .route("/api/service/cancel-batch", post(cancel_batch))
         .route("/api/service/stop", post(stop_service))
+        .route("/api/reload", post(reload_config))
+        .route("/api/history", get(get_history))
         .layer(CorsLayer::permissive())
         .with_state(server);
 

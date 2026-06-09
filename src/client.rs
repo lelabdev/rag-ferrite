@@ -314,6 +314,60 @@ pub fn cmd_rebuild(_json: bool) -> Result<()> { let r = api_call("POST", "/api/r
 pub fn cmd_cancel(_json: bool) -> Result<()> { let r = api_call("POST", "/api/service/cancel-batch", None)?; println!("{}", serde_json::to_string_pretty(&r)?); Ok(()) }
 pub fn cmd_stop(_json: bool) -> Result<()> { let r = api_call("POST", "/api/service/stop", None)?; println!("{}", serde_json::to_string_pretty(&r)?); Ok(()) }
 
+pub fn cmd_reload(_json: bool) -> Result<()> { let r = api_call("POST", "/api/reload", None)?; println!("{}", serde_json::to_string_pretty(&r)?); Ok(()) }
+
+pub fn cmd_history(json: bool) -> Result<()> {
+    let r = api_call("GET", "/api/history", None)?;
+    if json { println!("{}", serde_json::to_string_pretty(&r)?); return Ok(()); }
+    let empty = Vec::new();
+    let entries = r.get("history").and_then(|v| v.as_array()).unwrap_or(&empty);
+    if entries.is_empty() { println!("No batch history."); return Ok(()); }
+    println!("{:<25} {:<20} {:<8} {:<8} {:<8} {:<6}", "Batch ID", "Time", "Files", "Chunks", "Duration", "Errors");
+    println!("{}", "─".repeat(80));
+    for e in entries.iter().rev() {
+        let batch_id = e.get("batch_id").and_then(|v| v.as_str()).unwrap_or("?");
+        let ts = e.get("timestamp").and_then(|v| v.as_u64()).unwrap_or(0);
+        let time_str = if ts > 0 {
+            chrono::DateTime::from_timestamp(ts as i64, 0)
+                .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
+                .unwrap_or_else(|| ts.to_string())
+        } else {
+            "—".to_string()
+        };
+        let files = e.get("file_count").and_then(|v| v.as_u64()).unwrap_or(0);
+        let chunks = e.get("chunk_count").and_then(|v| v.as_u64()).unwrap_or(0);
+        let dur = e.get("duration_secs").and_then(|v| v.as_u64()).unwrap_or(0);
+        let errors = e.get("errors").and_then(|v| v.as_u64()).unwrap_or(0);
+        println!("{:<25} {:<20} {:<8} {:<8} {:<5}s     {:<6}", batch_id, time_str, files, chunks, dur, errors);
+    }
+    println!("\n{} batches shown", entries.len());
+    Ok(())
+}
+
+pub fn cmd_restart() -> Result<()> {
+    println!("Stopping server...");
+    let _ = api_call("POST", "/api/service/stop", None);
+    // Wait for server to stop
+    for _ in 0..30 {
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        if api_call("GET", "/api/status", None).is_err() {
+            break;
+        }
+    }
+    println!("Server stopped. Waiting for restart...");
+    // Wait for server to come back (systemd Restart=on-failure or wrapper)
+    for i in 0..30 {
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        if api_call("GET", "/api/status", None).is_ok() {
+            println!("Server restarted. {}", api_call("GET", "/api/status", None).map(|r| format!("Documents: {}", r.get("document_count").and_then(|v| v.as_u64()).unwrap_or(0))).unwrap_or_default());
+            return Ok(());
+        }
+        if i % 5 == 4 { print!("."); std::io::stdout().flush()?; }
+    }
+    println!("\nServer did not restart within 30s. Check: systemctl --user status rag-ferrite");
+    Ok(())
+}
+
 // ─── CLI ───────────────────────────────────────────────────────────────────
 
 pub struct CliArgs { pub json: bool, pub command: CliCommand }
@@ -326,7 +380,7 @@ pub enum CliCommand {
     IngestBatch { paths: Vec<String>, collection: Option<String> },
     IngestData { name: String, collection: Option<String> },
     Delete { source_id: String },
-    Flush, Rebuild, Cancel, Stop,
+    Flush, Rebuild, Cancel, Stop, Restart, Reload, History,
 }
 
 pub fn print_usage() {
@@ -347,6 +401,9 @@ Usage:
     ragfer rebuild                   Rebuild all indexes
     ragfer cancel                    Cancel running batch
     ragfer stop                      Stop the server
+    ragfer restart (-r)              Stop and wait for server restart
+    ragfer reload                    Hot-reload config.toml
+    ragfer history                   Show ingestion batch history
     ragfer setup                     Configure server URL + API key
     ragfer help (-h)                 Show this help
 
@@ -400,9 +457,11 @@ pub fn parse_args() -> Result<CliArgs> {
         "rebuild" => CliCommand::Rebuild,
         "cancel" => CliCommand::Cancel,
         "stop" => CliCommand::Stop,
+        "restart" | "-r" => CliCommand::Restart,
+        "reload" => CliCommand::Reload,
+        "history" => CliCommand::History,
         "monitor" | "-m" => CliCommand::Monitor,
         "update" => CliCommand::Update,
-        "setup" => CliCommand::Setup,
         "setup" => CliCommand::Setup,
         "help" | "-h" | "--help" => { print_usage(); std::process::exit(0); }
         _ => { eprintln!("Unknown command: {}", subcmd); print_usage(); std::process::exit(1); }
@@ -424,6 +483,9 @@ pub fn execute(args: CliArgs) -> Result<()> {
         CliCommand::Rebuild => cmd_rebuild(args.json),
         CliCommand::Cancel => cmd_cancel(args.json),
         CliCommand::Stop => cmd_stop(args.json),
+        CliCommand::Restart => cmd_restart(),
+        CliCommand::Reload => cmd_reload(args.json),
+        CliCommand::History => cmd_history(args.json),
         CliCommand::Setup => cmd_setup(),
         CliCommand::Serve | CliCommand::Monitor | CliCommand::Update => unreachable!("handled by main.rs"),
     }

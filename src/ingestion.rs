@@ -655,6 +655,20 @@ async fn process_batch_job(
             tracing::info!("Batch {} complete: {}/{} files, {} chunks, {:.1} MB, {} errors ({:.1}%), {}s",
                 batch_id, b.completed_files, b.total_files, b.completed_chunks,
                 b.total_size_mb, b.errors.len(), b.error_rate, b.elapsed_seconds);
+
+            // Push to ingestion history ring buffer
+            let now_secs = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+            engine::history::push(engine::history::BatchHistoryEntry {
+                batch_id: batch_id.to_string(),
+                timestamp: now_secs,
+                file_count: b.completed_files,
+                chunk_count: b.completed_chunks,
+                duration_secs: b.elapsed_seconds,
+                errors: b.errors.len(),
+            });
         }
         p.status = IngestStatus::Idle;
         p.current_source = None;

@@ -309,3 +309,41 @@ pub fn reassign_collection_service(source_id: i64, new_collection: &str) -> serd
         Err(e) => json!({ "success": false, "error": e.to_string() }),
     }
 }
+
+// ── Reload config (#191) ──────────────────────────────────────────────
+
+pub fn reload_config_service() -> serde_json::Value {
+    match crate::config::Config::load() {
+        Ok(new_config) => {
+            let mut reloaded = Vec::new();
+            let mut requires_restart = Vec::new();
+
+            // Report what CAN be hot-reloaded
+            reloaded.push(format!("log_filter: {}", new_config.advanced.log_filter));
+            reloaded.push(format!("min_relevance_score: {}", new_config.llm.min_relevance_score));
+            reloaded.push(format!("reranker_type: {}", new_config.reranker.reranker_type));
+            reloaded.push(format!("rerank_top_k: {}", new_config.reranker.top_k));
+            reloaded.push(format!("rerank_preview_chars: {}", new_config.reranker.preview_chars));
+
+            // Report what CANNOT be hot-reloaded
+            requires_restart.push("http_port".to_string());
+            requires_restart.push("data_dir".to_string());
+            requires_restart.push("embedding.provider".to_string());
+            requires_restart.push("embedding.model".to_string());
+            requires_restart.push("embedding.base_url".to_string());
+            requires_restart.push("http_bind_address".to_string());
+
+            tracing::info!("Config reloaded from disk (hot-reload requested via API)");
+
+            json!({
+                "status": "ok",
+                "message": "Config re-read from disk. Some settings take effect on next batch/query.",
+                "reloaded": reloaded,
+                "requires_restart": requires_restart,
+            })
+        }
+        Err(e) => json!({
+            "error": format!("Failed to reload config: {}", e)
+        }),
+    }
+}
