@@ -300,9 +300,9 @@ rag-monitor [refresh_seconds] [url]
 ```
 
 Configuration via environment:
-- `RAG_MONITOR_URL` — server URL (default: `http://localhost:4242`)
-- `RAG_API_KEY` or `RAG_MONITOR_KEY` — API key
-- `RAG_MONITOR_REFRESH` — refresh interval in seconds
+- `RAGFER_URL` — server URL (default: `http://localhost:4242`)
+- `RAG_API_KEY` or `RAGFER_KEY` — API key
+- `RAGFER_REFRESH` — refresh interval in seconds
 
 API key lookup order: `RAG_API_KEY` env var → `~/.config/ragfer/.env` → `.env` next to binary (same as the `ragfer` CLI client)
 
