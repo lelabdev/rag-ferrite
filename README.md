@@ -556,6 +556,31 @@ A typical rag-ferrite setup with a small LLM (e.g. `ministral-3b`) runs at **100
 
 ---
 
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| Ingestion creates 0 chunks | LLM API key expired or invalid | Test with `ragfer -s`, check `journalctl --user -u rag-ferrite` |
+| New docs not searchable | Index not flushed after batch | Run `ragfer rebuild` or restart with `ragfer restart` |
+| No logs in journalctl | `log_filter` too restrictive in config | Set `log_filter = "info"` in config.toml, then `ragfer reload` |
+| `api.ollama.com` returns 403 | Ollama Cloud changed their domain | Use `base_url = "https://ollama.com"` in LLM profiles |
+| Query returns no results | Embeddings missing (empty in DB) | Check: `sqlite3 data/rag.sqlite3 "SELECT COUNT(*) FROM chunks WHERE length(embedding)=0"`. Re-ingest affected sources. |
+| `ragfer list` shows 0 chunks | Old binary version | Upgrade to v5.1+ |
+
+### Diagnostic commands
+
+```bash
+ragfer -s                          # Server health + document count
+ragfer progress                    # Current batch status
+ragfer history                     # Last 20 completed batches
+ragfer key show                    # Show current API key
+journalctl --user -u rag-ferrite -f  # Live logs
+ragfer reload                      # Re-read config without restart
+ragfer restart                     # Restart server (systemd)
+```
+
+> **Always verify API connectivity before debugging code.** The server logs a health check at startup — if you see LLM errors there, fix the key/URL first.
+
 ## Acknowledgements
 
 The ingestion pipeline was inspired by [Jonas Roman's video on production RAG workflows](https://www.youtube.com/watch?v=phZ_iqu1gN0) — contextual retrieval, pre-ingestion quality checks, query expansion, LLM reranking, and golden dataset benchmarking.
