@@ -203,7 +203,7 @@ def cmd_list(args):
         print(json.dumps(r))
         return
 
-    docs = r if isinstance(r, list) else r.get("documents", r.get("sources", []))
+    docs = r if isinstance(r, list) else r.get("files", r.get("documents", r.get("sources", [])))
     if not docs:
         print("No documents.")
         return

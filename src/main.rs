@@ -17,6 +17,7 @@ impl tracing_subscriber::fmt::time::FormatTime for LocalTimer {
 }
 
 mod api;
+mod client;
 mod config;
 mod chunker;
 mod embedding;
@@ -219,46 +220,55 @@ impl RagFerriteServer {
 
 #[tokio::main(worker_threads = 12)]
 async fn main() -> Result<()> {
-    // Check for monitor subcommand
-    let args: Vec<String> = std::env::args().collect();
-    if args.len() > 1 && args[1] == "monitor" {
-        monitor::run(&args[2..]);
-        return Ok(());
-    }
+    // Parse CLI args first — client commands exit early, server commands proceed.
+    let cli_args = client::parse_args()?;
 
-    // Check for update subcommand
-    if args.len() > 1 && args[1] == "update" {
-        // Find update.sh next to the binary
-        let exe = std::env::current_exe().unwrap_or_else(|_| std::path::PathBuf::from("."));
-        let script = exe.parent()
-            .unwrap_or(std::path::Path::new("."))
-            .join("update.sh");
-
-        if !script.exists() {
-            eprintln!("Error: update.sh not found at {}", script.display());
-            eprintln!("Expected next to the binary in the same directory.");
-            std::process::exit(1);
+    match cli_args.command {
+        // Server-mode commands handled here
+        client::CliCommand::Serve => { /* proceed to server init below */ }
+        client::CliCommand::Monitor => {
+            monitor::run(&[]);
+            return Ok(());
         }
+        client::CliCommand::Update => {
+            let exe = std::env::current_exe().unwrap_or_else(|_| std::path::PathBuf::from("."));
+            let script = exe.parent()
+                .unwrap_or(std::path::Path::new("."))
+                .join("update.sh");
 
-        println!("Running update.sh...");
-        let status = std::process::Command::new("bash")
-            .arg(&script)
-            .args(&args[2..])
-            .status();
-
-        match status {
-            Ok(s) if s.success() => {
-                println!("✓ Update complete");
-                std::process::exit(0);
-            }
-            Ok(s) => {
-                eprintln!("✗ Update failed (exit code {})", s.code().unwrap_or(-1));
-                std::process::exit(s.code().unwrap_or(1));
-            }
-            Err(e) => {
-                eprintln!("✗ Failed to run update.sh: {}", e);
+            if !script.exists() {
+                eprintln!("Error: update.sh not found at {}", script.display());
+                eprintln!("Expected next to the binary in the same directory.");
                 std::process::exit(1);
             }
+
+            println!("Running update.sh...");
+            let status = std::process::Command::new("bash")
+                .arg(&script)
+                .status();
+
+            match status {
+                Ok(s) if s.success() => {
+                    println!("✓ Update complete");
+                    std::process::exit(0);
+                }
+                Ok(s) => {
+                    eprintln!("✗ Update failed (exit code {})", s.code().unwrap_or(-1));
+                    std::process::exit(s.code().unwrap_or(1));
+                }
+                Err(e) => {
+                    eprintln!("✗ Failed to run update.sh: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+        // Client-mode commands — hit API and exit
+        _ => {
+            if let Err(e) = client::execute(cli_args) {
+                eprintln!("Error: {}", e);
+                std::process::exit(1);
+            }
+            return Ok(());
         }
     }
 
