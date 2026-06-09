@@ -623,7 +623,7 @@ pub fn parse_args() -> Result<CliArgs> {
     }
 
     let subcmd = positional.first().map(|s| s.as_str()).unwrap_or("serve");
-    let args = &positional[1..];
+    let args = if positional.len() > 1 { &positional[1..] } else { &[] };
 
     let command = match subcmd {
         "serve" => CliCommand::Serve,
