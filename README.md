@@ -8,7 +8,7 @@
 
 **Your documents, searchable with meaning — not just keywords.**
 
-Single binary (15 MB). Single database. Tag-based classification. MCP-native. Built in Rust.
+Single binary. Single database. Tag-based classification. MCP-native. Built in Rust.
 
 ---
 
@@ -32,10 +32,14 @@ cd rag-ferrite && cargo build --release
 
 You need **two API keys** — one for the LLM, one for embeddings. Any OpenAI-compatible provider works.
 
+**First run?** `ragfer serve` auto-creates a default `config.toml` if none exists. Same for the client — `ragfer` auto-launches `ragfer setup` on first use.
+
 ```bash
 export LLM_API_KEY="your-llm-api-key"
 export EMBEDDING_API_KEY="your-embedding-api-key"
 ```
+
+**Server API key:** by default the server is open. To secure it, run `ragfer key generate` — this creates an API key that clients must provide via `RAG_API_KEY` or `~/.config/ragfer/.env`.
 
 Minimal `~/.config/rag-ferrite/config.toml`:
 
@@ -234,8 +238,14 @@ ragfer flush                     # Flush HNSW indexes
 ragfer rebuild                   # Rebuild indexes
 ragfer cancel                    # Cancel running batch
 ragfer stop                      # Stop the server
-ragfer update                    # Download latest + restart
-ragfer setup                     # Configure server URL + API key
+ragfer restart (-r)              # Stop and wait for server restart
+ragfer reload                    # Hot-reload config.toml (no restart)
+ragfer history                   # Show last 20 batch ingestion results
+ragfer update                    # Download latest release + restart
+ragfer setup                     # Configure server URL + API key (interactive)
+ragfer key generate              # Generate new server API key (⚠️ overwrites previous)
+ragfer key show                  # Show current API key
+ragfer key list                  # List active API keys (masked)
 ```
 
 | Short flag | Long form | Description |
