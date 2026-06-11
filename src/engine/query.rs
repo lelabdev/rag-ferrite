@@ -58,6 +58,21 @@ pub fn get_pages_for_chunk_ids(chunk_ids: &[i64]) -> Result<std::collections::Ha
 }
 
 /// Get chunks adjacent to a given chunk, enriched with section_path and page.
+/// Resolve source_id → source name for a list of IDs.
+pub fn get_source_names(source_ids: &[i64]) -> Result<std::collections::HashMap<i64, String>> {
+    let conn = crate::engine::get_conn()?;
+    let mut map = std::collections::HashMap::new();
+    for &id in source_ids {
+        let name: String = conn.query_row(
+            "SELECT name FROM sources WHERE id = ?1",
+            rusqlite::params![id],
+            |row| row.get(0),
+        )?;
+        map.insert(id, name);
+    }
+    Ok(map)
+}
+
 pub fn get_neighbors(source_id: i64, chunk_index: i64, before: i64, after: i64) -> Result<Vec<(ChunkSearchResult, Option<String>, Option<u32>)>> {
     let min_index = (chunk_index - before).max(0);
     let max_index = chunk_index + after;

@@ -219,10 +219,10 @@ pub fn cmd_query(json: bool, text: &str, collection: Option<&str>, limit: usize,
     let r = api_call("POST", "/api/query", Some(data))?;
     if json { println!("{}", serde_json::to_string_pretty(&r)?); return Ok(()); }
     let empty = Vec::new();
-    let chunks = r.get("chunks").and_then(|v| v.as_array()).unwrap_or(&empty);
+    let chunks = r.get("chunks").or_else(|| r.get("results")).and_then(|v| v.as_array()).unwrap_or(&empty);
     if chunks.is_empty() { println!("No results found."); return Ok(()); }
     for (i, ch) in chunks.iter().enumerate() {
-        let src = ch.get("source_name").or_else(|| ch.get("source")).and_then(|v| v.as_str()).unwrap_or("?");
+        let src = ch.get("source_name").or_else(|| ch.get("name")).or_else(|| ch.get("source")).and_then(|v| v.as_str()).unwrap_or("?");
         let content = ch.get("content").and_then(|v| v.as_str()).unwrap_or("");
         let tags_list = ch.get("tags").and_then(|v| v.as_array()).map(|a| a.iter().filter_map(|t| t.as_str()).collect::<Vec<_>>().join(", ")).unwrap_or_default();
         let score = ch.get("score").and_then(|v| v.as_f64()).unwrap_or(0.0);

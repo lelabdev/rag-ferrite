@@ -47,6 +47,8 @@ pub struct HybridResult {
     pub vector_rank: u32,
     pub bm25_rank: u32,
     pub source_id: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_name: Option<String>,
     pub chunk_index: u32,
     pub metadata: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -70,6 +72,7 @@ impl From<rag_engine::api::hybrid_search::HybridSearchResult> for HybridResult {
             vector_rank: r.vector_rank,
             bm25_rank: r.bm25_rank,
             source_id: r.source_id,
+            source_name: None,
             chunk_index: r.chunk_index,
             metadata: r.metadata,
             section_path: None,
@@ -105,6 +108,7 @@ impl From<crate::reranker::RerankedResult> for HybridResult {
             vector_rank: r.vector_rank,
             bm25_rank: r.bm25_rank,
             source_id: r.source_id,
+            source_name: None,
             chunk_index: r.chunk_index,
             metadata: r.metadata,
             section_path: None,

@@ -77,6 +77,10 @@ pub async fn query_service(
             // Parent resolution: for child chunks, replace content with parent's
             let parent_map = engine::query::resolve_parents(&doc_ids).unwrap_or_default();
 
+            // Resolve source names
+            let source_ids: Vec<i64> = filtered_results.iter().map(|r| r.source_id).collect();
+            let source_names = engine::query::get_source_names(&source_ids).unwrap_or_default();
+
             let out: Vec<HybridResult> = filtered_results.into_iter().map(|r| {
                 let sp = section_map.get(&r.doc_id).cloned().flatten();
                 let tags = tags_map.get(&r.doc_id).cloned().unwrap_or_default();
@@ -87,6 +91,7 @@ pub async fn query_service(
                     content: parent_info.map(|p| p.content.clone()).unwrap_or(r.content),
                     score: r.score,
                     source_id: r.source_id,
+                    source_name: source_names.get(&r.source_id).cloned(),
                     chunk_index: r.chunk_index,
                     metadata: r.metadata,
                     vector_rank: r.vector_rank,

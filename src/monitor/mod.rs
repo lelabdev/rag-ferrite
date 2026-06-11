@@ -14,6 +14,8 @@ use std::collections::BTreeMap;
 use std::io::{self, Stdout};
 use std::time::{Duration, Instant};
 
+use chrono::Local;
+
 use crossterm::{
     event::{self, Event, KeyCode, KeyEventKind},
     execute,
