@@ -20,7 +20,7 @@ src/
 ├── ingestion.rs (680 lines) — ingestion queue + progress
 ├── pipeline.rs (470 lines) — query pipeline, classification, cache
 ├── api.rs (392 lines) — HTTP routes (axum)
-├── service.rs (302 lines) — shared business logic (MCP + HTTP)
+├── service.rs (378 lines) — shared business logic (MCP + HTTP)
 ├── reranker.rs (330 lines) — reranker (LLM, Cohere, Disabled)
 ├── embedding.rs (246 lines) — embedding provider
 ├── types.rs (228 lines) — shared types

@@ -215,7 +215,10 @@ fn fmt_dur(secs: f64) -> String {
 pub fn cmd_query(json: bool, text: &str, collection: Option<&str>, limit: usize, tags: Option<&str>) -> Result<()> {
     let mut data = serde_json::json!({"query": text, "limit": limit});
     if let Some(c) = collection { data["collection"] = Value::String(c.to_string()); }
-    if let Some(t) = tags { data["tags"] = Value::String(t.to_string()); }
+    if let Some(t) = tags {
+        let tag_list: Vec<Value> = t.split(',').map(|s| Value::String(s.trim().to_string())).collect();
+        data["tags"] = Value::Array(tag_list);
+    }
     let r = api_call("POST", "/api/query", Some(data))?;
     if json { println!("{}", serde_json::to_string_pretty(&r)?); return Ok(()); }
     let empty = Vec::new();

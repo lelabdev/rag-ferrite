@@ -25,7 +25,7 @@ pub mod history;
 pub use search::{search_hybrid, search_hybrid_with_expansion};
 pub use query::{get_section_paths_for_chunk_ids, get_neighbors, delete_source, list_sources};
 pub use benchmark::{run_benchmark, get_graph_data};
-pub use tags::{create_chunk_tags_table, create_collection_tags_table, insert_chunk_tags, update_collection_tags, get_tags_for_chunk_ids};
+pub use tags::{create_chunk_tags_table, create_collection_tags_table, insert_chunk_tags, update_collection_tags, get_tags_for_chunk_ids, get_chunk_ids_for_tags};
 pub use heat::{create_collection_heat_table, HeatTracker, get_all_heat, collections_for_sources, get_chunk_qa_report};
 
 // Re-export from chunk_heat

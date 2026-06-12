@@ -313,7 +313,7 @@ Configuration via environment:
 API key lookup order: `RAG_API_KEY` env var → `~/.config/ragfer/.env` → `.env` next to binary (same as the `ragfer` CLI client).
 
 ```
- rag-ferrite v5.1.0 • 132 docs  ⠹
+ rag-ferrite v5.2.0 • 132 docs  ⠹
 
  prompt-engineering.txt
   28%  70/247

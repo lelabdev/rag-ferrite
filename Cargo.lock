@@ -2110,7 +2110,7 @@ dependencies = [
 
 [[package]]
 name = "rag-ferrite"
-version = "5.1.1"
+version = "5.2.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -2143,7 +2143,6 @@ dependencies = [
 [[package]]
 name = "rag_engine"
 version = "0.8.1"
-source = "git+https://github.com/lelabdev/rag-engine.git#c52f681c32102cc1d600dbc797bddbeb947c67d9"
 dependencies = [
  "android_logger",
  "anyhow",

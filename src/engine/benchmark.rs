@@ -22,6 +22,7 @@ pub async fn run_benchmark(
         source_ids: None,
         metadata_like: None,
         collection_id: Some(c),
+        chunk_ids: None,
     });
 
     for entry in &entries {

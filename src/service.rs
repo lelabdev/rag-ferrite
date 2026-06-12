@@ -20,41 +20,65 @@ pub async fn query_service(
     heat_tracker: Option<&HeatTracker>,
     chunk_heat_tracker: Option<&ChunkHeatTracker>,
 ) -> serde_json::Value {
-    let filter = if source_ids.is_some() || metadata_like.is_some() {
+    // Pre-filter: when tags are specified, resolve matching chunk_ids from chunk_tags (AND logic)
+    let (tag_chunk_ids, post_filter_tags) = if let Some(ref filter_tags) = tags {
+        if !filter_tags.is_empty() {
+            match engine::tags::get_chunk_ids_for_tags(filter_tags) {
+                Ok(ids) if ids.is_empty() => {
+                    // No chunks match all tags → return empty immediately
+                    return json!({
+                        "results": [],
+                        "confidence": "high",
+                        "retries": 0,
+                        "tag_filter_note": format!("No chunks match all requested tags: {}", filter_tags.join(", "))
+                    });
+                }
+                Ok(ids) if ids.len() > 2000 => {
+                    // Too many chunk_ids for exact scan — use post-filter instead
+                    tracing::debug!("Tag pre-filter has {} chunks (>500), switching to post-filter", ids.len());
+                    (None, Some(filter_tags.clone()))
+                }
+                Ok(ids) => (Some(ids), None),
+                Err(e) => {
+                    tracing::warn!("Tag filter failed: {}", e);
+                    (None, None)
+                }
+            }
+        } else {
+            (None, None)
+        }
+    } else {
+        (None, None)
+    };
+
+    let filter = if source_ids.is_some() || metadata_like.is_some() || tag_chunk_ids.is_some() {
         Some(rag_engine::api::hybrid_search::SearchFilter {
             source_ids,
             metadata_like,
             collection_id: None,
+            chunk_ids: tag_chunk_ids,
         })
     } else {
         None
     };
 
-    match pipeline.query(query, limit, filter).await {
+    // Over-fetch when using post-filter tag approach (large tag sets)
+    let fetch_limit = if post_filter_tags.is_some() {
+        (limit * 20).min(500)
+    } else {
+        limit
+    };
+
+    match pipeline.query(query, fetch_limit, filter).await {
         Ok(output) => {
             let mut doc_ids: Vec<i64> = output.results.iter().map(|r| r.doc_id).collect();
             let section_map = engine::get_section_paths_for_chunk_ids(&doc_ids).unwrap_or_default();
             let tags_map = engine::get_tags_for_chunk_ids(&doc_ids).unwrap_or_default();
 
-            // ── Tag filtering (#149): keep only chunks that have at least one requested tag ──
-            let filtered_results = if let Some(ref filter_tags) = tags {
-                if filter_tags.is_empty() {
-                    output.results
-                } else {
-                    output.results.into_iter().filter(|r| {
-                        let chunk_tags = tags_map.get(&r.doc_id);
-                        match chunk_tags {
-                            Some(ct) => ct.iter().any(|t| filter_tags.iter().any(|ft| ft.eq_ignore_ascii_case(t))),
-                            None => false,
-                        }
-                    }).collect()
-                }
-            } else {
-                output.results
-            };
+            // ── Tag display: fetch tags for all result chunks (pre-filtering is now done at search time) ──
 
-            // Update doc_ids after tag filtering
-            doc_ids = filtered_results.iter().map(|r| r.doc_id).collect();
+            // Update doc_ids
+            doc_ids = output.results.iter().map(|r| r.doc_id).collect();
 
             // ── Chunk heat tracking (#177): async batched, non-blocking ──
             if !doc_ids.is_empty() {
@@ -65,7 +89,7 @@ pub async fn query_service(
 
             // ── Collection heat tracking (#159 Phase 1): async, non-blocking ──
             if let Some(tracker) = heat_tracker {
-                let result_source_ids: Vec<i64> = filtered_results.iter().map(|r| r.source_id).collect();
+                let result_source_ids: Vec<i64> = output.results.iter().map(|r| r.source_id).collect();
                 match engine::collections_for_sources(&result_source_ids) {
                     Ok(collections) => {
                         tracker.record_collections(&collections);
@@ -78,10 +102,21 @@ pub async fn query_service(
             let parent_map = engine::query::resolve_parents(&doc_ids).unwrap_or_default();
 
             // Resolve source names
-            let source_ids: Vec<i64> = filtered_results.iter().map(|r| r.source_id).collect();
+            let source_ids: Vec<i64> = output.results.iter().map(|r| r.source_id).collect();
             let source_names = engine::query::get_source_names(&source_ids).unwrap_or_default();
 
-            let out: Vec<HybridResult> = filtered_results.into_iter().map(|r| {
+            let out: Vec<HybridResult> = output.results.into_iter()
+                .filter(|r| {
+                    // Post-filter for large tag sets: keep only chunks with ALL requested tags
+                    if let Some(ref pft) = post_filter_tags {
+                        let chunk_tags = tags_map.get(&r.doc_id).cloned().unwrap_or_default();
+                        pft.iter().all(|t| chunk_tags.iter().any(|ct| ct == t))
+                    } else {
+                        true
+                    }
+                })
+                .take(limit)
+                .map(|r| {
                 let sp = section_map.get(&r.doc_id).cloned().flatten();
                 let tags = tags_map.get(&r.doc_id).cloned().unwrap_or_default();
                 let parent_info = parent_map.get(&r.doc_id);

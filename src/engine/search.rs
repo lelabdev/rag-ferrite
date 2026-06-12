@@ -78,6 +78,7 @@ pub async fn search_hybrid_with_expansion(
             source_ids: None,
             metadata_like: None,
             collection_id: None,
+            chunk_ids: None,
         });
         f.collection_id = Some(coll);
         Some(f)
