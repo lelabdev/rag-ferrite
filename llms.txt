@@ -182,6 +182,13 @@ Without profiles, all actions use the single `[llm]` provider (backward compatib
 
 ### Tag rules (`tag-rules.toml`)
 
+Tags are **atomic words** (not compound phrases). Filtered with **AND logic**:
+- **1 tag** = broad results. Use 1-2 tags max.
+- **2 tags** = precise intersection (chunks must have BOTH tags).
+- More than 2 tags is overkill — refine the query text instead.
+
+A few compound tags kept as single concepts: `machine learning`, `social media`, `fault tolerance`, `multi agent`.
+
 Pipeline: strip chars → lowercase → synonym lookup → stop word filter → length filter → singular normalization → dedup. Loaded at startup, hot-reloadable via restart.
 
 ### Reranker options
