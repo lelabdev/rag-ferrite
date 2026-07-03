@@ -68,6 +68,11 @@ pub fn init(data_dir: &std::path::Path, config: &crate::config::Config) -> Resul
     conn.execute_batch("PRAGMA journal_mode=WAL;")?;
     conn.execute_batch("PRAGMA foreign_keys=ON;")?;
 
+    // Load sqlite-vec extension for fast vector search
+    unsafe {
+        rusqlite::ffi::sqlite3_auto_extension(Some(std::mem::transmute(sqlite_vec::sqlite3_vec_init as *const ())));
+    }
+
     // Create core tables (previously created by rag_engine::init_source_db)
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS sources (

@@ -95,6 +95,13 @@ pub fn add_chunks(source_id: i64, chunks: Vec<ChunkData>) -> Result<i32> {
             "INSERT INTO chunks_fts (content, chunk_id) VALUES (?1, ?2)",
             rusqlite::params![chunk.content, chunk_id],
         )?;
+
+        // Also add to chunks_vec (sqlite-vec) for fast vector search
+        // Ignore errors if chunks_vec doesn't exist yet (dims not detected)
+        let _ = conn.execute(
+            "INSERT INTO chunks_vec(rowid, embedding) VALUES (?1, ?2)",
+            rusqlite::params![chunk_id, embedding_bytes],
+        );
     }
 
     tracing::info!("Added {} chunks for source {}", count, source_id);
@@ -172,7 +179,7 @@ pub fn get_adjacent_chunks(source_id: i64, min_index: i32, max_index: i32) -> Re
 /// RRF constant (standard value)
 const RRF_K: u32 = 60;
 
-/// Initialize FTS5 virtual table for BM25 search.
+/// Initialize FTS5 + vec0 virtual tables.
 /// Called once during DB init. Safe to call multiple times (IF NOT EXISTS).
 pub fn init_db() -> Result<()> {
     let conn = get_conn()?;
@@ -184,6 +191,38 @@ pub fn init_db() -> Result<()> {
             tokenize='porter unicode61'
         );"
     )?;
+
+    // --- sqlite-vec setup ---
+    // Detect existing dimensions from chunks table
+    let dims: Option<usize> = conn.query_row(
+        "SELECT embedding FROM chunks WHERE embedding IS NOT NULL LIMIT 1",
+        [],
+        |row| {
+            let blob: Vec<u8> = row.get(0)?;
+            Ok(blob.len() / 4)
+        },
+    ).ok();
+
+    if let Some(d) = dims {
+        // Create vec0 virtual table with detected dimensions
+        let create_vec_sql = format!(
+            "CREATE VIRTUAL TABLE IF NOT EXISTS chunks_vec USING vec0(embedding float[{}]);",
+            d
+        );
+        conn.execute_batch(&create_vec_sql)?;
+
+        // Migrate existing embeddings into chunks_vec if empty
+        let vec_count: i64 = conn.query_row("SELECT count(rowid) FROM chunks_vec", [], |row| row.get(0)).unwrap_or(0);
+        let chunk_count: i64 = conn.query_row("SELECT count(id) FROM chunks WHERE embedding IS NOT NULL", [], |row| row.get(0)).unwrap_or(0);
+
+        if vec_count == 0 && chunk_count > 0 {
+            tracing::info!("Migrating {} embeddings to chunks_vec (dims={})", chunk_count, d);
+            conn.execute_batch("INSERT INTO chunks_vec(rowid, embedding) SELECT id, embedding FROM chunks WHERE embedding IS NOT NULL;")?;
+            tracing::info!("Embeddings migrated to chunks_vec successfully");
+        }
+    } else {
+        tracing::info!("No embeddings found yet, chunks_vec will be created on first ingest");
+    }
     
     // Check if FTS is populated (has rows). If empty but chunks table has rows, rebuild.
     let fts_count: i64 = conn.query_row("SELECT COUNT(*) FROM chunks_fts", [], |row| row.get(0))?;
@@ -229,16 +268,54 @@ pub fn remove_source_from_fts(source_id: i64) -> Result<()> {
     Ok(())
 }
 
-/// Vector search using brute-force cosine similarity.
-/// Returns (chunk_id, similarity_score) pairs sorted by score descending.
+/// Vector search using sqlite-vec (fast) with brute-force fallback.
 pub fn search_vector(
     query_embedding: &[f32],
     limit: usize,
     filter: Option<&SearchFilter>,
 ) -> Result<Vec<(i64, f64)>> {
+    // Try sqlite-vec first (fast path)
+    if let Ok(results) = search_vector_sqlite_vec(query_embedding, limit, filter) {
+        return Ok(results);
+    }
+    // Fallback to brute-force if sqlite-vec fails
+    tracing::debug!("[vector_search] sqlite-vec unavailable, using brute-force fallback");
+    search_vector_brute_force(query_embedding, limit, filter)
+}
+
+/// Fast vector search using sqlite-vec extension.
+fn search_vector_sqlite_vec(
+    query_embedding: &[f32],
+    limit: usize,
+    filter: Option<&SearchFilter>,
+) -> Result<Vec<(i64, f64)>> {
     let conn = get_conn()?;
-    
-    // Build WHERE clause for filtering
+    let query_bytes: Vec<u8> = query_embedding.iter().flat_map(|f| f.to_ne_bytes()).collect();
+    let mut stmt = conn.prepare(
+        "SELECT rowid, distance FROM chunks_vec WHERE embedding MATCH ?1 AND k = ?2 ORDER BY distance"
+    )?;
+    let rows = stmt.query_map(rusqlite::params![query_bytes, limit as i64], |row| {
+        let chunk_id: i64 = row.get(0)?;
+        let distance: f64 = row.get(1)?;
+        Ok((chunk_id, 1.0 - distance))
+    })?;
+    let mut scored: Vec<(i64, f64)> = rows.filter_map(|r| r.ok()).collect();
+    if let Some(f) = filter {
+        let valid_ids = get_filtered_chunk_ids(f)?;
+        scored.retain(|(id, _)| valid_ids.contains(id));
+    }
+    scored.truncate(limit);
+    tracing::debug!("[vector_search] sqlite-vec returned {} results", scored.len());
+    Ok(scored)
+}
+
+/// Brute-force vector search (fallback when sqlite-vec is unavailable).
+fn search_vector_brute_force(
+    query_embedding: &[f32],
+    limit: usize,
+    filter: Option<&SearchFilter>,
+) -> Result<Vec<(i64, f64)>> {
+    let conn = get_conn()?;
     let (where_clause, params) = build_filter_clause(filter);
     
     // Fetch all embeddings matching the filter
