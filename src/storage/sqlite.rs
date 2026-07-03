@@ -97,11 +97,16 @@ pub fn add_chunks(source_id: i64, chunks: Vec<ChunkData>) -> Result<i32> {
         )?;
 
         // Also add to chunks_vec (sqlite-vec) for fast vector search
-        // Ignore errors if chunks_vec doesn't exist yet (dims not detected)
-        let _ = conn.execute(
+        // Create the vec0 table lazily if it doesn't exist yet (first ingest)
+        if conn.query_row("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='chunks_vec'", [], |row| row.get::<_, i64>(0)).unwrap_or(0) == 0 {
+            let dims = chunk.embedding.len();
+            tracing::info!("Creating chunks_vec with dims={}", dims);
+            conn.execute_batch(&format!("CREATE VIRTUAL TABLE chunks_vec USING vec0(embedding float[{}])", dims))?;
+        }
+        conn.execute(
             "INSERT INTO chunks_vec(rowid, embedding) VALUES (?1, ?2)",
             rusqlite::params![chunk_id, embedding_bytes],
-        );
+        )?;
     }
 
     tracing::info!("Added {} chunks for source {}", count, source_id);

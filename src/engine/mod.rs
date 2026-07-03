@@ -64,14 +64,15 @@ pub fn init(data_dir: &std::path::Path, config: &crate::config::Config) -> Resul
     let db_path_str = db_path.to_string_lossy().to_string();
     DB_PATH.set(db_path_str.clone()).ok();
 
-    let conn = rusqlite::Connection::open(&db_path_str)?;
-    conn.execute_batch("PRAGMA journal_mode=WAL;")?;
-    conn.execute_batch("PRAGMA foreign_keys=ON;")?;
-
-    // Load sqlite-vec extension for fast vector search
+    // Load sqlite-vec extension BEFORE opening any connections
+    // sqlite3_auto_extension registers globally for all future connections
     unsafe {
         rusqlite::ffi::sqlite3_auto_extension(Some(std::mem::transmute(sqlite_vec::sqlite3_vec_init as *const ())));
     }
+
+    let conn = rusqlite::Connection::open(&db_path_str)?;
+    conn.execute_batch("PRAGMA journal_mode=WAL;")?;
+    conn.execute_batch("PRAGMA foreign_keys=ON;")?;
 
     // Create core tables (previously created by rag_engine::init_source_db)
     conn.execute_batch(
