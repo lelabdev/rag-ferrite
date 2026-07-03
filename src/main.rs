@@ -31,6 +31,7 @@ mod service;
 mod types;
 
 use params::*;
+mod storage;
 pub(crate) use server::RagFerriteServer;
 
 #[tokio::main(worker_threads = 12)]
@@ -112,7 +113,7 @@ async fn main() -> Result<()> {
 
     tracing::info!("rag-ferrite v{} starting — data: {}", env!("CARGO_PKG_VERSION"), config.data_dir.display());
 
-    // Init rag_engine
+    // Init storage (replaces rag_engine)
     engine::init(&config.data_dir, &config)?;
 
     // Init embedding provider

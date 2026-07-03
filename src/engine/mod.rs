@@ -1,10 +1,5 @@
 use anyhow::Result;
 use rusqlite::Connection;
-use rag_engine::api::{
-    db_pool,
-    simple,
-    source_rag,
-};
 
 pub mod search;
 pub mod query;
@@ -62,17 +57,48 @@ pub(crate) fn data_dir() -> String {
         .unwrap_or_else(|| ".".to_string())
 }
 
-/// Initialize rag_engine: logger + DB pool + schema + reranker
+/// Initialize DB schema + FTS5 index + shared connection
 pub fn init(data_dir: &std::path::Path, config: &crate::config::Config) -> Result<()> {
-    simple::init_core();
     let db_path = data_dir.join("rag.sqlite3");
     std::fs::create_dir_all(data_dir)?;
     let db_path_str = db_path.to_string_lossy().to_string();
-    db_pool::init_db_pool(db_path_str.clone(), config.advanced.db_pool_size as u32)?;
-    source_rag::init_source_db()?;
+    DB_PATH.set(db_path_str.clone()).ok();
 
-    // Migration: add section_path column to chunks (backward-compatible)
     let conn = rusqlite::Connection::open(&db_path_str)?;
+    conn.execute_batch("PRAGMA journal_mode=WAL;")?;
+    conn.execute_batch("PRAGMA foreign_keys=ON;")?;
+
+    // Create core tables (previously created by rag_engine::init_source_db)
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS sources (
+            id INTEGER PRIMARY KEY,
+            content TEXT NOT NULL,
+            content_hash TEXT UNIQUE,
+            metadata TEXT,
+            created_at INTEGER DEFAULT (strftime('%s', 'now')),
+            name TEXT,
+            status TEXT DEFAULT 'completed',
+            collection_id TEXT NOT NULL DEFAULT '__default__'
+        );"
+    )?;
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS chunks (
+            id INTEGER PRIMARY KEY,
+            source_id INTEGER NOT NULL,
+            collection_id TEXT NOT NULL DEFAULT '__default__',
+            chunk_index INTEGER NOT NULL,
+            content TEXT NOT NULL,
+            start_pos INTEGER NOT NULL,
+            end_pos INTEGER NOT NULL,
+            chunk_type TEXT DEFAULT 'general',
+            embedding BLOB,
+            embedding_i8 BLOB,
+            embedding_scale REAL,
+            FOREIGN KEY (source_id) REFERENCES sources(id) ON DELETE CASCADE
+        );"
+    )?;
+
+    // Run migrations (using the same connection before storing it)
     let has_section_path: bool = conn.prepare("SELECT section_path FROM chunks LIMIT 1").is_ok();
     if !has_section_path {
         tracing::info!("Migrating: adding section_path column to chunks");
@@ -125,19 +151,8 @@ pub fn init(data_dir: &std::path::Path, config: &crate::config::Config) -> Resul
             ALTER TABLE chunks_new RENAME TO chunks;"
         )?;
     }
-    drop(conn);
-
-    // Create chunk_tags table for auto-tagging
-    create_chunk_tags_table(&db_path_str)?;
-
-    // Create collection_tags table for tag routing (v5 design)
-    create_collection_tags_table(&db_path_str)?;
-
-    // Create collection_heat table for heat tracking (v5 design, Phase 1)
-    create_collection_heat_table(&db_path_str)?;
 
     // Add heat tracking columns to chunks table (v5 design)
-    let conn = Connection::open(&db_path_str)?;
     let has_query_count = conn
         .query_row("SELECT COUNT(*) FROM pragma_table_info('chunks') WHERE name='query_count'", [], |row| row.get::<_, i64>(0))
         .unwrap_or(0) > 0;
@@ -148,23 +163,50 @@ pub fn init(data_dir: &std::path::Path, config: &crate::config::Config) -> Resul
         )?;
         tracing::info!("Added heat tracking columns to chunks table");
     }
-    drop(conn);
 
-    let _ = DB_PATH.set(db_path_str.clone());
+    // Create chunk_tags table for auto-tagging
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS chunk_tags (
+            chunk_id INTEGER NOT NULL,
+            tag TEXT NOT NULL,
+            PRIMARY KEY (chunk_id, tag),
+            FOREIGN KEY (chunk_id) REFERENCES chunks(id) ON DELETE CASCADE
+        );"
+    )?;
 
-    // Store a shared connection for all subsequent get_conn() calls
-    let shared_conn = rusqlite::Connection::open(&db_path_str)?;
-    shared_conn.execute_batch(&format!(
-        "PRAGMA journal_mode=WAL; PRAGMA busy_timeout={}; PRAGMA cache_size=-{};",
+    // Create collection_tags table for tag routing (v5 design)
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS collection_tags (
+            tag TEXT PRIMARY KEY,
+            collection TEXT NOT NULL
+        );"
+    )?;
+
+    // Create collection_heat table for heat tracking (v5 design)
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS collection_heat (
+            collection TEXT PRIMARY KEY,
+            heat_score REAL DEFAULT 0.0,
+            last_queried_at REAL,
+            query_count INTEGER DEFAULT 0
+        );"
+    )?;
+
+    // Apply PRAGMA settings and store the shared connection
+    conn.execute_batch(&format!(
+        "PRAGMA busy_timeout={}; PRAGMA cache_size=-{};",
         config.advanced.db_busy_timeout_ms, config.advanced.db_cache_size_mb
     ))?;
-    let _ = DB_CONN.set(std::sync::Mutex::new(shared_conn));
+    let _ = DB_CONN.set(std::sync::Mutex::new(conn));
+
+    // Initialize FTS5 index for BM25 search
+    crate::storage::init_db()?;
 
     // Check embedding dimension mismatch: compare DB vectors with configured dimensions
     if let Some(config_dims) = config.embedding.dimensions {
         let conn = get_conn()?;
         let db_dims: Option<usize> = conn.query_row(
-            "SELECT vector FROM chunks WHERE vector IS NOT NULL LIMIT 1",
+            "SELECT embedding FROM chunks WHERE embedding IS NOT NULL LIMIT 1",
             [],
             |row| {
                 let blob: Vec<u8> = row.get(0)?;
@@ -184,7 +226,7 @@ pub fn init(data_dir: &std::path::Path, config: &crate::config::Config) -> Resul
         }
     }
 
-    tracing::info!("rag_engine DB initialized at {}", db_path.display());
+    tracing::info!("Database initialized at {}", db_path.display());
 
     Ok(())
 }

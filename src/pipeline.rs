@@ -176,7 +176,7 @@ impl QueryPipeline {
         &self,
         query: &str,
         limit: usize,
-        filter: Option<rag_engine::api::hybrid_search::SearchFilter>,
+        filter: Option<crate::types::SearchFilter>,
     ) -> Result<QueryOutput> {
         let cache_key = Cache::make_key(query, limit);
 
@@ -208,7 +208,7 @@ impl QueryPipeline {
         &self,
         query: &str,
         limit: usize,
-        filter: Option<rag_engine::api::hybrid_search::SearchFilter>,
+        filter: Option<crate::types::SearchFilter>,
         complexity: QueryComplexity,
     ) -> Result<QueryOutput> {
         let results = crate::engine::search_hybrid(
@@ -240,7 +240,7 @@ impl QueryPipeline {
         &self,
         query: &str,
         limit: usize,
-        filter: Option<rag_engine::api::hybrid_search::SearchFilter>,
+        filter: Option<crate::types::SearchFilter>,
         complexity: QueryComplexity,
     ) -> Result<QueryOutput> {
         let word_count = query.split_whitespace().count();
@@ -284,7 +284,7 @@ impl QueryPipeline {
         &self,
         query: &str,
         limit: usize,
-        filter: Option<rag_engine::api::hybrid_search::SearchFilter>,
+        filter: Option<crate::types::SearchFilter>,
         complexity: QueryComplexity,
     ) -> Result<QueryOutput> {
         let mut current_query = query.to_string();

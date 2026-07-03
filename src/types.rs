@@ -63,8 +63,66 @@ pub struct HybridResult {
     pub tags: Vec<String>,
 }
 
-impl From<rag_engine::api::hybrid_search::HybridSearchResult> for HybridResult {
-    fn from(r: rag_engine::api::hybrid_search::HybridSearchResult) -> Self {
+// --- Local types replacing rag_engine ---
+
+/// Result of a hybrid search (replaces rag_engine::api::hybrid_search::HybridSearchResult).
+#[derive(Debug, Clone)]
+pub struct SearchResult {
+    pub doc_id: i64,
+    pub content: String,
+    pub score: f64,
+    pub vector_rank: u32,
+    pub bm25_rank: u32,
+    pub source_id: i64,
+    pub metadata: Option<String>,
+    pub chunk_index: u32,
+}
+
+/// Filter for hybrid search (replaces rag_engine::api::hybrid_search::SearchFilter).
+#[derive(Debug, Clone, Default)]
+pub struct SearchFilter {
+    pub source_ids: Option<Vec<i64>>,
+    pub metadata_like: Option<String>,
+    pub collection_id: Option<String>,
+    pub chunk_ids: Option<Vec<i64>>,
+}
+
+/// Source entry (replaces rag_engine::api::source_rag::SourceEntry).
+#[derive(Debug, Clone)]
+pub struct SourceEntry {
+    pub id: i64,
+    pub name: Option<String>,
+    pub created_at: i64,
+    pub metadata: Option<String>,
+    pub status: Option<String>,
+    pub collection_id: String,
+}
+
+/// Chunk data for ingestion (replaces rag_engine::api::source_rag::ChunkData).
+#[derive(Debug, Clone)]
+pub struct ChunkData {
+    pub content: String,
+    pub chunk_index: i32,
+    pub start_pos: i32,
+    pub end_pos: i32,
+    pub chunk_type: String,
+    pub embedding: Vec<f32>,
+}
+
+/// Chunk search result for neighbor expansion (replaces rag_engine::api::source_rag::ChunkSearchResult).
+#[derive(Debug, Clone)]
+pub struct ChunkSearchResult {
+    pub chunk_id: i64,
+    pub source_id: i64,
+    pub chunk_index: i32,
+    pub content: String,
+    pub chunk_type: String,
+    pub similarity: f64,
+    pub metadata: Option<String>,
+}
+
+impl From<SearchResult> for HybridResult {
+    fn from(r: SearchResult) -> Self {
         HybridResult {
             doc_id: r.doc_id,
             content: r.content,
@@ -83,8 +141,8 @@ impl From<rag_engine::api::hybrid_search::HybridSearchResult> for HybridResult {
     }
 }
 
-impl From<rag_engine::api::hybrid_search::HybridSearchResult> for crate::reranker::RerankedResult {
-    fn from(r: rag_engine::api::hybrid_search::HybridSearchResult) -> Self {
+impl From<SearchResult> for crate::reranker::RerankedResult {
+    fn from(r: SearchResult) -> Self {
         crate::reranker::RerankedResult {
             doc_id: r.doc_id,
             content: r.content,
@@ -131,8 +189,8 @@ pub struct SourceInfo {
     pub chunk_count: i64,
 }
 
-impl From<rag_engine::api::source_rag::SourceEntry> for SourceInfo {
-    fn from(s: rag_engine::api::source_rag::SourceEntry) -> Self {
+impl From<SourceEntry> for SourceInfo {
+    fn from(s: SourceEntry) -> Self {
         SourceInfo {
             id: s.id,
             name: s.name,
@@ -161,8 +219,8 @@ pub struct ChunkResult {
     pub page: Option<u32>,
 }
 
-impl From<(rag_engine::api::source_rag::ChunkSearchResult, Option<String>, Option<u32>)> for ChunkResult {
-    fn from((r, section_path, page): (rag_engine::api::source_rag::ChunkSearchResult, Option<String>, Option<u32>)) -> Self {
+impl From<(ChunkSearchResult, Option<String>, Option<u32>)> for ChunkResult {
+    fn from((r, section_path, page): (ChunkSearchResult, Option<String>, Option<u32>)) -> Self {
         ChunkResult {
             chunk_id: r.chunk_id,
             source_id: r.source_id,

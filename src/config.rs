@@ -651,7 +651,7 @@ fn default_db_pool_size() -> usize { 4 }
 fn default_db_cache_size_mb() -> usize { 256 }
 fn default_db_busy_timeout_ms() -> usize { 5000 }
 fn default_log_file() -> String { "rag-ferrite.log".into() }
-fn default_log_filter() -> String { "rag_ferrite=debug,rag_engine=debug".into() }
+fn default_log_filter() -> String { "rag_ferrite=debug".into() }
 fn default_http_bind_address() -> String { "0.0.0.0".into() }
 fn default_defer_index_rebuild() -> bool { true }
 fn default_wal_checkpoint_interval() -> usize { 50 }

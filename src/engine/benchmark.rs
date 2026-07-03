@@ -1,5 +1,5 @@
 use anyhow::Result;
-use rag_engine::api::hybrid_search;
+
 
 use crate::embedding::EmbeddingProvider;
 use crate::types::{BenchmarkDetail, BenchmarkResult, GoldenEntry};
@@ -18,7 +18,7 @@ pub async fn run_benchmark(
     let mut total_score = 0.0;
     let mut hits = 0usize;
 
-    let filter = collection.map(|c| hybrid_search::SearchFilter {
+    let filter = collection.map(|c| crate::types::SearchFilter {
         source_ids: None,
         metadata_like: None,
         collection_id: Some(c),

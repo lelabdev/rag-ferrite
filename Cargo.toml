@@ -15,7 +15,6 @@ categories = ["command-line-utilities", "text-processing"]
 
 [dependencies]
 # RAG core
-rag_engine = "0.8"
 
 # MCP server
 rmcp = { version = "1.6", features = ["server", "transport-io", "transport-streamable-http-server"] }
@@ -61,5 +60,3 @@ ratatui = "0.29"
 crossterm = "0.28"
 
 # Use our fork with mmap support for vector data
-[patch.crates-io]
-rag_engine = { path = "../rag-engine" }

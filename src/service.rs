@@ -52,7 +52,7 @@ pub async fn query_service(
     };
 
     let filter = if source_ids.is_some() || metadata_like.is_some() || tag_chunk_ids.is_some() {
-        Some(rag_engine::api::hybrid_search::SearchFilter {
+        Some(crate::types::SearchFilter {
             source_ids,
             metadata_like,
             collection_id: None,

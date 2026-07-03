@@ -104,7 +104,7 @@ impl Reranker {
     pub async fn rerank_hybrid(
         &self,
         query: &str,
-        results: Vec<rag_engine::api::hybrid_search::HybridSearchResult>,
+        results: Vec<crate::types::SearchResult>,
     ) -> Vec<RerankedResult> {
         if !self.is_enabled() || results.is_empty() {
             return results.into_iter().map(|r| r.into()).collect();

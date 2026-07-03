@@ -1,18 +1,16 @@
 use anyhow::Result;
-use rag_engine::api::{hybrid_search, source_rag};
+use crate::types::{SearchResult, SearchFilter};
 
 use crate::embedding::EmbeddingProvider;
 use crate::llm::LlmProvider;
-
-use super::data_dir;
 
 /// Search with hybrid fusion (BM25 + vector + RRF)
 pub async fn search_hybrid(
     embedder: &EmbeddingProvider,
     query: &str,
     limit: usize,
-    filter: Option<hybrid_search::SearchFilter>,
-) -> Result<Vec<hybrid_search::HybridSearchResult>> {
+    filter: Option<SearchFilter>,
+) -> Result<Vec<SearchResult>> {
     search_hybrid_with_expansion(embedder, None, query, limit, filter).await
 }
 
@@ -20,14 +18,13 @@ pub async fn search_hybrid(
 ///
 /// Collection selection: tag routing picks the best collection based on
 /// query keywords. Falls back to the first available collection.
-/// Memory is managed by the OS via mmap — no explicit load/unload needed.
 pub async fn search_hybrid_with_expansion(
     embedder: &EmbeddingProvider,
     llm: Option<&LlmProvider>,
     query: &str,
     limit: usize,
-    filter: Option<hybrid_search::SearchFilter>,
-) -> Result<Vec<hybrid_search::HybridSearchResult>> {
+    filter: Option<SearchFilter>,
+) -> Result<Vec<SearchResult>> {
     // ── 1. Tag routing — pick which collection to search ──
     let routed_collection = if filter.as_ref().and_then(|f| f.collection_id.as_ref()).is_none() {
         match super::tag_routing::route_query(query) {
@@ -51,7 +48,7 @@ pub async fn search_hybrid_with_expansion(
         filter.as_ref().and_then(|f| f.collection_id.clone())
     };
 
-    // ── 2. Determine which collection to activate ──
+    // ── 2. Determine which collection to search ──
     let collection = routed_collection.clone().unwrap_or_else(|| {
         // Fallback: first collection in DB
         if let Ok(conn) = crate::engine::get_conn() {
@@ -66,20 +63,9 @@ pub async fn search_hybrid_with_expansion(
         "general".to_string()
     });
 
-    let coll_sanitized = super::sanitize_collection(&collection)?;
-    let index_path = format!("{}/hnsw_{}.index", data_dir(), coll_sanitized);
-    if let Err(e) = source_rag::activate_collection_for_hybrid_search(coll_sanitized.clone(), index_path) {
-        tracing::warn!("Failed to activate collection '{}': {}", coll_sanitized, e);
-    }
-
     // ── 3. Build filter ──
     let filter = if let Some(coll) = routed_collection {
-        let mut f = filter.unwrap_or(hybrid_search::SearchFilter {
-            source_ids: None,
-            metadata_like: None,
-            collection_id: None,
-            chunk_ids: None,
-        });
+        let mut f = filter.unwrap_or(SearchFilter::default());
         f.collection_id = Some(coll);
         Some(f)
     } else {
@@ -108,18 +94,17 @@ pub async fn search_hybrid_with_expansion(
     };
 
     // ── 5. Search ──
-    let mut all_results: Vec<hybrid_search::HybridSearchResult> = Vec::new();
+    let mut all_results: Vec<SearchResult> = Vec::new();
     let mut seen_doc_ids = std::collections::HashSet::new();
 
     for q in &queries {
         let query_embedding = embedder.embed(q).await?;
         let filter_clone = filter.clone();
 
-        if let Ok(results) = hybrid_search::search_hybrid(
+        if let Ok(results) = crate::storage::search_hybrid(
             q.to_string(),
             query_embedding,
-            limit as u32,
-            None,
+            limit,
             filter_clone,
         ) {
             for result in results {
