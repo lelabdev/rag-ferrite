@@ -26,7 +26,7 @@ pub(crate) struct RagFerriteServer {
 
 #[tool_router(server_handler)]
 impl RagFerriteServer {
-    #[tool(name = "query_documents", description = "Search documents using hybrid search (BM25 + vector with RRF fusion). Returns relevant chunks with scores.")]
+    #[tool(name = "query_documents", description = "Search documents using hybrid search (BM25 + vector with RRF fusion). Returns relevant chunks with scores. Tags use AND logic: 1 tag = broad results, 2 tags = precise intersection. Use 1-2 tags max.")]
     async fn query_documents(&self, params: Parameters<QueryParams>) -> String {
         let p = params.0;
         // Use fallback pipeline during active ingestion (if configured)

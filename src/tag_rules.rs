@@ -112,7 +112,7 @@ pub fn sanitize_tags(raw_tags: Vec<String>) -> Vec<String> {
             for c in rules.rules.strip_chars.chars() {
                 cleaned = cleaned.replace(c, "");
             }
-            cleaned.replace('/', " ").trim().to_lowercase()
+            cleaned.replace('-', " ").replace('_', " ").replace('/', " ").trim().to_lowercase()
         })
         // Stage 2: Synonym normalization
         .map(|t| {

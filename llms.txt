@@ -20,7 +20,7 @@ src/
 ├── ingestion.rs (680 lines) — ingestion queue + progress
 ├── pipeline.rs (470 lines) — query pipeline, classification, cache
 ├── api.rs (392 lines) — HTTP routes (axum)
-├── service.rs (302 lines) — shared business logic (MCP + HTTP)
+├── service.rs (378 lines) — shared business logic (MCP + HTTP)
 ├── reranker.rs (330 lines) — reranker (LLM, Cohere, Disabled)
 ├── embedding.rs (246 lines) — embedding provider
 ├── types.rs (228 lines) — shared types
@@ -181,6 +181,13 @@ reranker_profile = "fast"
 Without profiles, all actions use the single `[llm]` provider (backward compatible).
 
 ### Tag rules (`tag-rules.toml`)
+
+Tags are **atomic words** (not compound phrases). Filtered with **AND logic**:
+- **1 tag** = broad results. Use 1-2 tags max.
+- **2 tags** = precise intersection (chunks must have BOTH tags).
+- More than 2 tags is overkill — refine the query text instead.
+
+A few compound tags kept as single concepts: `machine learning`, `social media`, `fault tolerance`, `multi agent`.
 
 Pipeline: strip chars → lowercase → synonym lookup → stop word filter → length filter → singular normalization → dedup. Loaded at startup, hot-reloadable via restart.
 

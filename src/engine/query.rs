@@ -1,5 +1,6 @@
 use anyhow::Result;
-use rag_engine::api::source_rag::{self, ChunkSearchResult};
+use crate::storage::sqlite;
+use crate::types::ChunkSearchResult;
 
 use super::get_conn;
 
@@ -76,7 +77,7 @@ pub fn get_source_names(source_ids: &[i64]) -> Result<std::collections::HashMap<
 pub fn get_neighbors(source_id: i64, chunk_index: i64, before: i64, after: i64) -> Result<Vec<(ChunkSearchResult, Option<String>, Option<u32>)>> {
     let min_index = (chunk_index - before).max(0);
     let max_index = chunk_index + after;
-    let chunks = source_rag::get_adjacent_chunks(source_id, min_index as i32, max_index as i32)?;
+    let chunks = sqlite::get_adjacent_chunks(source_id, min_index as i32, max_index as i32)?;
 
     // Fetch section_paths and pages for all chunks
     let chunk_ids: Vec<i64> = chunks.iter().map(|c| c.chunk_id).collect();
@@ -98,7 +99,7 @@ pub fn get_neighbors(source_id: i64, chunk_index: i64, before: i64, after: i64) 
 /// Delete a source by ID
 pub fn delete_source(source_id: i64) -> Result<()> {
     // Delete from rag_engine (sources table)
-    source_rag::delete_source(source_id)?;
+    sqlite::delete_source(source_id)?;
 
     // Also delete orphaned chunks and their tags (rag_engine::delete_source may not clean them)
     {
@@ -121,7 +122,7 @@ pub fn delete_source(source_id: i64) -> Result<()> {
 ///
 /// Queries the `sources` table directly instead of using
 /// `source_rag::list_sources()` which hardcodes the `__default__` collection.
-pub fn list_sources() -> Result<Vec<source_rag::SourceEntry>> {
+pub fn list_sources() -> Result<Vec<crate::types::SourceEntry>> {
     let conn = get_conn()?;
 
     let mut stmt = conn.prepare(
@@ -130,8 +131,8 @@ pub fn list_sources() -> Result<Vec<source_rag::SourceEntry>> {
          ORDER BY id DESC",
     )?;
 
-    let entries: Vec<source_rag::SourceEntry> = stmt.query_map([], |row| {
-        Ok(source_rag::SourceEntry {
+    let entries: Vec<crate::types::SourceEntry> = stmt.query_map([], |row| {
+        Ok(crate::types::SourceEntry {
             id: row.get(0)?,
             name: row.get(1)?,
             created_at: row.get(2)?,

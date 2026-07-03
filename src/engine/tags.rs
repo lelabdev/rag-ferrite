@@ -107,6 +107,36 @@ pub fn insert_chunk_tags(source_id: i64, tags_per_chunk: &[(i32, Vec<String>)], 
     Ok(())
 }
 
+/// Get chunk_ids that have **all** the given tags (AND logic).
+/// With 1 tag: returns all chunks with that tag (broad).
+/// With 2+ tags: returns only chunks matching every tag (intersection / precise).
+pub fn get_chunk_ids_for_tags(tags: &[String]) -> anyhow::Result<Vec<i64>> {
+    if tags.is_empty() {
+        return Ok(Vec::new());
+    }
+    let conn = get_conn()?;
+
+    if tags.len() == 1 {
+        // Single tag: simple lookup
+        let sql = "SELECT chunk_id FROM chunk_tags WHERE tag = ?1";
+        let mut stmt = conn.prepare(sql)?;
+        let ids: Vec<i64> = stmt.query_map(rusqlite::params![tags[0]], |row| row.get(0))?.filter_map(|r| r.ok()).collect();
+        tracing::debug!("Found {} chunk_ids for 1 tag", ids.len());
+        return Ok(ids);
+    }
+
+    // Multiple tags: INTERSECT — chunk must have ALL tags
+    let selects: Vec<String> = tags.iter().enumerate().map(|(i, _)| {
+        format!("SELECT chunk_id FROM chunk_tags WHERE tag = ?{}", i + 1)
+    }).collect();
+    let sql = selects.join(" INTERSECT ");
+    let params: Vec<&dyn rusqlite::types::ToSql> = tags.iter().map(|t| t as &dyn rusqlite::types::ToSql).collect();
+    let mut stmt = conn.prepare(&sql)?;
+    let ids: Vec<i64> = stmt.query_map(params.as_slice(), |row| row.get(0))?.filter_map(|r| r.ok()).collect();
+    tracing::debug!("Found {} chunk_ids for {} tags (AND intersection)", ids.len(), tags.len());
+    Ok(ids)
+}
+
 /// Fetch tags for a batch of chunk IDs using a single IN query.
 pub fn get_tags_for_chunk_ids(chunk_ids: &[i64]) -> Result<std::collections::HashMap<i64, Vec<String>>> {
     if chunk_ids.is_empty() {

@@ -455,6 +455,9 @@ pub async fn serve(server: Arc<RagFerriteServer>, port: u16, bind_address: Strin
             "100.90.185.42",  // aether
             "100.97.67.73",   // nova
             "100.88.8.1",     // tuftux
+            // Docker bridge IPs for LobeChat MCP access
+            "10.0.1.1",       // host on lobe-network bridge
+            "lobe-rag-proxy", // socat proxy in lobe-network
         ]);
 
     let mcp_service = StreamableHttpService::new(

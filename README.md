@@ -92,7 +92,7 @@ Just `ragfer` without args launches the TUI monitor (see [CLI](#cli)).
 
 | Tool | Description |
 |---|---|
-| `query_documents(query, collection?, limit?)` | Hybrid search with filters, reranking, expansion, cache |
+| `query_documents(query, tags?, limit?)` | Hybrid search with filters, reranking, expansion. Tags use AND logic — 1 tag = broad, 2 tags = precise. |
 | `ingest_file(file_path, collection?)` | Ingest PDF, DOCX, TXT, or MD |
 | `ingest_data(content, source, collection?, format?)` | Ingest raw text, HTML, or markdown |
 | `delete_file(source)` | Remove document and all its chunks (instant, no synchronous index rebuild) |
@@ -264,7 +264,7 @@ ragfer key list                  # List active API keys (masked)
 | `--json` | Raw JSON output |
 | `-c <collection>` | Target collection name |
 | `-n <limit>` | Result limit (default 10) |
-| `-t <tags>` | Tag filter (comma-separated) |
+| `-t <tags>` | Tag filter (AND logic, comma-separated, 1-2 tags max) |
 | `--force` | Force re-ingest (delete existing first) |
 
 ### Client configuration
@@ -313,7 +313,7 @@ Configuration via environment:
 API key lookup order: `RAG_API_KEY` env var → `~/.config/ragfer/.env` → `.env` next to binary (same as the `ragfer` CLI client).
 
 ```
- rag-ferrite v5.1.0 • 132 docs  ⠹
+ rag-ferrite v5.2.0 • 132 docs  ⠹
 
  prompt-engineering.txt
   28%  70/247
@@ -524,12 +524,17 @@ wal_checkpoint_interval = 50                 # WAL checkpoint frequency
 
 ### Tag rules (`tag-rules.toml`)
 
-Auto-generated tags are cleaned through a configurable pipeline:
+Auto-generated tags are atomic words (not compound phrases). Tags use **AND logic** for filtering:
+
+- **1 tag** = broad results (e.g. `enterprise` → all enterprise-related chunks)
+- **2 tags** = precise intersection (e.g. `enterprise` + `agentic` → chunks about both)
+- **Use 1-2 tags max.** More than 2 tags is rarely useful — refine the query text instead.
+
+Tags are cleaned through a configurable pipeline:
 
 ```toml
 [synonyms]
 "advertising" = "copywriting"
-"social media" = "social media strategy"
 "props" = "svelte"
 
 [stop_words]
@@ -544,6 +549,8 @@ strip_chars = "*$`\"<>|={}[]/"
 ```
 
 **Pipeline:** strip chars → lowercase → synonym lookup → stop word filter → length filter → singular normalization → dedup.
+
+A few compound tags are kept as single concepts: `machine learning`, `social media`, `fault tolerance`, `multi agent`.
 
 No recompilation needed — edit the file and restart.
 

@@ -1,8 +1,8 @@
 use anyhow::Result;
 use std::time::Instant;
 
-use rag_engine::api::source_rag::{self, ChunkData};
-use rag_engine::api::source_rag::DEFAULT_COLLECTION_ID;
+use crate::storage::sqlite::{self, DEFAULT_COLLECTION_ID};
+use crate::types::ChunkData;
 
 use crate::chunker;
 use crate::embedding::EmbeddingProvider;
@@ -36,7 +36,7 @@ pub async fn ingest_text(
     }
     let collection_id = sanitize_collection(collection.unwrap_or(DEFAULT_COLLECTION_ID))?;
     let meta = metadata.map(|m| m.to_string()).unwrap_or_default();
-    let source_id = source_rag::add_source_in_collection(
+    let source_id = sqlite::add_source_in_collection(
         collection_id.clone(),
         content.to_string(),
         if meta.is_empty() { None } else { Some(meta) },
@@ -202,7 +202,7 @@ pub async fn ingest_text(
         })
         .collect();
 
-    let count = source_rag::add_chunks(source_id, chunk_data)?;
+    let count = sqlite::add_chunks(source_id, chunk_data)?;
     tracing::info!("Ingested {} chunks for source {} ({})", count, source_id, source_name);
 
     // Store section_path for each chunk (separate UPDATE since rag_engine doesn't know about it)
@@ -219,7 +219,7 @@ pub async fn ingest_text(
     }
 
     // Mark source as completed
-    if let Err(e) = source_rag::update_source_status(source_id, "completed".to_string()) {
+    if let Err(e) = sqlite::update_source_status(source_id, "completed".to_string()) {
         tracing::warn!("Failed to update source status: {}", e);
     }
 
@@ -608,7 +608,7 @@ async fn ingest_text_parent_child(
                 id
             }
             None => {
-                source_rag::add_source_in_collection(
+                sqlite::add_source_in_collection(
                     collection_id.clone(),
                     content.to_string(),
                     if meta.is_empty() { None } else { Some(meta) },
@@ -754,7 +754,7 @@ async fn ingest_text_parent_child(
     }
 
     // Mark source as completed
-    if let Err(e) = source_rag::update_source_status(source_id, "completed".to_string()) {
+    if let Err(e) = sqlite::update_source_status(source_id, "completed".to_string()) {
         tracing::warn!("Failed to update source status: {}", e);
     }
 

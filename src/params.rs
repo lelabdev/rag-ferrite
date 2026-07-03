@@ -39,7 +39,7 @@ pub struct QueryParams {
     /// Filter by metadata using SQL LIKE pattern (e.g. "%.pdf")
     #[serde(default)]
     pub metadata_like: Option<String>,
-    /// Filter results by tags (chunks must have at least one of these tags)
+    /// Filter by tags using AND logic. 1 tag = broad, 2 tags = precise intersection. Use 1-2 tags max.
     #[serde(default)]
     pub tags: Option<Vec<String>>,
 }
