@@ -5,7 +5,9 @@
 
 **A lightweight personal knowledge base for AI assistants.**
 
-Give Claude Code, Hermes, Claude Desktop, and other MCP-compatible clients fast access to your documents, notes, and technical knowledge.
+Give Claude Code, Hermes, Claude Desktop, and other MCP-compatible clients fast access to your documents, notes, transcripts, and technical knowledge.
+
+**Collect first. Retrieve when needed. Organize only what matters.**
 
 [![Release](https://img.shields.io/github/v/release/lelabdev/rag-ferrite?label=release\&color=cyan)](https://github.com/lelabdev/rag-ferrite/releases/latest)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
@@ -18,43 +20,130 @@ Hybrid search · Local storage · Native MCP · Single Rust binary
 
 ## What is rag-ferrite?
 
-`rag-ferrite` is a self-hosted knowledge server designed for personal AI assistants.
+`rag-ferrite` is a self-hosted personal knowledge server for AI assistants.
 
-It indexes your documents and exposes them through MCP, allowing tools such as Claude Code, Hermes, Claude Desktop, and other compatible clients to search your personal knowledge.
+It indexes your documents and exposes them through MCP, allowing Claude Code, Hermes, Claude Desktop, and other compatible clients to search your knowledge whenever they need context.
 
 ```text
-Markdown · PDF · DOCX · TXT · documentation
-                     │
-                     ▼
-                rag-ferrite
-       keyword + semantic retrieval
-                     │
-                     ▼
-      Claude Code · Hermes · MCP clients
+Markdown · PDF · DOCX · TXT · transcripts · documentation
+                              │
+                              ▼
+                         rag-ferrite
+                keyword + semantic retrieval
+                              │
+                              ▼
+               Claude Code · Hermes · MCP clients
 ```
 
 It can be used with:
 
-* a documentation directory;
 * personal Markdown notes;
-* an Obsidian vault;
-* technical references;
+* technical documentation;
 * books and PDF files;
-* project documentation;
+* video and podcast transcripts;
+* courses and learning material;
 * research papers;
+* project documentation;
 * exported conversations;
-* video transcripts;
-* specifications and architecture decisions.
+* game guides and reference material;
+* an Obsidian vault;
+* any other collection of useful documents.
 
 Your original files remain the source of truth.
 
-`rag-ferrite` creates a searchable index on top of them so AI assistants can retrieve useful context without requiring you to manually find and paste the right document into every conversation.
+`rag-ferrite` creates a searchable knowledge layer on top of them, so your assistants can retrieve useful context without requiring you to manually find, open, and paste the right document into every conversation.
 
 ---
 
 ## Why I built it
 
-A folder of Markdown files is already a good personal knowledge base.
+Personal knowledge rarely arrives in a clean and organized form.
+
+It may be:
+
+* a Markdown note;
+* a PDF;
+* a course;
+* a video transcript;
+* technical documentation;
+* a game guide;
+* an article;
+* a research paper;
+* a document that may become useful months later.
+
+Traditional knowledge management often expects you to process everything before it becomes useful:
+
+```text
+read
+→ summarize
+→ classify
+→ link
+→ remember where it was stored
+```
+
+That works well for carefully maintained notes, but it creates a large amount of work when you collect more information than you have time to organize.
+
+`rag-ferrite` enables a different workflow:
+
+```text
+collect
+→ ingest
+→ retrieve when needed
+→ organize only what matters
+```
+
+Your sources can be raw, structured, or somewhere in between.
+
+Once indexed, they become searchable by your AI assistants through MCP.
+
+You can:
+
+* ask a question immediately;
+* recover something you forgot;
+* compare information across several sources;
+* retrieve advice while working or playing;
+* generate a structured note later;
+* keep the source without manually summarizing it first.
+
+The goal is not to replace your files, editor, or note-taking system.
+
+The goal is to make everything you may need later easier to retrieve.
+
+---
+
+## A practical example
+
+You may collect several video transcripts, guides, forum exports, and notes about a game such as Victoria 3.
+
+Instead of manually turning every source into a polished note, you can ingest them directly into `rag-ferrite`.
+
+Later, while playing, you can ask your assistant:
+
+```text
+What is the best way to increase construction capacity
+without destabilizing my economy?
+```
+
+The assistant can search the indexed guides and transcripts, retrieve the relevant passages, compare the advice, and help you make a decision.
+
+The same workflow applies to:
+
+* programming documentation;
+* courses;
+* research;
+* personal projects;
+* books;
+* hobbies;
+* technical references;
+* professional knowledge.
+
+The information becomes useful before it has been perfectly organized.
+
+---
+
+## More than a simple file or vault search
+
+A folder of Markdown files is already a useful personal knowledge base.
 
 It is:
 
@@ -65,30 +154,40 @@ It is:
 * independent from a particular application;
 * compatible with tools such as Obsidian.
 
-However, plain files and traditional vault search have important limitations.
+However, traditional file and vault search is mostly lexical.
 
-They work well when you already know:
+It works best when you already know:
 
 * the exact filename;
 * the exact term used in the document;
 * the folder containing the information;
 * the wording of the original note.
 
-They work less well when:
+It works less well when:
 
 * the query uses different vocabulary;
 * the relevant information is spread across several documents;
-* two sources express the same concept differently;
+* two sources express the same idea differently;
 * you want to compare several viewpoints;
-* you need to recover an old decision without remembering its exact wording;
-* a relevant passage does not contain the keywords you searched for;
+* you do not remember where something was written;
+* a relevant passage does not contain your exact keywords;
 * you want an AI assistant to explore the knowledge base autonomously.
 
-`rag-ferrite` was created to keep the simplicity of a personal document collection while adding the retrieval capabilities expected from a modern RAG system.
+For example, a search for:
 
-The goal is not to replace your editor, your Markdown files, or Obsidian.
+```text
+database corruption during concurrent indexing
+```
 
-The goal is to give your AI assistants a fast and reliable way to search them.
+may fail to find a note containing:
+
+```text
+parallel index rebuilds can damage stored search data
+```
+
+The meaning is related, but the wording is different.
+
+`rag-ferrite` combines lexical and semantic retrieval so both kinds of matches can be found.
 
 ---
 
@@ -110,18 +209,18 @@ Python
 + user management
 ```
 
-These systems can be powerful, but they are often unnecessarily complex for a personal knowledge base.
+These platforms can be powerful, but they are often unnecessarily complex for a personal knowledge base.
 
 `rag-ferrite` takes a smaller and more focused approach:
 
 ```text
-One binary
+one binary
 + one local database
 + your preferred model providers
 + an MCP connection
 ```
 
-It does not provide another mandatory chat interface.
+It does not impose another chat interface.
 
 Instead, it connects the assistants you already use to the documents you already have.
 
@@ -131,48 +230,78 @@ Instead, it connects the assistants you already use to the documents you already
 
 * **Your files remain the source of truth.**
 * **MCP is the primary interface.**
-* **The knowledge base should be shared by several assistants.**
-* **Search should combine exact terms and semantic meaning.**
+* **One knowledge base can be shared by several assistants.**
+* **Exact terms and semantic meaning both matter.**
+* **Knowledge should be useful before it is perfectly organized.**
 * **The system should remain simple enough for personal use.**
 * **No external vector database should be required.**
-* **Local and hosted models should both be supported.**
+* **Local and hosted model providers should both be supported.**
 * **The service should remain understandable and maintainable by one person.**
 
 ---
 
-## More than a simple vault search
+## Features
 
-Traditional search is usually lexical.
+| Feature                      | Description                                                                        |
+| ---------------------------- | ---------------------------------------------------------------------------------- |
+| **MCP-native**               | Direct integration with Claude Code, Hermes, Claude Desktop, and other MCP clients |
+| **Hybrid retrieval**         | Combines full-text and vector search                                               |
+| **FTS5 keyword search**      | Preserves exact names, identifiers, commands, and error messages                   |
+| **Semantic search**          | Finds related concepts and paraphrases                                             |
+| **sqlite-vec**               | Local vector retrieval inside SQLite                                               |
+| **Reciprocal rank fusion**   | Combines lexical and semantic rankings                                             |
+| **Optional reranking**       | Improves final result precision                                                    |
+| **Parent-child chunking**    | Balances precise matching with broader context                                     |
+| **Context expansion**        | Retrieves neighboring passages around a result                                     |
+| **Query recovery**           | Reformulates weak queries and retries                                              |
+| **Noise filtering**          | Removes low-value and boilerplate chunks                                           |
+| **Automatic tagging**        | Adds fine-grained topic metadata                                                   |
+| **Collections**              | Organizes documents into broad knowledge domains                                   |
+| **Batch ingestion**          | Indexes multiple files asynchronously                                              |
+| **Ingestion quality checks** | Inspects documents before adding them                                              |
+| **Retrieval benchmarks**     | Evaluates search against golden datasets                                           |
+| **Collection heat tracking** | Shows frequently and recently queried collections                                  |
+| **Chunk-level QA**           | Identifies cold, unused, or potentially noisy chunks                               |
+| **REST API**                 | Allows integration outside MCP                                                     |
+| **CLI and TUI**              | Manages and monitors the service from a terminal                                   |
+| **Local database**           | Uses SQLite without a separate database server                                     |
+| **Provider flexibility**     | Supports local and hosted OpenAI-compatible APIs                                   |
+| **Single binary**            | No Python runtime or mandatory Docker stack                                        |
 
-It finds documents containing the words from your query.
+---
 
-For example, a search for:
+## How retrieval works
 
 ```text
-database corruption during concurrent indexing
+Documents
+    │
+    ▼
+Extraction and cleaning
+    │
+    ▼
+Parent-child chunking
+    │
+    ▼
+Embeddings + full-text index
+    │
+    ├──▶ Keyword search
+    │
+    └──▶ Vector search
+             │
+             ▼
+      Reciprocal rank fusion
+             │
+             ▼
+       Optional reranking
+             │
+             ▼
+       Context expansion
+             │
+             ▼
+        MCP search result
 ```
 
-may fail to find a document containing:
-
-```text
-parallel index rebuilds can damage stored search data
-```
-
-The two passages discuss a related problem, but they do not use the same vocabulary.
-
-Vector search helps retrieve text by semantic similarity.
-
-Keyword search remains valuable for exact technical information such as:
-
-* function names;
-* filenames;
-* error messages;
-* command-line options;
-* product names;
-* acronyms;
-* identifiers.
-
-`rag-ferrite` combines both approaches instead of choosing only one.
+Each stage solves a different retrieval problem.
 
 ---
 
@@ -210,17 +339,15 @@ src/storage/sqlite.rs
 ADR-0015
 ```
 
-A purely semantic search can sometimes treat these tokens as unimportant or confuse them with related concepts.
+A purely semantic system may treat these tokens as unimportant or confuse them with related concepts.
 
-Keyword retrieval preserves this precision.
+Keyword retrieval preserves exact matching.
 
 ### Vector search
 
-Vector search represents queries and document passages as embeddings.
+Vector search represents queries and passages as embeddings.
 
-This makes it possible to retrieve semantically related content even when the wording differs.
-
-For example:
+This makes it possible to retrieve related content even when the wording differs.
 
 ```text
 Query:
@@ -234,7 +361,7 @@ The exact words are different, but the meaning is related.
 
 ### Why combine them?
 
-Neither method is sufficient for every query.
+Neither approach works best for every query.
 
 | Query type                  | Keyword search | Vector search |
 | --------------------------- | -------------: | ------------: |
@@ -246,21 +373,17 @@ Neither method is sufficient for every query.
 | Related explanation         |        Limited |     Excellent |
 | Mixed technical query       |           Good |          Good |
 
-Hybrid retrieval improves the probability that the right passage appears in the candidate set.
+Hybrid retrieval improves the probability that the right passage reaches the candidate set.
 
 ---
 
 ## Reciprocal rank fusion
 
-Keyword and vector searches produce different scores that cannot always be compared directly.
+Keyword and vector searches return scores with different meanings.
 
-A lexical relevance score and a vector similarity score do not represent the same thing.
+A lexical relevance score cannot be compared directly with a vector similarity score.
 
-`rag-ferrite` uses rank fusion to combine their result lists.
-
-Instead of trusting the raw scores, the fusion process considers the position of each result in each ranking.
-
-A passage that ranks well in both searches receives a stronger combined position.
+`rag-ferrite` uses reciprocal rank fusion to combine the rankings instead of comparing their raw scores.
 
 ```text
 Keyword ranking       Vector ranking
@@ -279,25 +402,27 @@ Keyword ranking       Vector ranking
           4. Document D
 ```
 
-This avoids depending too heavily on one retrieval method.
+A passage that ranks well in both retrieval methods receives a stronger final position.
+
+This prevents the system from depending too heavily on either keywords or embeddings.
 
 ---
 
 ## Reranking
 
-The initial search stage is optimized for recall.
+Initial retrieval is optimized for recall.
 
-Its job is to find a broad set of potentially useful passages quickly.
+Its job is to find a broad set of potentially relevant passages quickly.
 
-However, the first retrieved results are not always ordered perfectly.
+However, the initial ranking is not always perfect.
 
-A passage may contain many matching terms without truly answering the question. Another may be semantically close but only loosely related.
+A passage may contain many matching words without answering the actual question. Another passage may be semantically similar but not practically useful.
 
-Reranking adds a second relevance evaluation after retrieval.
+Reranking adds a second relevance evaluation:
 
 ```text
 Initial retrieval
-20 possible passages
+20 candidate passages
         │
         ▼
 Detailed relevance evaluation
@@ -306,29 +431,21 @@ Detailed relevance evaluation
 Best passages moved to the top
 ```
 
-### Why reranking matters
-
 Without reranking, an assistant may receive:
 
 * repeated passages;
 * documents that mention the topic only briefly;
 * results matching the wording but not the intent;
-* semantically similar but practically irrelevant text.
+* semantically similar but irrelevant text.
 
-Reranking attempts to answer a more precise question:
+Reranking evaluates the candidates against the exact query and improves their final order.
 
-> Given this exact user query, which of these retrieved passages are the most useful?
-
-This improves the context eventually sent to the AI assistant.
-
-### Retrieval and reranking have different roles
-
-| Stage             | Objective                                    |
-| ----------------- | -------------------------------------------- |
-| Hybrid retrieval  | Avoid missing relevant information           |
-| Rank fusion       | Combine lexical and semantic candidates      |
-| Reranking         | Improve precision and final ordering         |
-| Context expansion | Recover surrounding explanations when needed |
+| Stage             | Objective                               |
+| ----------------- | --------------------------------------- |
+| Hybrid retrieval  | Avoid missing relevant information      |
+| Rank fusion       | Combine lexical and semantic candidates |
+| Reranking         | Improve precision and final ordering    |
+| Context expansion | Recover surrounding explanations        |
 
 ---
 
@@ -336,18 +453,18 @@ This improves the context eventually sent to the AI assistant.
 
 Large documents cannot be searched efficiently as a single block.
 
-They must be divided into smaller passages.
+They need to be split into passages.
 
-Very small chunks improve precision, but they can lose context.
+Very small chunks improve precision but may lose context.
 
-Very large chunks preserve context, but they can make retrieval less precise.
+Very large chunks preserve context but reduce retrieval precision.
 
 `rag-ferrite` uses a parent-child approach:
 
 ```text
 Parent section
 ┌─────────────────────────────────────┐
-│ Full topic with broader context     │
+│ Broader topic and explanation       │
 │                                     │
 │  ┌──────────┐  ┌──────────┐         │
 │  │ Child 1  │  │ Child 2  │  ...    │
@@ -359,22 +476,23 @@ Small child chunks are used for precise matching.
 
 Broader parent context can then be returned so the assistant receives a coherent explanation rather than an isolated sentence.
 
-This is useful for:
+This is especially useful for:
 
 * technical documentation;
 * books;
 * long articles;
 * research papers;
 * architecture documents;
+* courses;
 * transcripts.
 
 ---
 
 ## Context expansion
 
-A search result may identify the correct passage without containing the complete explanation.
+A search result may identify the correct passage without containing the full explanation.
 
-The MCP tool `read_chunk_neighbors` allows an assistant to retrieve the chunks before and after a result.
+The MCP tool `read_chunk_neighbors` lets an assistant retrieve the surrounding chunks:
 
 ```text
 Previous chunk
@@ -384,19 +502,19 @@ Matched chunk
 Next chunk
 ```
 
-This allows agents to search precisely first and expand context only when necessary.
+This allows agents to search precisely first and expand the context only when necessary.
 
-It avoids returning very large amounts of text for every query while still making the surrounding explanation available.
+It avoids returning large amounts of text for every query while still making the full explanation available.
 
 ---
 
 ## Query recovery
 
-A user query is not always written using the terminology found in the documents.
+Users do not always use the same terminology as the indexed documents.
 
-Initial search results may therefore be weak.
+Initial results may therefore be weak.
 
-`rag-ferrite` can detect weak retrieval and reformulate the query before trying again.
+`rag-ferrite` can detect weak retrieval, reformulate the query, and search again.
 
 ```text
 Original query
@@ -414,39 +532,40 @@ Second retrieval attempt
 This is useful when:
 
 * the user uses informal vocabulary;
-* the documents use technical terminology;
+* the sources use technical terminology;
 * a concept has several names;
 * the first query is too broad;
-* the original wording is ambiguous.
+* the wording is ambiguous.
 
 ---
 
 ## Automatic tagging and collections
 
-Documents can be organized into collections, while chunks can receive more specific tags.
+Documents can be organized into broad collections, while individual chunks receive more specific tags.
 
-Collections provide broad separation:
+Example collections:
 
 ```text
 programming
 research
 personal
+games
 projects
 documentation
+courses
 ```
 
-Tags provide more precise filtering:
+Example tags:
 
 ```text
 rust
 authentication
-security
+economy
+victoria-3
 database
 mcp
 performance
 ```
-
-An assistant can search broadly or filter results when it knows the relevant topic.
 
 Tags passed to `query_documents` use AND logic:
 
@@ -471,15 +590,15 @@ focuses on passages related to both topics.
 
 ---
 
-## Identifying complementary and conflicting sources
+## Comparing complementary and conflicting sources
 
-`rag-ferrite` does not decide by itself whether two ideas contradict each other.
+`rag-ferrite` does not decide by itself whether two sources contradict each other.
 
 Its role is retrieval.
 
-Hybrid and semantic search can surface passages that discuss the same topic using different wording.
+Semantic and hybrid search can surface passages that discuss the same topic using different vocabulary.
 
-An AI assistant can then compare those passages and identify:
+An AI assistant can then compare the passages and identify:
 
 * agreements;
 * complementary explanations;
@@ -489,44 +608,96 @@ An AI assistant can then compare those passages and identify:
 * differences between sources.
 
 ```text
-Source A: Use a full index rebuild after every ingestion.
-Source B: Incremental insertion avoids expensive rebuilds.
-                           │
-                           ▼
-             AI assistant compares both
+Source A:
+Use a full index rebuild after every ingestion.
+
+Source B:
+Incremental insertion avoids expensive rebuilds.
+
+                    │
+                    ▼
+       AI assistant compares both
 ```
 
-A simple keyword search may fail to place these passages together if they use different terminology.
-
-Semantic retrieval makes such cross-document comparison more practical.
+A simple keyword search may fail to place these passages together when they use different terminology.
 
 ---
 
-## Features
+## Common use cases
 
-| Feature                   | Description                                                                        |
-| ------------------------- | ---------------------------------------------------------------------------------- |
-| **MCP-native**            | Direct integration with Claude Code, Hermes, Claude Desktop, and other MCP clients |
-| **Hybrid retrieval**      | Combines full-text and vector search                                               |
-| **FTS5 keyword search**   | Retrieves exact terms, identifiers, and error messages                             |
-| **Semantic search**       | Finds related concepts and paraphrases                                             |
-| **sqlite-vec**            | Local vector retrieval inside SQLite                                               |
-| **Rank fusion**           | Combines lexical and semantic rankings                                             |
-| **Optional reranking**    | Improves final result precision                                                    |
-| **Parent-child chunking** | Balances precise search with broader context                                       |
-| **Context expansion**     | Retrieves neighboring passages around a result                                     |
-| **Query recovery**        | Reformulates weak queries and retries                                              |
-| **Noise filtering**       | Removes low-value and boilerplate chunks                                           |
-| **Automatic tagging**     | Adds fine-grained topic metadata                                                   |
-| **Collections**           | Organizes documents into broad knowledge domains                                   |
-| **Batch ingestion**       | Indexes multiple files asynchronously                                              |
-| **Quality checks**        | Inspects documents before indexing                                                  |
-| **Retrieval benchmarks**  | Evaluates search against golden datasets                                           |
-| **Heat tracking**         | Identifies frequently queried collections and chunks                               |
-| **CLI and TUI**           | Manages and monitors the service from a terminal                                   |
-| **Local database**         | Uses SQLite without a separate database server                                     |
-| **Provider flexibility**  | Supports local and hosted model APIs                                               |
-| **Single binary**         | No Python runtime or mandatory container stack                                     |
+### Personal documentation
+
+Give your assistant access to procedures, references, project notes, and technical documentation.
+
+```text
+Search my documentation for the backup restoration procedure.
+```
+
+### Coding assistants
+
+Allow Claude Code or another coding agent to retrieve architecture decisions and project conventions.
+
+```text
+Before changing the storage layer, search for previous architecture decisions.
+```
+
+### Courses and learning material
+
+Index courses, books, notes, and transcripts without summarizing every source manually.
+
+```text
+Explain the differences between these approaches using my course material.
+```
+
+### Video transcripts
+
+Collect YouTube or podcast transcripts and search them later.
+
+```text
+Find the videos that discussed hybrid retrieval and summarize the key differences.
+```
+
+### Personal research
+
+Search papers, articles, and books by meaning rather than only by title or keywords.
+
+```text
+Find the sources discussing the limitations of semantic chunking.
+```
+
+### Hobbies and games
+
+Build a knowledge base from guides, transcripts, and reference documents.
+
+```text
+Based on my Victoria 3 guides, what should I prioritize in this economic situation?
+```
+
+### Cross-document comparison
+
+Retrieve several passages covering the same subject.
+
+```text
+Compare the recommendations about local vector databases.
+```
+
+### Obsidian vault search
+
+Index the Markdown files from an Obsidian vault.
+
+```text
+Find my previous notes about authentication, even if they use different terms.
+```
+
+### Note or document generation
+
+Use retrieved context to create a report, checklist, documentation page, or synthesis note.
+
+```text
+Use several relevant sources to create a structured reference note.
+```
+
+Generating a note is optional. The knowledge base remains useful even when no new note is created.
 
 ---
 
@@ -538,9 +709,10 @@ Semantic retrieval makes such cross-document comparison more practical.
 * plain text;
 * PDF;
 * DOCX;
-* HTML or Markdown content supplied directly through the API.
+* raw text supplied through the API;
+* HTML or Markdown content supplied directly.
 
-Possible document collections include:
+Possible source directories include:
 
 ```text
 ~/library/
@@ -552,61 +724,7 @@ Possible document collections include:
 
 An Obsidian vault works because its notes are Markdown files.
 
-However, Obsidian is only one possible source. The system does not depend on Obsidian and does not require an Obsidian installation.
-
----
-
-## Common use cases
-
-### Personal documentation
-
-Give an AI assistant access to your own procedures, references, and technical notes.
-
-```text
-Search my documentation for the backup restoration procedure.
-```
-
-### Coding assistants
-
-Allow Claude Code or another coding agent to retrieve architecture decisions, project conventions, and internal documentation.
-
-```text
-Before changing the storage layer, search for previous architecture decisions.
-```
-
-### Research library
-
-Search books, articles, papers, and transcripts by meaning rather than only by title or keywords.
-
-```text
-Find the sources discussing the limitations of semantic chunking.
-```
-
-### Cross-document comparison
-
-Retrieve several passages covering the same subject so an assistant can compare them.
-
-```text
-Compare the different recommendations about local vector databases.
-```
-
-### Obsidian vault search
-
-Index Markdown notes from an Obsidian vault and make them accessible to MCP clients.
-
-```text
-Find my previous notes about authentication, even if they use different terms.
-```
-
-### Synthesis and note generation
-
-Use retrieved context to create a report, documentation page, or synthesis note.
-
-```text
-Use several sources from the knowledge base to create a structured summary.
-```
-
-This is an optional workflow, not a requirement.
+The system does not depend on Obsidian and does not require it.
 
 ---
 
@@ -639,7 +757,7 @@ This is an optional workflow, not a requirement.
                              │
               ┌──────────────┴──────────────┐
               │ Hybrid retrieval            │
-              │ Rank fusion                 │
+              │ Reciprocal rank fusion      │
               │ Query recovery              │
               │ Optional reranking          │
               └──────────────┬──────────────┘
@@ -698,23 +816,23 @@ sudo pacman -S poppler
 
 ---
 
-## Configure model providers
+## Configuration
 
 `rag-ferrite` uses:
 
-* an embedding model for vector retrieval;
+* an embedding model for semantic retrieval;
 * an LLM for contextual processing, tagging, query recovery, and optional reranking.
 
-Set the corresponding API keys:
+Set the required API keys:
 
 ```bash
 export LLM_API_KEY="your-llm-api-key"
 export EMBEDDING_API_KEY="your-embedding-api-key"
 ```
 
-Any compatible local or hosted provider can be used.
+On its first server run, `ragfer` creates a default configuration file when none exists.
 
-Minimal configuration:
+Minimal example:
 
 ```toml
 data_dir = "./data"
@@ -769,8 +887,8 @@ Streamable HTTP is useful when:
 * several assistants use the same knowledge base;
 * the service runs continuously;
 * the server is located on another machine;
-* ingestion should continue after the client closes;
-* you want one persistent index shared by all clients.
+* ingestion should continue after a client closes;
+* one persistent index is shared by multiple clients.
 
 ### Hermes over stdio
 
@@ -810,34 +928,34 @@ Claude Code and other MCP clients can connect through stdio or Streamable HTTP d
 
 ### Search and reading
 
-| Tool                   | Description                                                                             |
-| ---------------------- | --------------------------------------------------------------------------------------- |
-| `query_documents`      | Search indexed documents using hybrid retrieval, filters, query recovery, and reranking |
-| `read_chunk_neighbors` | Retrieve passages surrounding a specific result                                         |
-| `list_files`           | List indexed source documents                                                           |
-| `status`               | Return server and index status                                                          |
-| `suggest_collection`   | Suggest the most relevant collection for a query                                        |
-| `tag_map`              | Show tags, collections, and chunk counts                                                |
+| Tool                                           | Description                                                                             |
+| ---------------------------------------------- | --------------------------------------------------------------------------------------- |
+| `query_documents(query, tags?, limit?)`        | Search indexed documents using hybrid retrieval, filters, query recovery, and reranking |
+| `read_chunk_neighbors(source_id, chunk_index)` | Retrieve passages surrounding a specific result                                         |
+| `list_files()`                                 | List indexed documents                                                                  |
+| `status()`                                     | Return server and index status                                                          |
+| `suggest_collection(query)`                    | Suggest the most relevant collection                                                    |
+| `tag_map()`                                    | Show tags, collections, and chunk counts                                                |
 
 ### Ingestion and quality
 
-| Tool              | Description                                        |
-| ----------------- | -------------------------------------------------- |
-| `ingest_file`     | Ingest a PDF, DOCX, TXT, or Markdown file          |
-| `ingest_data`     | Ingest raw text, HTML, or Markdown content         |
-| `check_ingestion` | Inspect document quality before indexing           |
-| `benchmark`       | Evaluate retrieval against a golden dataset        |
-| `collection_heat` | Show frequently and recently queried collections   |
-| `chunk_qa`        | Identify cold, unused, or potentially noisy chunks |
+| Tool                                                  | Description                                        |
+| ----------------------------------------------------- | -------------------------------------------------- |
+| `ingest_file(file_path, collection?)`                 | Ingest a PDF, DOCX, TXT, or Markdown file          |
+| `ingest_data(content, source, collection?, format?)`  | Ingest raw text, HTML, or Markdown                 |
+| `check_ingestion(file_path?, content?, source_name?)` | Inspect document quality before indexing           |
+| `benchmark(file_path, collection?, limit?)`           | Evaluate retrieval against a golden dataset        |
+| `collection_heat()`                                   | Show frequently and recently queried collections   |
+| `chunk_qa()`                                          | Identify cold, unused, or potentially noisy chunks |
 
 ### Administration
 
-| Tool                  | Description                                        |
-| --------------------- | -------------------------------------------------- |
-| `delete_file`         | Remove a document and its chunks                   |
-| `reassign_collection` | Move a document to another collection              |
-| `rebuild_indexes`     | Rebuild search indexes and checkpoint the database |
-| `flush_indexes`       | Persist recently indexed vector data               |
+| Tool                                         | Description                                        |
+| -------------------------------------------- | -------------------------------------------------- |
+| `delete_file(source)`                        | Remove a document and its chunks                   |
+| `reassign_collection(source_id, collection)` | Move a source to another collection                |
+| `rebuild_indexes()`                          | Rebuild search indexes and checkpoint the database |
+| `flush_indexes()`                            | Persist recently indexed vector data               |
 
 ---
 
@@ -878,6 +996,85 @@ ragfer ingest-file "/path/to/document.md" --force
 
 ---
 
+## HTTP ingestion
+
+### One file
+
+```bash
+curl -X POST http://localhost:4242/api/ingest \
+  -H "Content-Type: application/json" \
+  -d '{
+    "file_path": "/path/to/document.md"
+  }'
+```
+
+### Several files
+
+```bash
+curl -X POST http://localhost:4242/api/ingest \
+  -H "Content-Type: application/json" \
+  -d '{
+    "paths": [
+      "/path/to/book.pdf",
+      "/path/to/article.md",
+      "/path/to/transcript.txt"
+    ]
+  }'
+```
+
+Batch ingestion returns immediately with a batch identifier.
+
+Monitor progress:
+
+```bash
+ragfer progress
+```
+
+Or:
+
+```bash
+curl http://localhost:4242/api/ingest/progress
+```
+
+---
+
+## Auto-move after ingestion
+
+By default, files can be moved after successful ingestion.
+
+This supports inbox-style workflows:
+
+```text
+inbox/
+└── article.md
+
+        ↓ ingestion
+
+ingested/
+└── article.md
+```
+
+Configuration:
+
+```toml
+[advanced]
+move_after_ingest = true
+ingested_dir = "ingested"
+```
+
+Disable it for a specific request:
+
+```json
+{
+  "paths": ["/path/to/article.md"],
+  "move_after_ingest": false
+}
+```
+
+For a permanent library directory, disabling automatic movement may be preferable.
+
+---
+
 ## Search from the CLI
 
 Basic search:
@@ -886,7 +1083,7 @@ Basic search:
 ragfer query "How does hybrid retrieval work?"
 ```
 
-Limit results:
+Limit the number of results:
 
 ```bash
 ragfer query "SQLite vector search" -n 5
@@ -904,55 +1101,10 @@ Select a collection:
 ragfer query "async Rust runtime" -c programming
 ```
 
-Return JSON:
+Return raw JSON:
 
 ```bash
 ragfer query "embedding dimensions" --json
-```
-
----
-
-## HTTP API
-
-### Search
-
-```bash
-curl -X POST http://localhost:4242/api/query \
-  -H "Content-Type: application/json" \
-  -d '{
-    "query": "How does hybrid search improve retrieval?",
-    "limit": 5
-  }'
-```
-
-### Ingest one file
-
-```bash
-curl -X POST http://localhost:4242/api/ingest \
-  -H "Content-Type: application/json" \
-  -d '{
-    "file_path": "/path/to/document.md"
-  }'
-```
-
-### Ingest several files
-
-```bash
-curl -X POST http://localhost:4242/api/ingest \
-  -H "Content-Type: application/json" \
-  -d '{
-    "paths": [
-      "/path/to/book.pdf",
-      "/path/to/article.md",
-      "/path/to/transcript.txt"
-    ]
-  }'
-```
-
-### Monitor ingestion
-
-```bash
-curl http://localhost:4242/api/ingest/progress
 ```
 
 ---
@@ -974,8 +1126,6 @@ curl http://localhost:4242/api/ingest/progress
 | `POST`   | `/api/rebuild-indexes`      | Rebuild indexes                  |
 | `POST`   | `/api/service/cancel-batch` | Cancel the active batch          |
 | `POST`   | `/api/service/stop`         | Stop the server                  |
-| `POST`   | `/api/reload`               | Reload supported configuration   |
-| `GET`    | `/api/history`              | Return recent ingestion history  |
 
 ---
 
@@ -1016,6 +1166,33 @@ Common options:
 | `-n <limit>`      | Set the result limit              |
 | `-t <tags>`       | Filter with comma-separated tags  |
 | `--force`         | Replace an already indexed source |
+
+---
+
+## Client configuration
+
+The CLI reads its configuration from:
+
+```text
+~/.config/ragfer/
+```
+
+| File          | Purpose    |
+| ------------- | ---------- |
+| `config.toml` | Server URL |
+| `.env`        | API key    |
+
+Interactive setup:
+
+```bash
+ragfer setup
+```
+
+The default server URL is:
+
+```text
+http://localhost:4242
+```
 
 ---
 
@@ -1065,7 +1242,7 @@ Generate an API key:
 ragfer key generate
 ```
 
-Provide it to clients with:
+Provide it to clients:
 
 ```bash
 export RAG_API_KEY="your-key"
@@ -1102,6 +1279,7 @@ A dedicated operating-system user is recommended when the service can ingest loc
 * a complete chat application;
 * a hosted AI platform;
 * an enterprise document-management system;
+* a regulated archive;
 * a public multi-tenant RAG service;
 * a framework requiring you to assemble the retrieval pipeline yourself.
 
@@ -1109,20 +1287,20 @@ It is a focused personal knowledge service that gives AI assistants better acces
 
 ---
 
-## When a simple vault is enough
+## When a simple folder is enough
 
 You may not need `rag-ferrite` when:
 
-* you have only a small number of notes;
+* you have only a small number of documents;
 * filenames and folders are sufficient;
 * exact keyword search finds everything you need;
 * you do not use AI assistants;
-* you rarely search across several documents;
-* you already remember the terminology used in your notes.
+* you already remember where information is stored;
+* you rarely search across several sources.
 
-A simple Markdown collection remains one of the best formats for personal knowledge.
+A simple collection of Markdown files remains one of the best formats for personal knowledge.
 
-`rag-ferrite` becomes useful when the collection grows and you want assistants to retrieve information by meaning, not only by exact words.
+`rag-ferrite` becomes useful when your collection grows and you want assistants to retrieve information by meaning, not only by exact words.
 
 ---
 
@@ -1130,14 +1308,33 @@ A simple Markdown collection remains one of the best formats for personal knowle
 
 `rag-ferrite` is especially useful when:
 
-* your documentation is spread across many files;
+* your knowledge is spread across many files;
+* some sources are raw or poorly organized;
+* you collect more information than you can summarize;
 * you use several MCP-compatible assistants;
 * you want one shared knowledge base;
 * you frequently forget where information was written;
-* your queries use different wording from your documents;
-* you need both exact technical search and semantic search;
-* you compare information across several sources;
+* your query uses different wording from the documents;
+* you need exact technical search and semantic search;
+* you want to compare several sources;
 * you want a capable RAG without maintaining a large software stack.
+
+---
+
+## Scope and scaling
+
+`rag-ferrite` is designed for personal knowledge bases ranging from a few documents to hundreds of thousands of searchable passages.
+
+Its recommended default of 512 embedding dimensions offers a practical balance between:
+
+* semantic quality;
+* storage usage;
+* memory usage;
+* retrieval speed.
+
+The project prioritizes personal-scale simplicity over enterprise-scale distributed infrastructure.
+
+For very large corpora, collection routing, filtering, chunk quality, and retrieval configuration become increasingly important.
 
 ---
 
@@ -1150,13 +1347,14 @@ The project prioritizes:
 * retrieval quality;
 * operational simplicity;
 * MCP compatibility;
-* local and provider-independent storage;
+* local storage;
+* provider independence;
 * maintainability;
 * low infrastructure requirements.
 
 Current improvement areas include:
 
-* stronger authentication and permission levels for MCP;
+* stronger MCP authentication;
 * read-only access profiles;
 * more integration tests;
 * continuous integration;
@@ -1164,7 +1362,7 @@ Current improvement areas include:
 * watched-folder synchronization;
 * additional retrieval benchmarks.
 
-See the GitHub issues for the latest status.
+See the GitHub issues for the latest implementation status.
 
 ---
 
