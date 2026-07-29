@@ -307,7 +307,7 @@ Each stage solves a different retrieval problem.
 
 ## Hybrid search
 
-Hybrid search combines lexical and semantic retrieval.
+Hybrid search combines lexical and semantic retrieval. Filtered searches use the same active SQLite connection for candidate filtering, avoiding recursive connection-lock deadlocks. Query-cache entries include the complete source, collection, metadata, and chunk filters, are canonicalized for unordered IDs, and are invalidated after data mutations.
 
 ```text
 User query

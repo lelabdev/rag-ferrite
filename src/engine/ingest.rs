@@ -534,8 +534,8 @@ pub(super) fn commit_parent_to_db(
 
     // Store parent chunk (direct INSERT — single connection, no pool contention)
     conn.execute(
-        "INSERT INTO chunks (source_id, content, chunk_index, start_pos, end_pos, chunk_type) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        rusqlite::params![source_id, parent_chunk.content, parent_chunk.index, parent_chunk.start_pos, parent_chunk.end_pos, "parent"],
+        "INSERT INTO chunks (source_id, collection_id, content, chunk_index, start_pos, end_pos, chunk_type, chunk_role) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        rusqlite::params![source_id, collection_id, parent_chunk.content, parent_chunk.index, parent_chunk.start_pos, parent_chunk.end_pos, "parent", "parent"],
     )?;
     let parent_db_id: i64 = conn.query_row(
         "SELECT last_insert_rowid()",
@@ -561,9 +561,11 @@ pub(super) fn commit_parent_to_db(
             Some(bytes)
         };
         conn.execute(
-            "INSERT INTO chunks (source_id, content, chunk_index, start_pos, end_pos, chunk_type, parent_id, embedding) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-            rusqlite::params![source_id, child.content, child.chunk_index, child.start_pos, child.end_pos, "child", parent_db_id, embedding_blob],
+            "INSERT INTO chunks (source_id, collection_id, content, chunk_index, start_pos, end_pos, chunk_type, chunk_role, parent_id, embedding) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            rusqlite::params![source_id, collection_id, child.content, child.chunk_index, child.start_pos, child.end_pos, "child", "child", parent_db_id, embedding_blob],
         )?;
+        let child_db_id = conn.last_insert_rowid();
+        crate::storage::sqlite::add_chunk_to_indexes(&conn, child_db_id, &child.content, &child.embedding)?;
         if !child.tags.is_empty() {
             parent_tags.push((child.chunk_index, child.tags.clone()));
         }
@@ -574,6 +576,7 @@ pub(super) fn commit_parent_to_db(
         let _ = update_collection_tags(source_id, &parent_tags, &collection_id, &conn);
     }
 
+    crate::pipeline::invalidate_cache();
     Ok(kept_data.len())
 }
 

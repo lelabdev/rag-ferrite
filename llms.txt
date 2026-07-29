@@ -58,7 +58,11 @@ Document → Extract text (pdftotext / docx-lite / raw)
          → Relevance scoring (LLM rates 1-10, filters junk)
          → Contextual retrieval (LLM adds context prefix to each chunk)
          → Auto-tagging (LLM generates 2-3 tags per chunk)
-         → Embed batch → Store in SQLite + HNSW index + BM25
+         → Embed batch → Store in SQLite + sqlite-vec index + FTS5/BM25
+
+Parent-child ingestion writes child embeddings to sqlite-vec and child text to FTS5 during the same commit path. Parent and child rows use the canonical `chunk_role` values (`parent`/`child`), with a migration for older rows that only populated `chunk_type`.
+
+Filtered vector and BM25 searches compute their allowed chunk IDs through the connection they already hold; they never reacquire the global SQLite mutex. The query cache key includes every search filter, canonicalizes unordered ID lists, and carries a global data version incremented after source, chunk, deletion, and collection mutations.
 ```
 
 Engine uses `params::IngestConfig` (not IngestOptions — deleted). Constructed from `Config` in `main.rs`, passed to engine methods.
