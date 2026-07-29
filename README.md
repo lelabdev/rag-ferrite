@@ -5,7 +5,7 @@
 
 **A lightweight personal knowledge base for AI assistants.**
 
-Give Claude Code, Hermes, Claude Desktop, and other MCP-compatible clients fast access to your documents, notes, transcripts, and technical knowledge.
+Give Claude Code, Codex, Hermes, Claude Desktop, and other MCP-compatible clients fast access to your documents, notes, transcripts, and technical knowledge.
 
 **Collect first. Retrieve when needed. Organize only what matters.**
 
@@ -20,38 +20,188 @@ Hybrid search · Local storage · Native MCP · Single Rust binary
 
 ## What is rag-ferrite?
 
-`rag-ferrite` is a self-hosted personal knowledge server for AI assistants.
+`rag-ferrite` is a self-hosted knowledge server for AI assistants.
 
-It indexes your documents and exposes them through MCP, allowing Claude Code, Hermes, Claude Desktop, and other compatible clients to search your knowledge whenever they need context.
+You already have an assistant. You already have documents. `rag-ferrite` gives the assistant a reliable way to search those documents whenever it needs context.
 
 ```text
+Your files
 Markdown · PDF · DOCX · TXT · transcripts · documentation
                               │
                               ▼
                          rag-ferrite
                 keyword + semantic retrieval
-                              │
+                              │ MCP
                               ▼
-               Claude Code · Hermes · MCP clients
+        Claude Code · Codex · Hermes · other AI clients
 ```
 
-It can be used with:
+`rag-ferrite` does not provide a chatbot, replace your assistant, or impose a note-taking application. Your existing AI client calls it through MCP and receives relevant passages from your own knowledge base.
 
-* personal Markdown notes;
-* technical documentation;
-* books and PDF files;
-* video and podcast transcripts;
-* courses and learning material;
-* research papers;
-* project documentation;
-* exported conversations;
-* game guides and reference material;
-* an Obsidian vault;
-* any other collection of useful documents.
+Your original files remain the source of truth. They can be carefully organized notes, raw documents, books, project documentation, transcripts, research papers, or anything in between.
 
-Your original files remain the source of truth.
+### One knowledge base, two ways to use it
 
-`rag-ferrite` creates a searchable knowledge layer on top of them, so your assistants can retrieve useful context without requiring you to manually find, open, and paste the right document into every conversation.
+A personal library can act as a second brain in two complementary ways:
+
+* **For you:** files remain readable, editable, portable, and usable with any editor or note-taking tool.
+* **For your assistants:** `rag-ferrite` turns the same files into a retrieval layer they can search by exact wording or meaning.
+
+You keep the human-readable knowledge you control. Your assistants gain a machine-oriented way to find the right parts without requiring you to locate, open, and paste them into every conversation.
+
+---
+
+## Quick start
+
+### Install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/lelabdev/rag-ferrite/main/install.sh | bash
+```
+
+Or build from source:
+
+```bash
+git clone https://github.com/lelabdev/rag-ferrite.git
+cd rag-ferrite
+cargo build --release
+```
+
+The compiled binary is:
+
+```text
+target/release/ragfer
+```
+
+### PDF support
+
+PDF extraction requires Poppler.
+
+Debian or Ubuntu:
+
+```bash
+sudo apt install poppler-utils
+```
+
+Fedora:
+
+```bash
+sudo dnf install poppler-utils
+```
+
+Arch Linux:
+
+```bash
+sudo pacman -S poppler
+```
+
+---
+
+## Configuration
+
+`rag-ferrite` uses:
+
+* an embedding model for semantic retrieval;
+* an LLM for contextual processing, tagging, query recovery, and optional reranking.
+
+Set the required API keys:
+
+```bash
+export LLM_API_KEY="your-llm-api-key"
+export EMBEDDING_API_KEY="your-embedding-api-key"
+```
+
+On its first server run, `ragfer` creates a default configuration file when none exists.
+
+Minimal example:
+
+```toml
+data_dir = "./data"
+http_port = 4242
+
+[embedding]
+provider = "openai"
+model = "qwen/qwen3-embedding-8b"
+dimensions = 512
+base_url = "https://openrouter.ai/api/v1"
+
+[llm]
+provider = "ollama"
+model = "gemma4:31b"
+base_url = "https://api.ollama.com"
+```
+
+Start the server:
+
+```bash
+ragfer serve
+```
+
+When HTTP is enabled:
+
+```text
+MCP Streamable HTTP: http://localhost:4242/mcp
+REST API:            http://localhost:4242/api
+```
+
+Running the binary without arguments opens the terminal monitor:
+
+```bash
+ragfer
+```
+
+---
+
+## Connect MCP clients
+
+### Hermes over Streamable HTTP
+
+```yaml
+mcp_servers:
+  rag-ferrite:
+    url: "http://localhost:4242/mcp"
+    timeout: 9999
+```
+
+Streamable HTTP is useful when:
+
+* several assistants use the same knowledge base;
+* the service runs continuously;
+* the server is located on another machine;
+* ingestion should continue after a client closes;
+* one persistent index is shared by multiple clients.
+
+### Hermes over stdio
+
+```yaml
+mcp_servers:
+  rag-ferrite:
+    command: /path/to/ragfer
+    args: ["serve"]
+    timeout: 9999
+    env:
+      LLM_API_KEY: "..."
+      EMBEDDING_API_KEY: "..."
+```
+
+### Claude Desktop
+
+```json
+{
+  "mcpServers": {
+    "rag-ferrite": {
+      "command": "/path/to/ragfer",
+      "args": ["serve"],
+      "env": {
+        "LLM_API_KEY": "...",
+        "EMBEDDING_API_KEY": "..."
+      }
+    }
+  }
+}
+```
+
+Claude Code and other MCP clients can connect through stdio or Streamable HTTP depending on their supported configuration.
 
 ---
 
@@ -141,9 +291,9 @@ The information becomes useful before it has been perfectly organized.
 
 ---
 
-## More than a simple file or vault search
+## More than ordinary file search
 
-A folder of Markdown files is already a useful personal knowledge base.
+A folder of documents is already a useful personal knowledge base.
 
 It is:
 
@@ -151,10 +301,9 @@ It is:
 * readable;
 * easy to edit;
 * easy to back up;
-* independent from a particular application;
-* compatible with tools such as Obsidian.
+* independent from a particular application.
 
-However, traditional file and vault search is mostly lexical.
+However, traditional file search is mostly lexical.
 
 It works best when you already know:
 
@@ -240,6 +389,394 @@ Instead, it connects the assistants you already use to the documents you already
 
 ---
 
+## Common use cases
+
+### Personal documentation
+
+Give your assistant access to procedures, references, project notes, and technical documentation.
+
+```text
+Search my documentation for the backup restoration procedure.
+```
+
+### Coding assistants
+
+Allow Claude Code or another coding agent to retrieve architecture decisions and project conventions.
+
+```text
+Before changing the storage layer, search for previous architecture decisions.
+```
+
+### Courses and learning material
+
+Index courses, books, notes, and transcripts without summarizing every source manually.
+
+```text
+Explain the differences between these approaches using my course material.
+```
+
+### Video transcripts
+
+Collect YouTube or podcast transcripts and search them later.
+
+```text
+Find the videos that discussed hybrid retrieval and summarize the key differences.
+```
+
+### Personal research
+
+Search papers, articles, and books by meaning rather than only by title or keywords.
+
+```text
+Find the sources discussing the limitations of semantic chunking.
+```
+
+### Hobbies and games
+
+Build a knowledge base from guides, transcripts, and reference documents.
+
+```text
+Based on my Victoria 3 guides, what should I prioritize in this economic situation?
+```
+
+### Cross-document comparison
+
+Retrieve several passages covering the same subject.
+
+```text
+Compare the recommendations about local vector databases.
+```
+
+### Notes and knowledge libraries
+
+Index notes from any editor or Markdown-based knowledge library.
+
+```text
+Find my previous notes about authentication, even if they use different terms.
+```
+
+### Note or document generation
+
+Use retrieved context to create a report, checklist, documentation page, or synthesis note.
+
+```text
+Use several relevant sources to create a structured reference note.
+```
+
+Generating a note is optional. The knowledge base remains useful even when no new note is created.
+
+---
+
+## Supported sources
+
+`rag-ferrite` can ingest:
+
+* Markdown;
+* plain text;
+* PDF;
+* DOCX;
+* raw text supplied through the API;
+* HTML or Markdown content supplied directly.
+
+Possible source directories include:
+
+```text
+~/library/
+~/Documents/
+~/Projects/*/docs/
+~/Notes/
+```
+
+The system does not depend on a particular editor or note-taking application.
+
+---
+
+## Ingest documents
+
+### One file
+
+```bash
+ragfer ingest-file "/path/to/document.md"
+```
+
+### Several files
+
+```bash
+ragfer ingest-batch \
+  "/path/to/book.pdf" \
+  "/path/to/documentation.md" \
+  "/path/to/transcript.txt"
+```
+
+### Raw content
+
+```bash
+cat note.md | ragfer ingest-data "manual-note"
+```
+
+### Select a collection
+
+```bash
+ragfer ingest-file "/path/to/rust-book.pdf" -c programming
+```
+
+### Force re-ingestion
+
+```bash
+ragfer ingest-file "/path/to/document.md" --force
+```
+
+---
+
+## Search from the CLI
+
+Basic search:
+
+```bash
+ragfer query "How does hybrid retrieval work?"
+```
+
+Limit the number of results:
+
+```bash
+ragfer query "SQLite vector search" -n 5
+```
+
+Filter by tags:
+
+```bash
+ragfer query "MCP authentication" -t security,mcp
+```
+
+Select a collection:
+
+```bash
+ragfer query "async Rust runtime" -c programming
+```
+
+Return raw JSON:
+
+```bash
+ragfer query "embedding dimensions" --json
+```
+
+---
+
+## MCP tools
+
+### Search and reading
+
+| Tool                                           | Description                                                                             |
+| ---------------------------------------------- | --------------------------------------------------------------------------------------- |
+| `query_documents(query, tags?, limit?)`        | Search indexed documents using hybrid retrieval, filters, query recovery, and reranking |
+| `read_chunk_neighbors(source_id, chunk_index)` | Retrieve passages surrounding a specific result                                         |
+| `list_files()`                                 | List indexed documents                                                                  |
+| `status()`                                     | Return server and index status                                                          |
+| `suggest_collection(query)`                    | Suggest the most relevant collection                                                    |
+| `tag_map()`                                    | Show tags, collections, and chunk counts                                                |
+
+### Ingestion and quality
+
+| Tool                                                  | Description                                        |
+| ----------------------------------------------------- | -------------------------------------------------- |
+| `ingest_file(file_path, collection?)`                 | Ingest a PDF, DOCX, TXT, or Markdown file          |
+| `ingest_data(content, source, collection?, format?)`  | Ingest raw text, HTML, or Markdown                 |
+| `check_ingestion(file_path?, content?, source_name?)` | Inspect document quality before indexing           |
+| `benchmark(file_path, collection?, limit?)`           | Evaluate retrieval against a golden dataset        |
+| `collection_heat()`                                   | Show frequently and recently queried collections   |
+| `chunk_qa()`                                          | Identify cold, unused, or potentially noisy chunks |
+
+### Administration
+
+| Tool                                         | Description                                        |
+| -------------------------------------------- | -------------------------------------------------- |
+| `delete_file(source)`                        | Remove a document and its chunks                   |
+| `reassign_collection(source_id, collection)` | Move a source to another collection                |
+| `rebuild_indexes()`                          | Rebuild search indexes and checkpoint the database |
+| `flush_indexes()`                            | Persist recently indexed vector data               |
+
+---
+
+## HTTP ingestion
+
+### One file
+
+```bash
+curl -X POST http://localhost:4242/api/ingest \
+  -H "Content-Type: application/json" \
+  -d '{
+    "file_path": "/path/to/document.md"
+  }'
+```
+
+### Several files
+
+```bash
+curl -X POST http://localhost:4242/api/ingest \
+  -H "Content-Type: application/json" \
+  -d '{
+    "paths": [
+      "/path/to/book.pdf",
+      "/path/to/article.md",
+      "/path/to/transcript.txt"
+    ]
+  }'
+```
+
+Batch ingestion returns immediately with a batch identifier.
+
+Monitor progress:
+
+```bash
+ragfer progress
+```
+
+Or:
+
+```bash
+curl http://localhost:4242/api/ingest/progress
+```
+
+---
+
+## Auto-move after ingestion
+
+By default, files can be moved after successful ingestion.
+
+This supports inbox-style workflows:
+
+```text
+inbox/
+└── article.md
+
+        ↓ ingestion
+
+ingested/
+└── article.md
+```
+
+Configuration:
+
+```toml
+[advanced]
+move_after_ingest = true
+ingested_dir = "ingested"
+```
+
+Disable it for a specific request:
+
+```json
+{
+  "paths": ["/path/to/article.md"],
+  "move_after_ingest": false
+}
+```
+
+For a permanent library directory, disabling automatic movement may be preferable.
+
+---
+
+## Client configuration
+
+The CLI reads its configuration from:
+
+```text
+~/.config/ragfer/
+```
+
+| File          | Purpose    |
+| ------------- | ---------- |
+| `config.toml` | Server URL |
+| `.env`        | API key    |
+
+Interactive setup:
+
+```bash
+ragfer setup
+```
+
+The default server URL is:
+
+```text
+http://localhost:4242
+```
+
+---
+
+## Terminal monitor
+
+Launch the built-in TUI:
+
+```bash
+ragfer
+```
+
+Or:
+
+```bash
+ragfer monitor
+```
+
+The monitor displays:
+
+* server status;
+* indexed document count;
+* active ingestion batch;
+* current document;
+* processed chunks;
+* ingestion speed;
+* estimated completion time;
+* recent errors;
+* activity events;
+* ingestion history.
+
+Environment variables:
+
+```text
+RAGFER_URL       Server URL
+RAG_API_KEY      Server API key
+RAGFER_KEY       Alternative key variable
+RAGFER_REFRESH   Refresh interval
+```
+
+---
+
+## Authentication and network use
+
+Generate an API key:
+
+```bash
+ragfer key generate
+```
+
+Provide it to clients:
+
+```bash
+export RAG_API_KEY="your-key"
+```
+
+Or store it in:
+
+```text
+~/.config/ragfer/.env
+```
+
+`rag-ferrite` is primarily designed for trusted personal environments.
+
+Recommended deployments:
+
+* localhost;
+* a private workstation;
+* a home server;
+* a trusted local network;
+* a private Tailscale network.
+
+Avoid exposing the service directly to the public Internet without reviewing the current authentication and security configuration.
+
+A dedicated operating-system user is recommended when the service can ingest local filesystem paths.
+
+---
+
 ## Features
 
 | Feature                      | Description                                                                        |
@@ -267,6 +804,48 @@ Instead, it connects the assistants you already use to the documents you already
 | **Local database**           | Uses SQLite without a separate database server                                     |
 | **Provider flexibility**     | Supports local and hosted OpenAI-compatible APIs                                   |
 | **Single binary**            | No Python runtime or mandatory Docker stack                                        |
+
+---
+
+## Architecture
+
+```text
+              ┌─────────────────────────────┐
+              │ Markdown · PDF · DOCX · TXT │
+              │ Notes · docs · transcripts  │
+              └──────────────┬──────────────┘
+                             │
+                             ▼
+              ┌─────────────────────────────┐
+              │ Extraction and cleaning     │
+              │ Noise filtering             │
+              └──────────────┬──────────────┘
+                             │
+                             ▼
+              ┌─────────────────────────────┐
+              │ Parent-child chunking       │
+              │ Context and auto-tagging    │
+              └──────────────┬──────────────┘
+                             │
+                             ▼
+              ┌─────────────────────────────┐
+              │ SQLite                      │
+              │ FTS5 + sqlite-vec           │
+              │ Metadata and tags           │
+              └──────────────┬──────────────┘
+                             │
+              ┌──────────────┴──────────────┐
+              │ Hybrid retrieval            │
+              │ Reciprocal rank fusion      │
+              │ Query recovery              │
+              │ Optional reranking          │
+              └──────────────┬──────────────┘
+                             │
+                             ▼
+          ┌─────────────────────────────────────┐
+          │ MCP · REST API · CLI · Terminal UI │
+          └─────────────────────────────────────┘
+```
 
 ---
 
@@ -623,492 +1202,6 @@ A simple keyword search may fail to place these passages together when they use 
 
 ---
 
-## Common use cases
-
-### Personal documentation
-
-Give your assistant access to procedures, references, project notes, and technical documentation.
-
-```text
-Search my documentation for the backup restoration procedure.
-```
-
-### Coding assistants
-
-Allow Claude Code or another coding agent to retrieve architecture decisions and project conventions.
-
-```text
-Before changing the storage layer, search for previous architecture decisions.
-```
-
-### Courses and learning material
-
-Index courses, books, notes, and transcripts without summarizing every source manually.
-
-```text
-Explain the differences between these approaches using my course material.
-```
-
-### Video transcripts
-
-Collect YouTube or podcast transcripts and search them later.
-
-```text
-Find the videos that discussed hybrid retrieval and summarize the key differences.
-```
-
-### Personal research
-
-Search papers, articles, and books by meaning rather than only by title or keywords.
-
-```text
-Find the sources discussing the limitations of semantic chunking.
-```
-
-### Hobbies and games
-
-Build a knowledge base from guides, transcripts, and reference documents.
-
-```text
-Based on my Victoria 3 guides, what should I prioritize in this economic situation?
-```
-
-### Cross-document comparison
-
-Retrieve several passages covering the same subject.
-
-```text
-Compare the recommendations about local vector databases.
-```
-
-### Obsidian vault search
-
-Index the Markdown files from an Obsidian vault.
-
-```text
-Find my previous notes about authentication, even if they use different terms.
-```
-
-### Note or document generation
-
-Use retrieved context to create a report, checklist, documentation page, or synthesis note.
-
-```text
-Use several relevant sources to create a structured reference note.
-```
-
-Generating a note is optional. The knowledge base remains useful even when no new note is created.
-
----
-
-## Supported sources
-
-`rag-ferrite` can ingest:
-
-* Markdown;
-* plain text;
-* PDF;
-* DOCX;
-* raw text supplied through the API;
-* HTML or Markdown content supplied directly.
-
-Possible source directories include:
-
-```text
-~/library/
-~/Documents/
-~/Projects/*/docs/
-~/Notes/
-~/Obsidian/Vault/
-```
-
-An Obsidian vault works because its notes are Markdown files.
-
-The system does not depend on Obsidian and does not require it.
-
----
-
-## Architecture
-
-```text
-              ┌─────────────────────────────┐
-              │ Markdown · PDF · DOCX · TXT │
-              │ Notes · docs · transcripts  │
-              └──────────────┬──────────────┘
-                             │
-                             ▼
-              ┌─────────────────────────────┐
-              │ Extraction and cleaning     │
-              │ Noise filtering             │
-              └──────────────┬──────────────┘
-                             │
-                             ▼
-              ┌─────────────────────────────┐
-              │ Parent-child chunking       │
-              │ Context and auto-tagging    │
-              └──────────────┬──────────────┘
-                             │
-                             ▼
-              ┌─────────────────────────────┐
-              │ SQLite                      │
-              │ FTS5 + sqlite-vec           │
-              │ Metadata and tags           │
-              └──────────────┬──────────────┘
-                             │
-              ┌──────────────┴──────────────┐
-              │ Hybrid retrieval            │
-              │ Reciprocal rank fusion      │
-              │ Query recovery              │
-              │ Optional reranking          │
-              └──────────────┬──────────────┘
-                             │
-                             ▼
-          ┌─────────────────────────────────────┐
-          │ MCP · REST API · CLI · Terminal UI │
-          └─────────────────────────────────────┘
-```
-
----
-
-## Quick start
-
-### Install
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/lelabdev/rag-ferrite/main/install.sh | bash
-```
-
-Or build from source:
-
-```bash
-git clone https://github.com/lelabdev/rag-ferrite.git
-cd rag-ferrite
-cargo build --release
-```
-
-The compiled binary is:
-
-```text
-target/release/ragfer
-```
-
-### PDF support
-
-PDF extraction requires Poppler.
-
-Debian or Ubuntu:
-
-```bash
-sudo apt install poppler-utils
-```
-
-Fedora:
-
-```bash
-sudo dnf install poppler-utils
-```
-
-Arch Linux:
-
-```bash
-sudo pacman -S poppler
-```
-
----
-
-## Configuration
-
-`rag-ferrite` uses:
-
-* an embedding model for semantic retrieval;
-* an LLM for contextual processing, tagging, query recovery, and optional reranking.
-
-Set the required API keys:
-
-```bash
-export LLM_API_KEY="your-llm-api-key"
-export EMBEDDING_API_KEY="your-embedding-api-key"
-```
-
-On its first server run, `ragfer` creates a default configuration file when none exists.
-
-Minimal example:
-
-```toml
-data_dir = "./data"
-http_port = 4242
-
-[embedding]
-provider = "openai"
-model = "qwen/qwen3-embedding-8b"
-dimensions = 512
-base_url = "https://openrouter.ai/api/v1"
-
-[llm]
-provider = "ollama"
-model = "gemma4:31b"
-base_url = "https://api.ollama.com"
-```
-
-Start the server:
-
-```bash
-ragfer serve
-```
-
-When HTTP is enabled:
-
-```text
-MCP Streamable HTTP: http://localhost:4242/mcp
-REST API:            http://localhost:4242/api
-```
-
-Running the binary without arguments opens the terminal monitor:
-
-```bash
-ragfer
-```
-
----
-
-## Connect MCP clients
-
-### Hermes over Streamable HTTP
-
-```yaml
-mcp_servers:
-  rag-ferrite:
-    url: "http://localhost:4242/mcp"
-    timeout: 9999
-```
-
-Streamable HTTP is useful when:
-
-* several assistants use the same knowledge base;
-* the service runs continuously;
-* the server is located on another machine;
-* ingestion should continue after a client closes;
-* one persistent index is shared by multiple clients.
-
-### Hermes over stdio
-
-```yaml
-mcp_servers:
-  rag-ferrite:
-    command: /path/to/ragfer
-    args: ["serve"]
-    timeout: 9999
-    env:
-      LLM_API_KEY: "..."
-      EMBEDDING_API_KEY: "..."
-```
-
-### Claude Desktop
-
-```json
-{
-  "mcpServers": {
-    "rag-ferrite": {
-      "command": "/path/to/ragfer",
-      "args": ["serve"],
-      "env": {
-        "LLM_API_KEY": "...",
-        "EMBEDDING_API_KEY": "..."
-      }
-    }
-  }
-}
-```
-
-Claude Code and other MCP clients can connect through stdio or Streamable HTTP depending on their supported configuration.
-
----
-
-## MCP tools
-
-### Search and reading
-
-| Tool                                           | Description                                                                             |
-| ---------------------------------------------- | --------------------------------------------------------------------------------------- |
-| `query_documents(query, tags?, limit?)`        | Search indexed documents using hybrid retrieval, filters, query recovery, and reranking |
-| `read_chunk_neighbors(source_id, chunk_index)` | Retrieve passages surrounding a specific result                                         |
-| `list_files()`                                 | List indexed documents                                                                  |
-| `status()`                                     | Return server and index status                                                          |
-| `suggest_collection(query)`                    | Suggest the most relevant collection                                                    |
-| `tag_map()`                                    | Show tags, collections, and chunk counts                                                |
-
-### Ingestion and quality
-
-| Tool                                                  | Description                                        |
-| ----------------------------------------------------- | -------------------------------------------------- |
-| `ingest_file(file_path, collection?)`                 | Ingest a PDF, DOCX, TXT, or Markdown file          |
-| `ingest_data(content, source, collection?, format?)`  | Ingest raw text, HTML, or Markdown                 |
-| `check_ingestion(file_path?, content?, source_name?)` | Inspect document quality before indexing           |
-| `benchmark(file_path, collection?, limit?)`           | Evaluate retrieval against a golden dataset        |
-| `collection_heat()`                                   | Show frequently and recently queried collections   |
-| `chunk_qa()`                                          | Identify cold, unused, or potentially noisy chunks |
-
-### Administration
-
-| Tool                                         | Description                                        |
-| -------------------------------------------- | -------------------------------------------------- |
-| `delete_file(source)`                        | Remove a document and its chunks                   |
-| `reassign_collection(source_id, collection)` | Move a source to another collection                |
-| `rebuild_indexes()`                          | Rebuild search indexes and checkpoint the database |
-| `flush_indexes()`                            | Persist recently indexed vector data               |
-
----
-
-## Ingest documents
-
-### One file
-
-```bash
-ragfer ingest-file "/path/to/document.md"
-```
-
-### Several files
-
-```bash
-ragfer ingest-batch \
-  "/path/to/book.pdf" \
-  "/path/to/documentation.md" \
-  "/path/to/transcript.txt"
-```
-
-### Raw content
-
-```bash
-cat note.md | ragfer ingest-data "manual-note"
-```
-
-### Select a collection
-
-```bash
-ragfer ingest-file "/path/to/rust-book.pdf" -c programming
-```
-
-### Force re-ingestion
-
-```bash
-ragfer ingest-file "/path/to/document.md" --force
-```
-
----
-
-## HTTP ingestion
-
-### One file
-
-```bash
-curl -X POST http://localhost:4242/api/ingest \
-  -H "Content-Type: application/json" \
-  -d '{
-    "file_path": "/path/to/document.md"
-  }'
-```
-
-### Several files
-
-```bash
-curl -X POST http://localhost:4242/api/ingest \
-  -H "Content-Type: application/json" \
-  -d '{
-    "paths": [
-      "/path/to/book.pdf",
-      "/path/to/article.md",
-      "/path/to/transcript.txt"
-    ]
-  }'
-```
-
-Batch ingestion returns immediately with a batch identifier.
-
-Monitor progress:
-
-```bash
-ragfer progress
-```
-
-Or:
-
-```bash
-curl http://localhost:4242/api/ingest/progress
-```
-
----
-
-## Auto-move after ingestion
-
-By default, files can be moved after successful ingestion.
-
-This supports inbox-style workflows:
-
-```text
-inbox/
-└── article.md
-
-        ↓ ingestion
-
-ingested/
-└── article.md
-```
-
-Configuration:
-
-```toml
-[advanced]
-move_after_ingest = true
-ingested_dir = "ingested"
-```
-
-Disable it for a specific request:
-
-```json
-{
-  "paths": ["/path/to/article.md"],
-  "move_after_ingest": false
-}
-```
-
-For a permanent library directory, disabling automatic movement may be preferable.
-
----
-
-## Search from the CLI
-
-Basic search:
-
-```bash
-ragfer query "How does hybrid retrieval work?"
-```
-
-Limit the number of results:
-
-```bash
-ragfer query "SQLite vector search" -n 5
-```
-
-Filter by tags:
-
-```bash
-ragfer query "MCP authentication" -t security,mcp
-```
-
-Select a collection:
-
-```bash
-ragfer query "async Rust runtime" -c programming
-```
-
-Return raw JSON:
-
-```bash
-ragfer query "embedding dimensions" --json
-```
-
----
-
 ## REST API reference
 
 | Method   | Path                        | Description                      |
@@ -1169,113 +1262,12 @@ Common options:
 
 ---
 
-## Client configuration
-
-The CLI reads its configuration from:
-
-```text
-~/.config/ragfer/
-```
-
-| File          | Purpose    |
-| ------------- | ---------- |
-| `config.toml` | Server URL |
-| `.env`        | API key    |
-
-Interactive setup:
-
-```bash
-ragfer setup
-```
-
-The default server URL is:
-
-```text
-http://localhost:4242
-```
-
----
-
-## Terminal monitor
-
-Launch the built-in TUI:
-
-```bash
-ragfer
-```
-
-Or:
-
-```bash
-ragfer monitor
-```
-
-The monitor displays:
-
-* server status;
-* indexed document count;
-* active ingestion batch;
-* current document;
-* processed chunks;
-* ingestion speed;
-* estimated completion time;
-* recent errors;
-* activity events;
-* ingestion history.
-
-Environment variables:
-
-```text
-RAGFER_URL       Server URL
-RAG_API_KEY      Server API key
-RAGFER_KEY       Alternative key variable
-RAGFER_REFRESH   Refresh interval
-```
-
----
-
-## Authentication and network use
-
-Generate an API key:
-
-```bash
-ragfer key generate
-```
-
-Provide it to clients:
-
-```bash
-export RAG_API_KEY="your-key"
-```
-
-Or store it in:
-
-```text
-~/.config/ragfer/.env
-```
-
-`rag-ferrite` is primarily designed for trusted personal environments.
-
-Recommended deployments:
-
-* localhost;
-* a private workstation;
-* a home server;
-* a trusted local network;
-* a private Tailscale network.
-
-Avoid exposing the service directly to the public Internet without reviewing the current authentication and security configuration.
-
-A dedicated operating-system user is recommended when the service can ingest local filesystem paths.
-
----
-
 ## What rag-ferrite is not
 
 `rag-ferrite` is not:
 
 * a replacement for Markdown;
-* a replacement for Obsidian;
+* a replacement for your editor or note-taking application;
 * a complete chat application;
 * a hosted AI platform;
 * an enterprise document-management system;
