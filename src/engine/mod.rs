@@ -1,45 +1,54 @@
 use anyhow::Result;
 use rusqlite::Connection;
 
-pub mod search;
-pub mod query;
-pub mod benchmark;
-pub mod tags;
-pub mod chunk_counter;
-pub mod cancel;
 pub mod activity_log;
-pub mod heat;
-pub mod tag_routing;
+pub mod benchmark;
+pub mod cancel;
+pub mod chunk_counter;
 pub mod chunk_heat;
-pub mod precheck;
-pub mod ingest;
-pub mod indexes;
+pub mod heat;
 pub mod history;
+pub mod indexes;
+pub mod ingest;
+pub mod precheck;
+pub mod query;
+pub mod search;
+pub mod tag_routing;
+pub mod tags;
 
 // Re-export public items from sub-modules
+pub use benchmark::{get_graph_data, run_benchmark};
+pub use heat::{
+    HeatTracker, collections_for_sources, create_collection_heat_table, get_all_heat,
+    get_chunk_qa_report,
+};
+pub use query::{delete_source, get_neighbors, get_section_paths_for_chunk_ids, list_sources};
 pub use search::{search_hybrid, search_hybrid_with_expansion};
-pub use query::{get_section_paths_for_chunk_ids, get_neighbors, delete_source, list_sources};
-pub use benchmark::{run_benchmark, get_graph_data};
-pub use tags::{create_chunk_tags_table, create_collection_tags_table, insert_chunk_tags, update_collection_tags, get_tags_for_chunk_ids, get_chunk_ids_for_tags};
-pub use heat::{create_collection_heat_table, HeatTracker, get_all_heat, collections_for_sources, get_chunk_qa_report};
+pub use tags::{
+    create_chunk_tags_table, create_collection_tags_table, get_chunk_ids_for_tags,
+    get_tags_for_chunk_ids, insert_chunk_tags, update_collection_tags,
+};
 
 // Re-export from chunk_heat
 pub use chunk_heat::ChunkHeatTracker;
 
 // Re-export from ingest
-pub use ingest::{ingest_text, ingest_file};
+pub use ingest::{ingest_file, ingest_text};
 
 // Re-export from indexes
-pub use indexes::{add_embeddings_to_buffer, rebuild_and_save_indexes, reassign_source_collection, wal_checkpoint};
+pub use indexes::{
+    add_embeddings_to_buffer, reassign_source_collection, rebuild_and_save_indexes, wal_checkpoint,
+};
 
 // Re-export from precheck
-pub use precheck::{pre_check_document, check_duplicate_source, verify_chunks};
+pub use precheck::{check_duplicate_source, pre_check_document, verify_chunks};
 
 /// Stored DB path so list_sources/stats can query across all collections.
 static DB_PATH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
 /// Centralized SQLite connection — avoids ad-hoc `Connection::open` calls.
-static DB_CONN: std::sync::OnceLock<std::sync::Mutex<rusqlite::Connection>> = std::sync::OnceLock::new();
+static DB_CONN: std::sync::OnceLock<std::sync::Mutex<rusqlite::Connection>> =
+    std::sync::OnceLock::new();
 
 /// Obtain a locked handle to the shared SQLite connection.
 pub fn get_conn() -> Result<std::sync::MutexGuard<'static, rusqlite::Connection>> {
@@ -52,8 +61,14 @@ pub fn get_conn() -> Result<std::sync::MutexGuard<'static, rusqlite::Connection>
 
 /// Get the data directory from DB_PATH.
 pub(crate) fn data_dir() -> String {
-    DB_PATH.get()
-        .map(|p| std::path::Path::new(p).parent().map(|d| d.to_string_lossy().to_string()).unwrap_or_else(|| ".".to_string()))
+    DB_PATH
+        .get()
+        .map(|p| {
+            std::path::Path::new(p)
+                .parent()
+                .map(|d| d.to_string_lossy().to_string())
+                .unwrap_or_else(|| ".".to_string())
+        })
         .unwrap_or_else(|| ".".to_string())
 }
 
@@ -67,7 +82,9 @@ pub fn init(data_dir: &std::path::Path, config: &crate::config::Config) -> Resul
     // Load sqlite-vec extension BEFORE opening any connections
     // sqlite3_auto_extension registers globally for all future connections
     unsafe {
-        rusqlite::ffi::sqlite3_auto_extension(Some(std::mem::transmute(sqlite_vec::sqlite3_vec_init as *const ())));
+        rusqlite::ffi::sqlite3_auto_extension(Some(std::mem::transmute(
+            sqlite_vec::sqlite3_vec_init as *const (),
+        )));
     }
 
     let conn = rusqlite::Connection::open(&db_path_str)?;
@@ -85,7 +102,7 @@ pub fn init(data_dir: &std::path::Path, config: &crate::config::Config) -> Resul
             name TEXT,
             status TEXT DEFAULT 'completed',
             collection_id TEXT NOT NULL DEFAULT '__default__'
-        );"
+        );",
     )?;
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS chunks (
@@ -100,12 +117,15 @@ pub fn init(data_dir: &std::path::Path, config: &crate::config::Config) -> Resul
             embedding BLOB,
             embedding_i8 BLOB,
             embedding_scale REAL,
+            logical_parent_index INTEGER DEFAULT NULL,
             FOREIGN KEY (source_id) REFERENCES sources(id) ON DELETE CASCADE
-        );"
+        );",
     )?;
 
     // Run migrations (using the same connection before storing it)
-    let has_section_path: bool = conn.prepare("SELECT section_path FROM chunks LIMIT 1").is_ok();
+    let has_section_path: bool = conn
+        .prepare("SELECT section_path FROM chunks LIMIT 1")
+        .is_ok();
     if !has_section_path {
         tracing::info!("Migrating: adding section_path column to chunks");
         conn.execute_batch("ALTER TABLE chunks ADD COLUMN section_path TEXT DEFAULT NULL")?;
@@ -128,7 +148,8 @@ pub fn init(data_dir: &std::path::Path, config: &crate::config::Config) -> Resul
 
     // Migration: make embedding nullable (parents don't have embeddings)
     let embedding_notnull: bool = {
-        let mut stmt = conn.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='chunks'")?;
+        let mut stmt =
+            conn.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='chunks'")?;
         let sql: String = stmt.query_row([], |row| row.get(0))?;
         sql.contains("embedding BLOB NOT NULL")
     };
@@ -154,18 +175,23 @@ pub fn init(data_dir: &std::path::Path, config: &crate::config::Config) -> Resul
             );
             INSERT INTO chunks_new SELECT * FROM chunks;
             DROP TABLE chunks;
-            ALTER TABLE chunks_new RENAME TO chunks;"
+            ALTER TABLE chunks_new RENAME TO chunks;",
         )?;
     }
 
     // Add heat tracking columns to chunks table (v5 design)
     let has_query_count = conn
-        .query_row("SELECT COUNT(*) FROM pragma_table_info('chunks') WHERE name='query_count'", [], |row| row.get::<_, i64>(0))
-        .unwrap_or(0) > 0;
+        .query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('chunks') WHERE name='query_count'",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap_or(0)
+        > 0;
     if !has_query_count {
         conn.execute_batch(
             "ALTER TABLE chunks ADD COLUMN query_count INTEGER NOT NULL DEFAULT 0;
-             ALTER TABLE chunks ADD COLUMN last_queried_at REAL;"
+             ALTER TABLE chunks ADD COLUMN last_queried_at REAL;",
         )?;
         tracing::info!("Added heat tracking columns to chunks table");
     }
@@ -177,7 +203,7 @@ pub fn init(data_dir: &std::path::Path, config: &crate::config::Config) -> Resul
             tag TEXT NOT NULL,
             PRIMARY KEY (chunk_id, tag),
             FOREIGN KEY (chunk_id) REFERENCES chunks(id) ON DELETE CASCADE
-        );"
+        );",
     )?;
 
     // Create collection_tags table for tag routing (v5 design)
@@ -185,7 +211,7 @@ pub fn init(data_dir: &std::path::Path, config: &crate::config::Config) -> Resul
         "CREATE TABLE IF NOT EXISTS collection_tags (
             tag TEXT PRIMARY KEY,
             collection TEXT NOT NULL
-        );"
+        );",
     )?;
 
     // Create collection_heat table for heat tracking (v5 design)
@@ -195,13 +221,32 @@ pub fn init(data_dir: &std::path::Path, config: &crate::config::Config) -> Resul
             heat_score REAL DEFAULT 0.0,
             last_queried_at REAL,
             query_count INTEGER DEFAULT 0
-        );"
+        );",
     )?;
 
+    let has_logical_parent_index: bool = conn
+        .prepare("SELECT logical_parent_index FROM chunks LIMIT 1")
+        .is_ok();
+    if !has_logical_parent_index {
+        tracing::info!("Migrating: adding logical_parent_index for exact parent-child resume");
+        conn.execute_batch(
+            "ALTER TABLE chunks ADD COLUMN logical_parent_index INTEGER DEFAULT NULL",
+        )?;
+    }
     // Normalize parent-child role values for databases created before the role column.
     conn.execute(
         "UPDATE chunks SET chunk_role = chunk_type WHERE chunk_role IS NULL AND chunk_type IN ('parent', 'child')",
         [],
+    )?;
+    conn.execute(
+        "UPDATE chunks SET logical_parent_index = chunk_index
+         WHERE chunk_role = 'parent' AND logical_parent_index IS NULL",
+        [],
+    )?;
+    conn.execute_batch(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_chunks_source_parent_logical
+         ON chunks(source_id, logical_parent_index)
+         WHERE chunk_role = 'parent' AND logical_parent_index IS NOT NULL;",
     )?;
 
     // Apply PRAGMA settings and store the shared connection
@@ -217,24 +262,30 @@ pub fn init(data_dir: &std::path::Path, config: &crate::config::Config) -> Resul
     // Check embedding dimension mismatch: compare DB vectors with configured dimensions
     if let Some(config_dims) = config.embedding.dimensions {
         let conn = get_conn()?;
-        let db_dims: Option<usize> = conn.query_row(
-            "SELECT embedding FROM chunks WHERE embedding IS NOT NULL LIMIT 1",
-            [],
-            |row| {
-                let blob: Vec<u8> = row.get(0)?;
-                Ok(blob.len() / 4) // f32 = 4 bytes
-            },
-        ).ok();
+        let db_dims: Option<usize> = conn
+            .query_row(
+                "SELECT embedding FROM chunks WHERE embedding IS NOT NULL LIMIT 1",
+                [],
+                |row| {
+                    let blob: Vec<u8> = row.get(0)?;
+                    Ok(blob.len() / 4) // f32 = 4 bytes
+                },
+            )
+            .ok();
         drop(conn);
 
         if let Some(stored_dims) = db_dims {
             if stored_dims != config_dims {
                 anyhow::bail!(
                     "Embedding dimension mismatch: DB has {} but config says {}. Re-ingest all documents or update config.",
-                    stored_dims, config_dims
+                    stored_dims,
+                    config_dims
                 );
             }
-            tracing::info!("Embedding dimensions verified: {} (DB matches config)", stored_dims);
+            tracing::info!(
+                "Embedding dimensions verified: {} (DB matches config)",
+                stored_dims
+            );
         }
     }
 
@@ -251,7 +302,10 @@ pub fn sanitize_collection(collection: &str) -> Result<String> {
         .filter(|c| c.is_alphanumeric() || *c == '_' || *c == '-')
         .collect();
     if sanitized.is_empty() {
-        anyhow::bail!("Invalid collection ID: '{}' contains no valid characters", collection);
+        anyhow::bail!(
+            "Invalid collection ID: '{}' contains no valid characters",
+            collection
+        );
     }
     Ok(sanitized)
 }
@@ -260,11 +314,9 @@ pub fn sanitize_collection(collection: &str) -> Result<String> {
 pub fn stats() -> Result<Stats> {
     let conn = get_conn()?;
 
-    let count: usize = conn.query_row(
-        "SELECT COUNT(*) FROM sources",
-        [],
-        |row| row.get::<_, i64>(0),
-    )? as usize;
+    let count: usize = conn.query_row("SELECT COUNT(*) FROM sources", [], |row| {
+        row.get::<_, i64>(0)
+    })? as usize;
 
     Ok(Stats {
         document_count: count,

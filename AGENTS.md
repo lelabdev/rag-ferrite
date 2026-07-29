@@ -58,6 +58,7 @@ Décisions clés :
 - Live elapsed/speed/ETA : `get_progress()` recalcule `elapsed_seconds` depuis `started_at` à chaque appel — pas de compteurs périmés
 - Atomic tags + AND filtering (v5.2.0) : tags normalisés en minuscules (les tags hyphenés sont préservés), filtrage par intersection (AND) pour la précision. Pre-filter SQL INTERSECT pour petits sets, post-filter avec over-fetch pour grands sets (>2000 chunks). Intersection vide → retour immédiat avec `tag_filter_note`.
 - Vague 1 search correctness : filtered vector/BM25 searches reuse their active SQLite connection for filter IDs; parent-child commits synchronize child rows with FTS5 + sqlite-vec and populate `chunk_role`; query-cache keys include all search filters and invalidate on data mutations.
+- Storage integrity : source deletion is transactional across chunks, tags, FTS5, and sqlite-vec; deduplication uses SHA-256 with lazy legacy-hash migration; parent-child resume uses persisted logical parent indices rather than completion counts.
 
 ### Structure du code
 

@@ -11,14 +11,12 @@ use crate::llm::{ContextResult, LlmProvider};
 use crate::params::IngestConfig;
 use crate::types::IngestionReport;
 
-use super::{
-    get_conn, sanitize_collection,
-    add_embeddings_to_buffer, rebuild_and_save_indexes, wal_checkpoint,
-    insert_chunk_tags, update_collection_tags,
-    verify_chunks,
-};
-use super::chunk_counter;
 use super::activity_log;
+use super::chunk_counter;
+use super::{
+    add_embeddings_to_buffer, get_conn, insert_chunk_tags, rebuild_and_save_indexes,
+    sanitize_collection, update_collection_tags, verify_chunks, wal_checkpoint,
+};
 
 /// Ingest a text document into the RAG (recursive chunking path).
 pub async fn ingest_text(
@@ -36,13 +34,6 @@ pub async fn ingest_text(
     }
     let collection_id = sanitize_collection(collection.unwrap_or(DEFAULT_COLLECTION_ID))?;
     let meta = metadata.map(|m| m.to_string()).unwrap_or_default();
-    let source_id = sqlite::add_source_in_collection(
-        collection_id.clone(),
-        content.to_string(),
-        if meta.is_empty() { None } else { Some(meta) },
-        Some(source_name.to_string()),
-    )?.source_id;
-
     // Custom recursive character chunker (faster, no freeze on large docs)
     let chunk_size = options.chunk_size;
 
@@ -52,13 +43,36 @@ pub async fn ingest_text(
         content.len(),
         options.auto_threshold,
     );
-    tracing::info!("Chunking strategy: {} (content_len={}, threshold={})", strategy, content.len(), options.auto_threshold);
+    tracing::info!(
+        "Chunking strategy: {} (content_len={}, threshold={})",
+        strategy,
+        content.len(),
+        options.auto_threshold
+    );
 
     if strategy == "parent_child" {
         return ingest_text_parent_child(
-            embedder, llm, content, source_name, metadata, Some(&collection_id), options,
-        ).await;
+            embedder,
+            llm,
+            content,
+            source_name,
+            metadata,
+            Some(&collection_id),
+            options,
+        )
+        .await;
     }
+
+    let source = sqlite::add_source_in_collection(
+        collection_id.clone(),
+        content.to_string(),
+        if meta.is_empty() { None } else { Some(meta) },
+        Some(source_name.to_string()),
+    )?;
+    if source.is_duplicate {
+        anyhow::bail!("{}", source.message);
+    }
+    let source_id = source.source_id;
 
     // ── Recursive chunking (original path) ──
 
@@ -72,7 +86,10 @@ pub async fn ingest_text(
 
     // Skip chunking for small sources — single chunk is better than 2 tiny ones
     let chunks = if content.len() < chunk_size {
-        tracing::info!("Source below chunk size ({} chars), ingesting as single chunk", content.len());
+        tracing::info!(
+            "Source below chunk size ({} chars), ingesting as single chunk",
+            content.len()
+        );
         vec![chunker::Chunk {
             content: content.trim().to_string(),
             index: 0,
@@ -83,10 +100,23 @@ pub async fn ingest_text(
             page: None,
         }]
     } else {
-        chunker::chunk_text(content, chunk_size, options.chunk_overlap_ratio, options.merge_last_chunk_threshold)
+        chunker::chunk_text(
+            content,
+            chunk_size,
+            options.chunk_overlap_ratio,
+            options.merge_last_chunk_threshold,
+        )
     };
     tracing::info!("Chunked into {} chunks (size={})", chunks.len(), chunk_size);
-    activity_log::push("chunking", format!("Chunked '{}' into {} chunks (size={})", source_name, chunks.len(), chunk_size));
+    activity_log::push(
+        "chunking",
+        format!(
+            "Chunked '{}' into {} chunks (size={})",
+            source_name,
+            chunks.len(),
+            chunk_size
+        ),
+    );
 
     // Post-chunking verification
     let chunk_texts: Vec<String> = chunks.iter().map(|c| c.content.clone()).collect();
@@ -102,17 +132,30 @@ pub async fn ingest_text(
     let mut context_skipped = 0usize;
     let llm_start = Instant::now();
     let context_results: Vec<ContextResult> = if let Some(llm_provider) = llm {
-        tracing::info!("Generating context prefixes for {} chunks via LLM...", chunks.len());
-        activity_log::push("llm", format!("Starting contextual retrieval for {} chunks", chunks.len()));
+        tracing::info!(
+            "Generating context prefixes for {} chunks via LLM...",
+            chunks.len()
+        );
+        activity_log::push(
+            "llm",
+            format!("Starting contextual retrieval for {} chunks", chunks.len()),
+        );
         let (results, failures, skipped) = generate_contexts(
-            llm_provider, content, &chunk_texts,
-            options.context_batch_size, options.context_max_retries,
+            llm_provider,
+            content,
+            &chunk_texts,
+            options.context_batch_size,
+            options.context_max_retries,
             options.child_min_chars,
-        ).await;
+        )
+        .await;
         let with_ctx = results.iter().filter(|c| c.context.is_some()).count();
         tracing::info!(
             "Context: {}/{} contextualized, {} skipped, {} failed",
-            with_ctx, chunks.len(), skipped, failures
+            with_ctx,
+            chunks.len(),
+            skipped,
+            failures
         );
         context_failures = failures;
         context_skipped = skipped;
@@ -121,7 +164,10 @@ pub async fn ingest_text(
         vec![ContextResult::default(); chunks.len()]
     };
     let llm_duration_ms = llm_start.elapsed().as_millis() as u64;
-    activity_log::push("llm", format!("Contextual retrieval done in {}ms", llm_duration_ms));
+    activity_log::push(
+        "llm",
+        format!("Contextual retrieval done in {}ms", llm_duration_ms),
+    );
 
     // Filter chunks by relevance score if enabled
     let mut filtered_count = 0usize;
@@ -132,11 +178,16 @@ pub async fn ingest_text(
         .filter(|((_, _), ctx_result)| {
             if options.relevance_scoring
                 && let Some(score) = ctx_result.relevance_score
-                    && (score as f64) < options.min_relevance_score {
-                        filtered_count += 1;
-                        tracing::info!("Filtered chunk (score={:.1} < threshold={:.1})", score, options.min_relevance_score);
-                        return false;
-                    }
+                && (score as f64) < options.min_relevance_score
+            {
+                filtered_count += 1;
+                tracing::info!(
+                    "Filtered chunk (score={:.1} < threshold={:.1})",
+                    score,
+                    options.min_relevance_score
+                );
+                return false;
+            }
             true
         })
         .map(|((idx, chunk), ctx_result)| (idx, chunk, ctx_result))
@@ -146,30 +197,44 @@ pub async fn ingest_text(
     let (avg_relevance, min_relevance, rel_max) = compute_relevance_stats(&context_results);
 
     if filtered_count > 0 {
-        tracing::info!("Relevance scoring: filtered {}/{} chunks (threshold={:.1})", filtered_count, chunks.len(), options.min_relevance_score);
+        tracing::info!(
+            "Relevance scoring: filtered {}/{} chunks (threshold={:.1})",
+            filtered_count,
+            chunks.len(),
+            options.min_relevance_score
+        );
     }
 
     if kept.is_empty() {
-        tracing::warn!("All chunks filtered by relevance scoring, ingesting anyway");
+        sqlite::delete_source(source_id)?;
+        anyhow::bail!("All chunks were filtered by relevance scoring; source was not ingested");
     }
 
     // Build final texts for embedding: context prefix + chunk content
     let final_texts: Vec<String> = kept
         .iter()
-        .map(|(_, chunk, ctx_result)| {
-            match &ctx_result.context {
-                Some(context) => format!("{}\n\n{}", context, chunk.content),
-                None => chunk.content.clone(),
-            }
+        .map(|(_, chunk, ctx_result)| match &ctx_result.context {
+            Some(context) => format!("{}\n\n{}", context, chunk.content),
+            None => chunk.content.clone(),
         })
         .collect();
 
     // Batch embed all chunks (with context prefixes)
     let embed_start = Instant::now();
-    activity_log::push("embedding", format!("Embedding {} texts...", final_texts.len()));
+    activity_log::push(
+        "embedding",
+        format!("Embedding {} texts...", final_texts.len()),
+    );
     let embeddings = embedder.embed_batch(&final_texts).await?;
     let embedding_duration_ms = embed_start.elapsed().as_millis() as u64;
-    activity_log::push("embedding", format!("Embedding done in {}ms ({} texts)", embedding_duration_ms, final_texts.len()));
+    activity_log::push(
+        "embedding",
+        format!(
+            "Embedding done in {}ms ({} texts)",
+            embedding_duration_ms,
+            final_texts.len()
+        ),
+    );
 
     // Store original chunk content (not the prefixed version)
     // Collect section_paths, pages, and tags indexed by original chunk.index
@@ -203,7 +268,12 @@ pub async fn ingest_text(
         .collect();
 
     let count = sqlite::add_chunks(source_id, chunk_data)?;
-    tracing::info!("Ingested {} chunks for source {} ({})", count, source_id, source_name);
+    tracing::info!(
+        "Ingested {} chunks for source {} ({})",
+        count,
+        source_id,
+        source_name
+    );
 
     // Store section_path for each chunk (separate UPDATE since rag_engine doesn't know about it)
     update_chunk_section_paths(source_id, &section_paths)?;
@@ -304,7 +374,7 @@ pub(super) async fn generate_contexts(
             results.push(ContextResult {
                 context: None,
                 relevance_score: None,
-                    tags: Vec::new(),
+                tags: Vec::new(),
             });
         } else {
             long_indices.push(i);
@@ -314,13 +384,20 @@ pub(super) async fn generate_contexts(
     // Batch: send groups of long chunks in one LLM call each
     for batch_idx in long_indices.chunks(batch_size) {
         let batch_texts: Vec<String> = batch_idx.iter().map(|&i| chunk_texts[i].clone()).collect();
-        tracing::info!("Calling generate_context_for_parent ({} chunks)...", batch_texts.len());
-        let batch_results = llm_provider.generate_context_for_parent(whole_document, &batch_texts).await;
+        tracing::info!(
+            "Calling generate_context_for_parent ({} chunks)...",
+            batch_texts.len()
+        );
+        let batch_results = llm_provider
+            .generate_context_for_parent(whole_document, &batch_texts)
+            .await;
         for (j, result) in batch_results.into_iter().enumerate() {
             let global_i = batch_idx[j];
             match result {
                 Ok(ctx) => {
-                    if ctx.context.is_none() { failures += 1; }
+                    if ctx.context.is_none() {
+                        failures += 1;
+                    }
                     // Insert at correct position
                     while results.len() <= global_i {
                         results.push(ContextResult::default());
@@ -349,11 +426,21 @@ pub(super) async fn generate_contexts(
     if max_retries > 0 {
         let mut retry_count = 0usize;
         for &i in &long_indices {
-            if results[i].context.is_some() { continue; }
+            if results[i].context.is_some() {
+                continue;
+            }
             for attempt in 1..=max_retries {
-                match llm_provider.generate_context(whole_document, &chunk_texts[i]).await {
+                match llm_provider
+                    .generate_context(whole_document, &chunk_texts[i])
+                    .await
+                {
                     Ok(ctx) if ctx.context.is_some() => {
-                        tracing::debug!("Retry {}/{} succeeded for chunk {}", attempt, max_retries, i);
+                        tracing::debug!(
+                            "Retry {}/{} succeeded for chunk {}",
+                            attempt,
+                            max_retries,
+                            i
+                        );
                         failures = failures.saturating_sub(1);
                         retry_count += 1;
                         results[i] = ctx;
@@ -361,13 +448,23 @@ pub(super) async fn generate_contexts(
                     }
                     Ok(_) => {} // context still None
                     Err(e) => {
-                        tracing::debug!("Retry {}/{} failed for chunk {}: {}", attempt, max_retries, i, e);
+                        tracing::debug!(
+                            "Retry {}/{} failed for chunk {}: {}",
+                            attempt,
+                            max_retries,
+                            i,
+                            e
+                        );
                     }
                 }
             }
         }
         if retry_count > 0 {
-            tracing::info!("Retry recovered {}/{} failed chunks", retry_count, long_indices.len());
+            tracing::info!(
+                "Retry recovered {}/{} failed chunks",
+                retry_count,
+                long_indices.len()
+            );
         }
     }
 
@@ -385,8 +482,12 @@ pub(super) fn compute_relevance_stats(context_results: &[ContextResult]) -> (f64
             let s = s as f64;
             count += 1;
             sum += s;
-            if s < min { min = s; }
-            if s > max { max = s; }
+            if s < min {
+                min = s;
+            }
+            if s > max {
+                max = s;
+            }
         }
     }
     let avg = if count == 0 { 0.0 } else { sum / count as f64 };
@@ -435,32 +536,76 @@ async fn process_parent(
 ) -> Result<ParentProcessResult> {
     if children.is_empty() {
         return Ok(ParentProcessResult {
-            p_idx, context_failures: 0, context_skipped: 0, filtered_count: 0,
-            kept_data: vec![], parent_chunk, relevance_scores: vec![],
-            llm_duration_ms: 0, embedding_duration_ms: 0,
+            p_idx,
+            context_failures: 0,
+            context_skipped: 0,
+            filtered_count: 0,
+            kept_data: vec![],
+            parent_chunk,
+            relevance_scores: vec![],
+            llm_duration_ms: 0,
+            embedding_duration_ms: 0,
         });
     }
 
     let child_texts: Vec<String> = children.iter().map(|c| c.content.clone()).collect();
 
     // LLM context generation
-    let (context_results, context_failures, context_skipped, llm_ms) = if let Some(ref llm_provider) = llm {
-        tracing::info!("Processing parent {}/{} ({} children)...", p_idx + 1, total_parents, children.len());
-        activity_log::push("llm", format!("Parent {}/{}: contextual retrieval for {} children", p_idx + 1, total_parents, children.len()));
-        let t = Instant::now();
-        let (results, failures, skipped) = generate_contexts(
-            llm_provider, &whole_document, &child_texts,
-            batch_size, max_retries, child_min_chars,
-        ).await;
-        let dur = t.elapsed().as_millis() as u64;
-        if failures > 0 {
-            activity_log::push("error", format!("Parent {}/{}: {} context generation failures", p_idx + 1, total_parents, failures));
-        }
-        activity_log::push("llm", format!("Parent {}/{}: context done in {}ms ({} ok, {} skip, {} fail)", p_idx + 1, total_parents, dur, results.iter().filter(|r| r.context.is_some()).count(), skipped, failures));
-        (results, failures, skipped, dur)
-    } else {
-        (vec![ContextResult::default(); child_texts.len()], 0, 0, 0)
-    };
+    let (context_results, context_failures, context_skipped, llm_ms) =
+        if let Some(ref llm_provider) = llm {
+            tracing::info!(
+                "Processing parent {}/{} ({} children)...",
+                p_idx + 1,
+                total_parents,
+                children.len()
+            );
+            activity_log::push(
+                "llm",
+                format!(
+                    "Parent {}/{}: contextual retrieval for {} children",
+                    p_idx + 1,
+                    total_parents,
+                    children.len()
+                ),
+            );
+            let t = Instant::now();
+            let (results, failures, skipped) = generate_contexts(
+                llm_provider,
+                &whole_document,
+                &child_texts,
+                batch_size,
+                max_retries,
+                child_min_chars,
+            )
+            .await;
+            let dur = t.elapsed().as_millis() as u64;
+            if failures > 0 {
+                activity_log::push(
+                    "error",
+                    format!(
+                        "Parent {}/{}: {} context generation failures",
+                        p_idx + 1,
+                        total_parents,
+                        failures
+                    ),
+                );
+            }
+            activity_log::push(
+                "llm",
+                format!(
+                    "Parent {}/{}: context done in {}ms ({} ok, {} skip, {} fail)",
+                    p_idx + 1,
+                    total_parents,
+                    dur,
+                    results.iter().filter(|r| r.context.is_some()).count(),
+                    skipped,
+                    failures
+                ),
+            );
+            (results, failures, skipped, dur)
+        } else {
+            (vec![ContextResult::default(); child_texts.len()], 0, 0, 0)
+        };
 
     // Filter by relevance and build final texts
     let mut filtered_count = 0usize;
@@ -472,10 +617,11 @@ async fn process_parent(
         let ctx = &context_results[c_idx];
         if relevance_scoring
             && let Some(score) = ctx.relevance_score
-                && (score as f64) < min_relevance_score {
-                    filtered_count += 1;
-                    continue;
-                }
+            && (score as f64) < min_relevance_score
+        {
+            filtered_count += 1;
+            continue;
+        }
         if let Some(score) = ctx.relevance_score {
             relevance_scores.push(score as f64);
         }
@@ -489,22 +635,46 @@ async fn process_parent(
 
     if kept_children.is_empty() {
         return Ok(ParentProcessResult {
-            p_idx, context_failures, context_skipped, filtered_count,
-            kept_data: vec![], parent_chunk, relevance_scores,
-            llm_duration_ms: llm_ms, embedding_duration_ms: 0,
+            p_idx,
+            context_failures,
+            context_skipped,
+            filtered_count,
+            kept_data: vec![],
+            parent_chunk,
+            relevance_scores,
+            llm_duration_ms: llm_ms,
+            embedding_duration_ms: 0,
         });
     }
 
     // Embed
     tracing::info!("Embedding {} texts...", final_texts.len());
-    activity_log::push("embedding", format!("Parent {}/{}: embedding {} texts", p_idx + 1, total_parents, final_texts.len()));
+    activity_log::push(
+        "embedding",
+        format!(
+            "Parent {}/{}: embedding {} texts",
+            p_idx + 1,
+            total_parents,
+            final_texts.len()
+        ),
+    );
     let t = Instant::now();
     let embeddings = embedder.embed_batch(&final_texts).await?;
     let embed_ms = t.elapsed().as_millis() as u64;
-    activity_log::push("embedding", format!("Parent {}/{}: embedding done in {}ms", p_idx + 1, total_parents, embed_ms));
+    activity_log::push(
+        "embedding",
+        format!(
+            "Parent {}/{}: embedding done in {}ms",
+            p_idx + 1,
+            total_parents,
+            embed_ms
+        ),
+    );
 
     // Build kept data
-    let kept_data: Vec<KeptChild> = kept_children.iter().zip(embeddings)
+    let kept_data: Vec<KeptChild> = kept_children
+        .iter()
+        .zip(embeddings)
         .map(|((_, child, ctx_result), embedding)| KeptChild {
             content: child.content.clone(),
             chunk_index: child.index,
@@ -516,37 +686,46 @@ async fn process_parent(
         .collect();
 
     Ok(ParentProcessResult {
-        p_idx, context_failures, context_skipped, filtered_count,
-        kept_data, parent_chunk, relevance_scores,
-        llm_duration_ms: llm_ms, embedding_duration_ms: embed_ms,
+        p_idx,
+        context_failures,
+        context_skipped,
+        filtered_count,
+        kept_data,
+        parent_chunk,
+        relevance_scores,
+        llm_duration_ms: llm_ms,
+        embedding_duration_ms: embed_ms,
     })
 }
 
 /// Commit a processed parent and its children to the database.
 pub(super) fn commit_parent_to_db(
     source_id: i64,
+    logical_parent_index: usize,
     parent_chunk: &chunker::Chunk,
     kept_data: &[KeptChild],
     collection_id: &str,
 ) -> Result<usize> {
-    let conn = get_conn()?;
+    let mut conn = get_conn()?;
+    let tx = conn.transaction()?;
     let mut parent_tags: Vec<(i32, Vec<String>)> = Vec::new();
 
-    // Store parent chunk (direct INSERT — single connection, no pool contention)
-    conn.execute(
-        "INSERT INTO chunks (source_id, collection_id, content, chunk_index, start_pos, end_pos, chunk_type, chunk_role) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-        rusqlite::params![source_id, collection_id, parent_chunk.content, parent_chunk.index, parent_chunk.start_pos, parent_chunk.end_pos, "parent", "parent"],
+    tx.execute(
+        "INSERT INTO chunks (source_id, collection_id, content, chunk_index, start_pos, end_pos, chunk_type, chunk_role, logical_parent_index) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+        rusqlite::params![source_id, collection_id, parent_chunk.content, parent_chunk.index, parent_chunk.start_pos, parent_chunk.end_pos, "parent", "parent", logical_parent_index as i64],
     )?;
-    let parent_db_id: i64 = conn.query_row(
-        "SELECT last_insert_rowid()",
-        [],
-        |row| row.get(0),
-    )?;
+    let parent_db_id = tx.last_insert_rowid();
     if let Some(sp) = &parent_chunk.section_path {
-        conn.execute("UPDATE chunks SET section_path = ?1 WHERE id = ?2", rusqlite::params![sp, parent_db_id])?;
+        tx.execute(
+            "UPDATE chunks SET section_path = ?1 WHERE id = ?2",
+            rusqlite::params![sp, parent_db_id],
+        )?;
     }
     if let Some(p) = parent_chunk.page {
-        conn.execute("UPDATE chunks SET page = ?1 WHERE id = ?2", rusqlite::params![p as i64, parent_db_id])?;
+        tx.execute(
+            "UPDATE chunks SET page = ?1 WHERE id = ?2",
+            rusqlite::params![p as i64, parent_db_id],
+        )?;
     }
 
     // Store children (direct INSERT — avoids pool contention)
@@ -555,25 +734,47 @@ pub(super) fn commit_parent_to_db(
             None
         } else {
             // Serialize Vec<f32> to bytes (little-endian f32 array)
-            let bytes: Vec<u8> = child.embedding.iter()
+            let bytes: Vec<u8> = child
+                .embedding
+                .iter()
                 .flat_map(|f| f.to_le_bytes())
                 .collect();
             Some(bytes)
         };
-        conn.execute(
+        tx.execute(
             "INSERT INTO chunks (source_id, collection_id, content, chunk_index, start_pos, end_pos, chunk_type, chunk_role, parent_id, embedding) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             rusqlite::params![source_id, collection_id, child.content, child.chunk_index, child.start_pos, child.end_pos, "child", "child", parent_db_id, embedding_blob],
         )?;
-        let child_db_id = conn.last_insert_rowid();
-        crate::storage::sqlite::add_chunk_to_indexes(&conn, child_db_id, &child.content, &child.embedding)?;
+        let child_db_id = tx.last_insert_rowid();
+        crate::storage::sqlite::add_chunk_to_indexes(
+            &tx,
+            child_db_id,
+            &child.content,
+            &child.embedding,
+        )?;
         if !child.tags.is_empty() {
             parent_tags.push((child.chunk_index, child.tags.clone()));
         }
     }
 
+    for (chunk_index, tags) in &parent_tags {
+        let chunk_id: i64 = tx.query_row(
+            "SELECT id FROM chunks WHERE source_id = ?1 AND chunk_index = ?2",
+            rusqlite::params![source_id, chunk_index],
+            |row| row.get(0),
+        )?;
+        for tag in tags {
+            tx.execute(
+                "INSERT OR IGNORE INTO chunk_tags (chunk_id, tag) VALUES (?1, ?2)",
+                rusqlite::params![chunk_id, tag],
+            )?;
+        }
+    }
+    tx.commit()?;
+
     if parent_tags.iter().any(|(_, t)| !t.is_empty()) {
-        insert_chunk_tags(source_id, &parent_tags, Some(&conn))?;
-        let _ = update_collection_tags(source_id, &parent_tags, &collection_id, &conn);
+        let conn = get_conn()?;
+        let _ = update_collection_tags(source_id, &parent_tags, collection_id, &conn);
     }
 
     crate::pipeline::invalidate_cache();
@@ -597,28 +798,33 @@ async fn ingest_text_parent_child(
     let collection_id = sanitize_collection(collection.unwrap_or(DEFAULT_COLLECTION_ID))?;
     let meta = metadata.map(|m| m.to_string()).unwrap_or_default();
 
-    // Reuse existing source if one with the same name exists in this collection
-    let source_id: i64 = {
-        let conn = get_conn()?;
-        let existing_id: Option<i64> = conn.query_row(
-            "SELECT id FROM sources WHERE name = ?1 AND collection_id = ?2 LIMIT 1",
-            rusqlite::params![source_name, collection_id],
-            |row| row.get::<_, i64>(0),
-        ).ok();
-        match existing_id {
-            Some(id) => {
-                tracing::info!("Reusing existing source id={} for '{}' (resume)", id, source_name);
-                id
-            }
-            None => {
-                sqlite::add_source_in_collection(
-                    collection_id.clone(),
-                    content.to_string(),
-                    if meta.is_empty() { None } else { Some(meta) },
-                    Some(source_name.to_string()),
-                )?.source_id
-            }
+    let source = sqlite::add_source_in_collection(
+        collection_id.clone(),
+        content.to_string(),
+        if meta.is_empty() { None } else { Some(meta) },
+        Some(source_name.to_string()),
+    )?;
+    let source_id = if source.is_duplicate {
+        let status: String = {
+            let conn = get_conn()?;
+            conn.query_row(
+                "SELECT status FROM sources WHERE id = ?1",
+                rusqlite::params![source.source_id],
+                |row| row.get(0),
+            )?
+        };
+        if status == "pending" {
+            tracing::info!(
+                "Resuming pending source id={} for '{}'",
+                source.source_id,
+                source_name
+            );
+            source.source_id
+        } else {
+            anyhow::bail!("{}", source.message);
         }
+    } else {
+        source.source_id
     };
 
     // Step 1: Parent-child chunking
@@ -635,9 +841,16 @@ async fn ingest_text_parent_child(
     let total_children: usize = groups.iter().map(|g| g.children.len()).sum();
     tracing::info!(
         "Parent-child chunking: {} parents, {} children",
-        total_parents, total_children
+        total_parents,
+        total_children
     );
-    activity_log::push("chunking", format!("Parent-child chunking: {} parents, {} children for '{}'", total_parents, total_children, source_name));
+    activity_log::push(
+        "chunking",
+        format!(
+            "Parent-child chunking: {} parents, {} children for '{}'",
+            total_parents, total_children, source_name
+        ),
+    );
 
     // Parallel processing: use JoinSet to process up to max_concurrent parents simultaneously.
     // LLM context generation and embedding happen in parallel.
@@ -651,25 +864,28 @@ async fn ingest_text_parent_child(
     let mut embedding_duration_ms: u64 = 0;
     let mut all_relevance_scores: Vec<f64> = Vec::new();
 
-    // Check how many parents already have chunks (resume support)
-    let existing_parent_count: usize = {
+    // Resume from exact committed logical parent indices, not completion count.
+    let committed_parent_indices: std::collections::HashSet<i64> = {
         let conn = get_conn()?;
-        let count: i64 = conn.query_row(
-            "SELECT COUNT(DISTINCT parent_id) FROM chunks WHERE source_id = ?1 AND parent_id IS NOT NULL",
-            rusqlite::params![source_id],
-            |row| row.get::<_, i64>(0),
+        let mut stmt = conn.prepare(
+            "SELECT logical_parent_index FROM chunks
+             WHERE source_id = ?1 AND chunk_role = 'parent' AND logical_parent_index IS NOT NULL",
         )?;
-        count as usize
+        stmt.query_map(rusqlite::params![source_id], |row| row.get(0))?
+            .collect::<rusqlite::Result<_>>()?
     };
-    if existing_parent_count > 0 {
-        tracing::info!("Resume: {} parents already committed, starting from parent {}", existing_parent_count, existing_parent_count + 1);
+    if !committed_parent_indices.is_empty() {
+        tracing::info!(
+            "Resume: {} exact parent groups already committed",
+            committed_parent_indices.len()
+        );
     }
 
-    // Collect parents to process (skip already committed)
-    let parents_to_process: Vec<(usize, &chunker::ParentChildGroup)> = groups.iter()
+    let parents_to_process: Vec<(usize, &chunker::ParentChildGroup)> = groups
+        .iter()
         .enumerate()
         .filter(|(p_idx, group)| {
-            *p_idx >= existing_parent_count && !group.children.is_empty()
+            !committed_parent_indices.contains(&(*p_idx as i64)) && !group.children.is_empty()
         })
         .collect();
 
@@ -683,7 +899,8 @@ async fn ingest_text_parent_child(
         let relevance_scoring = options.relevance_scoring;
         let min_relevance_score = options.min_relevance_score;
 
-        let mut join_set: tokio::task::JoinSet<Result<ParentProcessResult>> = tokio::task::JoinSet::new();
+        let mut join_set: tokio::task::JoinSet<Result<ParentProcessResult>> =
+            tokio::task::JoinSet::new();
         let mut parent_iter = parents_to_process.into_iter();
 
         // Seed the join set with up to `concurrency` tasks
@@ -697,10 +914,21 @@ async fn ingest_text_parent_child(
                 let col_id = collection_id.clone();
                 join_set.spawn(async move {
                     process_parent(
-                        p_idx, total_parents, children, parent_chunk,
-                        llm, embedder, doc, batch_size, max_retries, child_min_chars_val,
-                        relevance_scoring, min_relevance_score, col_id,
-                    ).await
+                        p_idx,
+                        total_parents,
+                        children,
+                        parent_chunk,
+                        llm,
+                        embedder,
+                        doc,
+                        batch_size,
+                        max_retries,
+                        child_min_chars_val,
+                        relevance_scoring,
+                        min_relevance_score,
+                        col_id,
+                    )
+                    .await
                 });
             }
         }
@@ -717,10 +945,21 @@ async fn ingest_text_parent_child(
                 let col_id = collection_id.clone();
                 join_set.spawn(async move {
                     process_parent(
-                        p_idx, total_parents, children, parent_chunk,
-                        llm, embedder, doc, batch_size, max_retries, child_min_chars_val,
-                        relevance_scoring, min_relevance_score, col_id,
-                    ).await
+                        p_idx,
+                        total_parents,
+                        children,
+                        parent_chunk,
+                        llm,
+                        embedder,
+                        doc,
+                        batch_size,
+                        max_retries,
+                        child_min_chars_val,
+                        relevance_scoring,
+                        min_relevance_score,
+                        col_id,
+                    )
+                    .await
                 });
             }
 
@@ -740,16 +979,40 @@ async fn ingest_text_parent_child(
 
             // Commit to DB (sequential — SQLite)
             if !processed.kept_data.is_empty() {
-                let kept_count = commit_parent_to_db(source_id, &processed.parent_chunk, &processed.kept_data, &collection_id)?;
+                let kept_count = commit_parent_to_db(
+                    source_id,
+                    processed.p_idx,
+                    &processed.parent_chunk,
+                    &processed.kept_data,
+                    &collection_id,
+                )?;
                 total_kept += kept_count;
-                tracing::info!("Parent {}/{} committed ({} children stored)", processed.p_idx + 1, total_parents, kept_count);
-                activity_log::push("info", format!("Parent {}/{} committed ({} children stored)", processed.p_idx + 1, total_parents, kept_count));
+                tracing::info!(
+                    "Parent {}/{} committed ({} children stored)",
+                    processed.p_idx + 1,
+                    total_parents,
+                    kept_count
+                );
+                activity_log::push(
+                    "info",
+                    format!(
+                        "Parent {}/{} committed ({} children stored)",
+                        processed.p_idx + 1,
+                        total_parents,
+                        kept_count
+                    ),
+                );
                 // Increment global chunk counter for real-time progress
                 chunk_counter::add(kept_count);
 
                 // Periodic WAL checkpoint to prevent WAL bloat during ingestion
-                if options.wal_checkpoint_interval > 0 && total_kept % options.wal_checkpoint_interval == 0 {
-                    tracing::info!("Periodic WAL checkpoint ({} children committed)", total_kept);
+                if options.wal_checkpoint_interval > 0
+                    && total_kept % options.wal_checkpoint_interval == 0
+                {
+                    tracing::info!(
+                        "Periodic WAL checkpoint ({} children committed)",
+                        total_kept
+                    );
                     wal_checkpoint();
                 }
             }
@@ -773,10 +1036,21 @@ async fn ingest_text_parent_child(
     let total_duration_ms = total_start.elapsed().as_millis() as u64;
 
     // Compute relevance stats from accumulated scores
-    let avg_relevance = if all_relevance_scores.is_empty() { 0.0 } else { all_relevance_scores.iter().sum::<f64>() / all_relevance_scores.len() as f64 };
-    let min_relevance = all_relevance_scores.iter().cloned().fold(f64::INFINITY, f64::min);
+    let avg_relevance = if all_relevance_scores.is_empty() {
+        0.0
+    } else {
+        all_relevance_scores.iter().sum::<f64>() / all_relevance_scores.len() as f64
+    };
+    let min_relevance = all_relevance_scores
+        .iter()
+        .cloned()
+        .fold(f64::INFINITY, f64::min);
     let rel_max = all_relevance_scores.iter().cloned().fold(0.0f64, f64::max);
-    let min_relevance = if min_relevance == f64::INFINITY { 0.0 } else { min_relevance };
+    let min_relevance = if min_relevance == f64::INFINITY {
+        0.0
+    } else {
+        min_relevance
+    };
 
     let report = IngestionReport {
         total_chunks: total_children,
@@ -795,14 +1069,23 @@ async fn ingest_text_parent_child(
     let contextualized = total_children - context_failures - context_skipped - filtered_count;
     tracing::info!(
         "Parent-child ingestion complete: {} parents, {} children in {}ms | {} contextualized, {} skipped, {} failed, {} filtered",
-        total_parents, total_children, total_duration_ms, contextualized, context_skipped, context_failures, filtered_count
+        total_parents,
+        total_children,
+        total_duration_ms,
+        contextualized,
+        context_skipped,
+        context_failures,
+        filtered_count
     );
 
     Ok((source_id, report))
 }
 
 /// Update section_path for all chunks of a source, matched by chunk_index.
-pub(super) fn update_chunk_section_paths(source_id: i64, section_paths: &[(i32, Option<String>)]) -> Result<()> {
+pub(super) fn update_chunk_section_paths(
+    source_id: i64,
+    section_paths: &[(i32, Option<String>)],
+) -> Result<()> {
     let conn = get_conn()?;
 
     for &(chunk_index, ref path) in section_paths {

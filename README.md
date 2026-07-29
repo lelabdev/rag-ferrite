@@ -1065,7 +1065,7 @@ Parent section
 
 Small child chunks are used for precise matching.
 
-Broader parent context can then be returned so the assistant receives a coherent explanation rather than an isolated sentence.
+Broader parent context can then be returned so the assistant receives a coherent explanation rather than an isolated sentence. Each committed parent has a stable logical identifier, so an interrupted ingestion resumes exactly the missing parent groups instead of relying on commit order.
 
 This is especially useful for:
 
