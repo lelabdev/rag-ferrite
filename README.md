@@ -44,10 +44,22 @@ Your original files remain the source of truth. They can be carefully organized 
 
 A personal library can act as a second brain in two complementary ways:
 
-* **For you:** files remain readable, editable, portable, and usable with any editor or note-taking tool.
-* **For your assistants:** `rag-ferrite` turns the same files into a retrieval layer they can search by exact wording or meaning.
+* **A living workspace for you:** notes remain readable, editable, and open to revision as your thinking evolves.
+* **A retrieval memory for your assistants:** `rag-ferrite` indexes collected material so they can search it by exact wording or meaning.
 
-You keep the human-readable knowledge you control. Your assistants gain a machine-oriented way to find the right parts without requiring you to locate, open, and paste them into every conversation.
+The two roles are related, but they are not identical. `rag-ferrite` works best as a derived search layer over relatively stable reference material. It is not a sync-first editor for documents that change constantly; changed sources can be re-ingested when their indexed version needs to be refreshed.
+
+A typical workflow can move knowledge from one side to the other:
+
+```text
+collect source material
+→ ingest it into rag-ferrite
+→ retrieve and compare relevant passages
+→ create a focused note
+→ refine that note in your preferred writing tool
+```
+
+You keep a human workspace for active thinking and a machine-oriented memory for retrieval. Neither replaces the other.
 
 ---
 
