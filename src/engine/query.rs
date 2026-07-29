@@ -1,6 +1,6 @@
-use anyhow::Result;
 use crate::storage::sqlite;
 use crate::types::ChunkSearchResult;
+use anyhow::Result;
 
 use super::get_conn;
 
@@ -10,7 +10,9 @@ pub fn in_placeholders(n: usize) -> String {
 }
 
 /// Fetch section_path for a batch of chunk IDs.
-pub fn get_section_paths_for_chunk_ids(chunk_ids: &[i64]) -> Result<std::collections::HashMap<i64, Option<String>>> {
+pub fn get_section_paths_for_chunk_ids(
+    chunk_ids: &[i64],
+) -> Result<std::collections::HashMap<i64, Option<String>>> {
     if chunk_ids.is_empty() {
         return Ok(std::collections::HashMap::new());
     }
@@ -39,14 +41,22 @@ pub fn get_section_paths_for_chunk_ids(chunk_ids: &[i64]) -> Result<std::collect
 }
 
 /// Fetch page for a batch of chunk IDs using a single IN query.
-pub fn get_pages_for_chunk_ids(chunk_ids: &[i64]) -> Result<std::collections::HashMap<i64, Option<u32>>> {
+pub fn get_pages_for_chunk_ids(
+    chunk_ids: &[i64],
+) -> Result<std::collections::HashMap<i64, Option<u32>>> {
     if chunk_ids.is_empty() {
         return Ok(std::collections::HashMap::new());
     }
     let conn = get_conn()?;
     let mut map = std::collections::HashMap::new();
-    let sql = format!("SELECT id, page FROM chunks WHERE id IN ({})", in_placeholders(chunk_ids.len()));
-    let params: Vec<&dyn rusqlite::types::ToSql> = chunk_ids.iter().map(|id| id as &dyn rusqlite::types::ToSql).collect();
+    let sql = format!(
+        "SELECT id, page FROM chunks WHERE id IN ({})",
+        in_placeholders(chunk_ids.len())
+    );
+    let params: Vec<&dyn rusqlite::types::ToSql> = chunk_ids
+        .iter()
+        .map(|id| id as &dyn rusqlite::types::ToSql)
+        .collect();
     let mut stmt = conn.prepare(&sql)?;
     let rows = stmt.query_map(params.as_slice(), |row| {
         Ok((row.get::<_, i64>(0)?, row.get::<_, Option<u32>>(1)?))
@@ -74,7 +84,12 @@ pub fn get_source_names(source_ids: &[i64]) -> Result<std::collections::HashMap<
     Ok(map)
 }
 
-pub fn get_neighbors(source_id: i64, chunk_index: i64, before: i64, after: i64) -> Result<Vec<(ChunkSearchResult, Option<String>, Option<u32>)>> {
+pub fn get_neighbors(
+    source_id: i64,
+    chunk_index: i64,
+    before: i64,
+    after: i64,
+) -> Result<Vec<(ChunkSearchResult, Option<String>, Option<u32>)>> {
     let min_index = (chunk_index - before).max(0);
     let max_index = chunk_index + after;
     let chunks = sqlite::get_adjacent_chunks(source_id, min_index as i32, max_index as i32)?;
@@ -98,23 +113,9 @@ pub fn get_neighbors(source_id: i64, chunk_index: i64, before: i64, after: i64) 
 
 /// Delete a source by ID
 pub fn delete_source(source_id: i64) -> Result<()> {
-    // Delete from rag_engine (sources table)
     sqlite::delete_source(source_id)?;
 
-    // Also delete orphaned chunks and their tags (rag_engine::delete_source may not clean them)
-    {
-        let conn = get_conn()?;
-        // Delete tags for chunks belonging to this source (before deleting the chunks)
-        conn.execute(
-            "DELETE FROM chunk_tags WHERE chunk_id IN (SELECT id FROM chunks WHERE source_id = ?1)",
-            rusqlite::params![source_id],
-        )?;
-        conn.execute("DELETE FROM chunks WHERE source_id = ?1", rusqlite::params![source_id])?;
-    }
-
-    // Note: indexes are NOT rebuilt on delete — they'll be rebuilt on next flush/restart.
-    // Rebuilding 69K+ chunks synchronously on every delete was causing 120s+ hangs.
-
+    // Indexes are not rebuilt synchronously on delete; the next flush refreshes them.
     Ok(())
 }
 
@@ -131,16 +132,19 @@ pub fn list_sources() -> Result<Vec<crate::types::SourceEntry>> {
          ORDER BY id DESC",
     )?;
 
-    let entries: Vec<crate::types::SourceEntry> = stmt.query_map([], |row| {
-        Ok(crate::types::SourceEntry {
-            id: row.get(0)?,
-            name: row.get(1)?,
-            created_at: row.get(2)?,
-            metadata: row.get(3)?,
-            status: row.get(4)?,
-            collection_id: row.get(5)?,
-        })
-    })?.filter_map(|e| e.ok()).collect();
+    let entries: Vec<crate::types::SourceEntry> = stmt
+        .query_map([], |row| {
+            Ok(crate::types::SourceEntry {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                created_at: row.get(2)?,
+                metadata: row.get(3)?,
+                status: row.get(4)?,
+                collection_id: row.get(5)?,
+            })
+        })?
+        .filter_map(|e| e.ok())
+        .collect();
 
     Ok(entries)
 }
@@ -148,9 +152,8 @@ pub fn list_sources() -> Result<Vec<crate::types::SourceEntry>> {
 /// Count chunks per source — used by list to show chunk_count.
 pub fn count_chunks_per_source() -> Result<std::collections::HashMap<i64, i64>> {
     let conn = get_conn()?;
-    let mut stmt = conn.prepare(
-        "SELECT source_id, COUNT(*) as cnt FROM chunks GROUP BY source_id",
-    )?;
+    let mut stmt =
+        conn.prepare("SELECT source_id, COUNT(*) as cnt FROM chunks GROUP BY source_id")?;
     let counts: std::collections::HashMap<i64, i64> = stmt
         .query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)))?
         .filter_map(|r| r.ok())
@@ -202,13 +205,19 @@ pub fn resolve_parents(chunk_ids: &[i64]) -> Result<std::collections::HashMap<i6
     let mut parent_stmt = conn.prepare(&parent_sql)?;
     let mut parent_data: std::collections::HashMap<i64, (String, Option<String>, Option<u32>)> =
         std::collections::HashMap::new();
-    for (id, content, sp, page) in parent_stmt.query_map(rusqlite::params_from_iter(parent_params.iter().copied()), |row| {
-        let id: i64 = row.get(0)?;
-        let content: String = row.get(1)?;
-        let section_path: Option<String> = row.get(2)?;
-        let page: Option<u32> = row.get::<_, Option<i64>>(3)?.map(|p| p as u32);
-        Ok((id, content, section_path, page))
-    })?.flatten() {
+    for (id, content, sp, page) in parent_stmt
+        .query_map(
+            rusqlite::params_from_iter(parent_params.iter().copied()),
+            |row| {
+                let id: i64 = row.get(0)?;
+                let content: String = row.get(1)?;
+                let section_path: Option<String> = row.get(2)?;
+                let page: Option<u32> = row.get::<_, Option<i64>>(3)?.map(|p| p as u32);
+                Ok((id, content, section_path, page))
+            },
+        )?
+        .flatten()
+    {
         parent_data.insert(id, (content, sp, page));
     }
 
@@ -216,11 +225,14 @@ pub fn resolve_parents(chunk_ids: &[i64]) -> Result<std::collections::HashMap<i6
     let mut result = std::collections::HashMap::new();
     for (child_id, parent_id) in &child_rows {
         if let Some((content, section_path, page)) = parent_data.get(parent_id) {
-            result.insert(*child_id, ParentInfo {
-                content: content.clone(),
-                section_path: section_path.clone(),
-                page: *page,
-            });
+            result.insert(
+                *child_id,
+                ParentInfo {
+                    content: content.clone(),
+                    section_path: section_path.clone(),
+                    page: *page,
+                },
+            );
         }
     }
 

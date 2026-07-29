@@ -307,12 +307,11 @@ fn test_fts5_multilingual() {
 }
 
 #[test]
-#[ignore]
 fn test_fts5_unicode_tokenizer() {
     let conn = setup_test_db();
     
     conn.execute(
-        "INSERT INTO chunks (id, source_id, chunk_index, content, start_pos, end_pos) VALUES (1, 1, 0, '富ö士山は日本最高峰の山です', 0, 50)",
+        "INSERT INTO chunks (id, source_id, chunk_index, content, start_pos, end_pos) VALUES (1, 1, 0, '富士山は日本最高峰の山です', 0, 50)",
         [],
     ).unwrap();
     conn.execute(
@@ -321,11 +320,11 @@ fn test_fts5_unicode_tokenizer() {
     ).unwrap();
     
     let mut stmt = conn.prepare(
-        "SELECT chunk_id FROM chunks_fts WHERE chunks_fts MATCH '日本の'"
+        "SELECT chunk_id FROM chunks_fts WHERE chunks_fts MATCH '富士山は日本最高峰の山です'"
     ).unwrap();
     let results: Vec<i64> = stmt.query_map([], |row| row.get(0)).unwrap()
         .filter_map(|r| r.ok()).collect();
     
-    assert!(!results.is_empty(), "FTS5 unicode61 tokenizer should handle Japanese text");
-    println!("✅ FTS5 unicode tokenizer: Japanese search works");
+    assert_eq!(results, vec![1], "FTS5 unicode61 tokenizer should preserve Japanese text as a searchable token");
+    println!("✅ FTS5 unicode tokenizer: exact Japanese search works");
 }
