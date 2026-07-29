@@ -127,7 +127,8 @@ where
 
 /// Add chunks for a source (replaces rag_engine::add_chunks)
 pub fn add_chunks(source_id: i64, chunks: Vec<ChunkData>) -> Result<i32> {
-    let conn = get_conn()?;
+    let mut conn = get_conn()?;
+    let tx = conn.transaction()?;
     let count = chunks.len() as i32;
 
     for chunk in &chunks {
@@ -137,7 +138,7 @@ pub fn add_chunks(source_id: i64, chunks: Vec<ChunkData>) -> Result<i32> {
             .flat_map(|f| f.to_ne_bytes())
             .collect();
 
-        conn.execute(
+        tx.execute(
             "INSERT INTO chunks (source_id, collection_id, chunk_index, content, start_pos, end_pos, chunk_type, embedding)
              SELECT ?1, collection_id, ?2, ?3, ?4, ?5, ?6, ?7
              FROM sources WHERE id = ?1",
@@ -153,9 +154,10 @@ pub fn add_chunks(source_id: i64, chunks: Vec<ChunkData>) -> Result<i32> {
         )?;
 
         // Keep both secondary indexes synchronized with the canonical chunk row.
-        let chunk_id = conn.last_insert_rowid();
-        add_chunk_to_indexes(&conn, chunk_id, &chunk.content, &chunk.embedding)?;
+        let chunk_id = tx.last_insert_rowid();
+        add_chunk_to_indexes(&tx, chunk_id, &chunk.content, &chunk.embedding)?;
     }
+    tx.commit()?;
 
     tracing::info!("Added {} chunks for source {}", count, source_id);
     crate::pipeline::invalidate_cache();

@@ -1019,6 +1019,13 @@ async fn ingest_text_parent_child(
         }
     }
 
+    if total_kept == 0 {
+        sqlite::delete_source(source_id)?;
+        anyhow::bail!(
+            "All parent-child chunks were filtered by relevance scoring; source was not ingested"
+        );
+    }
+
     // Mark source as completed
     if let Err(e) = sqlite::update_source_status(source_id, "completed".to_string()) {
         tracing::warn!("Failed to update source status: {}", e);
