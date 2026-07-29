@@ -56,7 +56,8 @@ Décisions clés :
 - IngestOptions éliminé — le moteur utilise params::IngestConfig directement
 - Activity log : ring buffer global (20 derniers events) avec OnceLock + Mutex ; le moteur pousse des événements pendant l'ingestion (embedding, llm, chunking, error, info) ; exposé dans la progress API
 - Live elapsed/speed/ETA : `get_progress()` recalcule `elapsed_seconds` depuis `started_at` à chaque appel — pas de compteurs périmés
-- Atomic tags + AND filtering (v5.2.0) : tags atomiques (mots simples), filtrage par intersection (AND) pour la précision. Tags composés éclatés en mots individuels. Pre-filter SQL INTERSECT pour petits sets, post-filter avec over-fetch pour grands sets (>2000 chunks). Intersection vide → retour immédiat avec `tag_filter_note`.
+- Atomic tags + AND filtering (v5.2.0) : tags normalisés en minuscules (les tags hyphenés sont préservés), filtrage par intersection (AND) pour la précision. Pre-filter SQL INTERSECT pour petits sets, post-filter avec over-fetch pour grands sets (>2000 chunks). Intersection vide → retour immédiat avec `tag_filter_note`.
+- Vague 1 search correctness : filtered vector/BM25 searches reuse their active SQLite connection for filter IDs; parent-child commits synchronize child rows with FTS5 + sqlite-vec and populate `chunk_role`; query-cache keys include all search filters and invalidate on data mutations.
 
 ### Structure du code
 

@@ -1,8 +1,16 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
+
+static CACHE_VERSION: AtomicU64 = AtomicU64::new(0);
+
+/// Invalidate query results after a data mutation.
+pub fn invalidate_cache() {
+    CACHE_VERSION.fetch_add(1, Ordering::Relaxed);
+}
 use crate::embedding::EmbeddingProvider;
 use crate::llm::LlmProvider;
 use crate::reranker::{Reranker, RerankedResult};
@@ -28,9 +36,11 @@ impl Cache {
         }
     }
 
-    /// Build a cache key from query and limit.
-    fn make_key(query: &str, limit: usize) -> String {
-        format!("{}|{}", query, limit)
+    /// Build a cache key from query, limit, and the complete search filter.
+    fn make_key(query: &str, limit: usize, filter: Option<&crate::types::SearchFilter>) -> String {
+        let filter_key = filter.map(canonical_filter_key).unwrap_or_default();
+        let version = CACHE_VERSION.load(Ordering::Relaxed);
+        format!("{}|{}|{}|{}", version, query, limit, filter_key)
     }
 
     /// Look up a cached result. Returns `None` on miss or if the entry has expired.
@@ -53,6 +63,23 @@ impl Cache {
             map.retain(|_, (inserted_at, _)| inserted_at.elapsed() < ttl);
         }
     }
+}
+
+fn canonical_filter_key(filter: &crate::types::SearchFilter) -> String {
+    fn sorted_ids(ids: &Option<Vec<i64>>) -> String {
+        let mut values = ids.clone().unwrap_or_default();
+        values.sort_unstable();
+        values.dedup();
+        values.iter().map(i64::to_string).collect::<Vec<_>>().join(",")
+    }
+
+    format!(
+        "sources={};metadata={};collection={};chunks={}",
+        sorted_ids(&filter.source_ids),
+        filter.metadata_like.as_deref().unwrap_or_default(),
+        filter.collection_id.as_deref().unwrap_or_default(),
+        sorted_ids(&filter.chunk_ids),
+    )
 }
 
 /// Query complexity classification for adaptive pipeline routing.
@@ -178,7 +205,7 @@ impl QueryPipeline {
         limit: usize,
         filter: Option<crate::types::SearchFilter>,
     ) -> Result<QueryOutput> {
-        let cache_key = Cache::make_key(query, limit);
+        let cache_key = Cache::make_key(query, limit, filter.as_ref());
 
         // Check cache before executing the query
         if let Some(cached) = self.cache.get(&cache_key) {
@@ -464,6 +491,52 @@ mod tests {
         assert_eq!(classify_confidence(0.9, 0.5, 0.8), Confidence::High);
         assert_eq!(classify_confidence(0.6, 0.5, 0.8), Confidence::Medium);
         assert_eq!(classify_confidence(0.2, 0.5, 0.8), Confidence::Low);
+    }
+
+    #[test]
+    fn cache_keys_include_all_search_filters() {
+        let source_filter = crate::types::SearchFilter {
+            source_ids: Some(vec![42]),
+            ..Default::default()
+        };
+        let collection_filter = crate::types::SearchFilter {
+            collection_id: Some("other".to_string()),
+            ..Default::default()
+        };
+
+        let unfiltered = Cache::make_key("same query", 5, None);
+        let source = Cache::make_key("same query", 5, Some(&source_filter));
+        let collection = Cache::make_key("same query", 5, Some(&collection_filter));
+
+        assert_ne!(unfiltered, source);
+        assert_ne!(source, collection);
+    }
+
+    #[test]
+    fn cache_keys_normalize_order_of_id_filters() {
+        let first = crate::types::SearchFilter {
+            source_ids: Some(vec![3, 1, 3]),
+            chunk_ids: Some(vec![9, 7]),
+            ..Default::default()
+        };
+        let second = crate::types::SearchFilter {
+            source_ids: Some(vec![1, 3]),
+            chunk_ids: Some(vec![7, 9]),
+            ..Default::default()
+        };
+
+        assert_eq!(
+            Cache::make_key("query", 5, Some(&first)),
+            Cache::make_key("query", 5, Some(&second))
+        );
+    }
+
+    #[test]
+    fn cache_keys_change_after_data_invalidation() {
+        let before = Cache::make_key("query", 5, None);
+        invalidate_cache();
+        let after = Cache::make_key("query", 5, None);
+        assert_ne!(before, after);
     }
 }
 

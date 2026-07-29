@@ -56,12 +56,41 @@ pub fn add_source_in_collection(
     )?;
 
     let source_id = conn.last_insert_rowid();
+    crate::pipeline::invalidate_cache();
     Ok(AddSourceResult {
         source_id,
         is_duplicate: false,
         chunk_count: 0,
         message: "Source created".to_string(),
     })
+}
+
+/// Synchronize one embedded chunk with the FTS5 and sqlite-vec indexes.
+pub(crate) fn add_chunk_to_indexes(
+    conn: &rusqlite::Connection,
+    chunk_id: i64,
+    content: &str,
+    embedding: &[f32],
+) -> Result<()> {
+    let embedding_bytes: Vec<u8> = embedding.iter()
+        .flat_map(|f| f.to_ne_bytes())
+        .collect();
+
+    conn.execute(
+        "INSERT INTO chunks_fts (content, chunk_id) VALUES (?1, ?2)",
+        rusqlite::params![content, chunk_id],
+    )?;
+
+    if conn.query_row("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='chunks_vec'", [], |row| row.get::<_, i64>(0))? == 0 {
+        anyhow::ensure!(!embedding.is_empty(), "Cannot create chunks_vec without embedding dimensions");
+        conn.execute_batch(&format!("CREATE VIRTUAL TABLE chunks_vec USING vec0(embedding float[{}])", embedding.len()))?;
+    }
+
+    conn.execute(
+        "INSERT INTO chunks_vec(rowid, embedding) VALUES (?1, ?2)",
+        rusqlite::params![chunk_id, embedding_bytes],
+    )?;
+    Ok(())
 }
 
 /// Add chunks for a source (replaces rag_engine::add_chunks)
@@ -89,27 +118,13 @@ pub fn add_chunks(source_id: i64, chunks: Vec<ChunkData>) -> Result<i32> {
             ],
         )?;
 
-        // Also add to FTS5 index
+        // Keep both secondary indexes synchronized with the canonical chunk row.
         let chunk_id = conn.last_insert_rowid();
-        conn.execute(
-            "INSERT INTO chunks_fts (content, chunk_id) VALUES (?1, ?2)",
-            rusqlite::params![chunk.content, chunk_id],
-        )?;
-
-        // Also add to chunks_vec (sqlite-vec) for fast vector search
-        // Create the vec0 table lazily if it doesn't exist yet (first ingest)
-        if conn.query_row("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='chunks_vec'", [], |row| row.get::<_, i64>(0)).unwrap_or(0) == 0 {
-            let dims = chunk.embedding.len();
-            tracing::info!("Creating chunks_vec with dims={}", dims);
-            conn.execute_batch(&format!("CREATE VIRTUAL TABLE chunks_vec USING vec0(embedding float[{}])", dims))?;
-        }
-        conn.execute(
-            "INSERT INTO chunks_vec(rowid, embedding) VALUES (?1, ?2)",
-            rusqlite::params![chunk_id, embedding_bytes],
-        )?;
+        add_chunk_to_indexes(&conn, chunk_id, &chunk.content, &chunk.embedding)?;
     }
 
     tracing::info!("Added {} chunks for source {}", count, source_id);
+    crate::pipeline::invalidate_cache();
     Ok(count)
 }
 
@@ -135,6 +150,7 @@ pub fn delete_source(source_id: i64) -> Result<()> {
     conn.execute("DELETE FROM chunks WHERE source_id = ?1", rusqlite::params![source_id])?;
     // Delete source
     conn.execute("DELETE FROM sources WHERE id = ?1", rusqlite::params![source_id])?;
+    crate::pipeline::invalidate_cache();
     Ok(())
 }
 
@@ -235,7 +251,7 @@ pub fn init_db() -> Result<()> {
     
     if fts_count == 0 && chunk_count > 0 {
         tracing::info!("Populating FTS5 index with {} chunks", chunk_count);
-        rebuild_fts_index()?;
+        rebuild_fts_index_with_conn(&conn)?;
     }
     
     Ok(())
@@ -244,6 +260,10 @@ pub fn init_db() -> Result<()> {
 /// Rebuild the FTS5 index from scratch.
 pub fn rebuild_fts_index() -> Result<()> {
     let conn = get_conn()?;
+    rebuild_fts_index_with_conn(&conn)
+}
+
+fn rebuild_fts_index_with_conn(conn: &rusqlite::Connection) -> Result<()> {
     conn.execute_batch("DELETE FROM chunks_fts;")?;
     conn.execute_batch(
         "INSERT INTO chunks_fts (content, chunk_id)
@@ -295,6 +315,7 @@ fn search_vector_sqlite_vec(
     filter: Option<&SearchFilter>,
 ) -> Result<Vec<(i64, f64)>> {
     let conn = get_conn()?;
+    let valid_ids = filter.map(|f| get_filtered_chunk_ids_with_conn(&conn, f)).transpose()?;
     let query_bytes: Vec<u8> = query_embedding.iter().flat_map(|f| f.to_ne_bytes()).collect();
     let mut stmt = conn.prepare(
         "SELECT rowid, distance FROM chunks_vec WHERE embedding MATCH ?1 AND k = ?2 ORDER BY distance"
@@ -305,8 +326,7 @@ fn search_vector_sqlite_vec(
         Ok((chunk_id, 1.0 - distance))
     })?;
     let mut scored: Vec<(i64, f64)> = rows.filter_map(|r| r.ok()).collect();
-    if let Some(f) = filter {
-        let valid_ids = get_filtered_chunk_ids(f)?;
+    if let Some(valid_ids) = valid_ids {
         scored.retain(|(id, _)| valid_ids.contains(id));
     }
     scored.truncate(limit);
@@ -366,6 +386,7 @@ pub fn search_bm25(
     filter: Option<&SearchFilter>,
 ) -> Result<Vec<(i64, f64)>> {
     let conn = get_conn()?;
+    let valid_ids = filter.map(|f| get_filtered_chunk_ids_with_conn(&conn, f)).transpose()?;
     
     // FTS5 BM25 search — returns negative BM25 score (more negative = better)
     let fts_results: Vec<(i64, f64)> = {
@@ -387,8 +408,7 @@ pub fn search_bm25(
     };
     
     // Apply filter if present
-    let filtered = if let Some(f) = filter {
-        let valid_ids = get_filtered_chunk_ids(f)?;
+    let filtered = if let Some(valid_ids) = valid_ids {
         fts_results.into_iter()
             .filter(|(id, _)| valid_ids.contains(id))
             .collect::<Vec<_>>()
@@ -579,9 +599,11 @@ fn build_filter_clause(filter: Option<&SearchFilter>) -> (String, Vec<rusqlite::
     (clause, params)
 }
 
-fn get_filtered_chunk_ids(filter: &SearchFilter) -> Result<std::collections::HashSet<i64>> {
+fn get_filtered_chunk_ids_with_conn(
+    conn: &rusqlite::Connection,
+    filter: &SearchFilter,
+) -> Result<std::collections::HashSet<i64>> {
     let (where_clause, params) = build_filter_clause(Some(filter));
-    let conn = get_conn()?;
     let sql = format!(
         "SELECT c.id FROM chunks c LEFT JOIN sources s ON c.source_id = s.id WHERE 1=1 {}",
         where_clause
@@ -592,4 +614,28 @@ fn get_filtered_chunk_ids(filter: &SearchFilter) -> Result<std::collections::Has
     })?;
     let ids: std::collections::HashSet<i64> = rows.filter_map(|r| r.ok()).collect();
     Ok(ids)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn filtered_ids_use_the_existing_connection() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE sources (id INTEGER PRIMARY KEY, metadata TEXT);
+             CREATE TABLE chunks (id INTEGER PRIMARY KEY, source_id INTEGER, collection_id TEXT);",
+        ).unwrap();
+        conn.execute("INSERT INTO sources (id, metadata) VALUES (1, 'keep')", []).unwrap();
+        conn.execute("INSERT INTO chunks (id, source_id, collection_id) VALUES (7, 1, 'docs')", []).unwrap();
+
+        let filter = SearchFilter {
+            collection_id: Some("docs".to_string()),
+            metadata_like: Some("keep".to_string()),
+            ..Default::default()
+        };
+        let ids = get_filtered_chunk_ids_with_conn(&conn, &filter).unwrap();
+        assert_eq!(ids.into_iter().collect::<Vec<_>>(), vec![7]);
+    }
 }

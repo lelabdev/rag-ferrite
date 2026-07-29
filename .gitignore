@@ -11,6 +11,9 @@ data/
 # Local config
 config.toml
 
+# Local planning
+/docs/ROADMAP.md
+
 # Embedded repos
 svelteforge/
 rag-ferrite.log

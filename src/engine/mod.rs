@@ -198,6 +198,12 @@ pub fn init(data_dir: &std::path::Path, config: &crate::config::Config) -> Resul
         );"
     )?;
 
+    // Normalize parent-child role values for databases created before the role column.
+    conn.execute(
+        "UPDATE chunks SET chunk_role = chunk_type WHERE chunk_role IS NULL AND chunk_type IN ('parent', 'child')",
+        [],
+    )?;
+
     // Apply PRAGMA settings and store the shared connection
     conn.execute_batch(&format!(
         "PRAGMA busy_timeout={}; PRAGMA cache_size=-{};",

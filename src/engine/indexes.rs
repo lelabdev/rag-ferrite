@@ -55,6 +55,7 @@ pub fn reassign_source_collection(source_id: i64, new_collection: &str) -> Resul
         "Reassigned source {} ({:?}): {} → {} ({} chunks moved)",
         source_id, source_name, old_collection, new_collection, chunks_updated
     );
+    crate::pipeline::invalidate_cache();
 
     Ok(format!(
         "Source {} ({:?}) moved: {} → {} ({} chunks)",
