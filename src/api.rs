@@ -345,6 +345,18 @@ fn read_key_from_env(env_path: &PathBuf) -> Option<String> {
     None
 }
 
+fn active_credentials(
+    fallback_admin: &Option<String>,
+    fallback_guest: &Option<String>,
+) -> (Option<String>, Option<String>) {
+    let admin = read_key_from_env(&server_env_path()).or_else(|| fallback_admin.clone());
+    let guest = std::env::var("RAG_GUEST_API_KEY")
+        .ok()
+        .filter(|key| !key.is_empty())
+        .or_else(|| fallback_guest.clone());
+    (admin, guest)
+}
+
 /// Write RAG_API_KEY=<key> to the .env file, preserving other lines.
 fn write_key_to_env(env_path: &PathBuf, new_key: &str) -> Result<(), String> {
     let mut lines = Vec::new();
@@ -369,8 +381,17 @@ fn write_key_to_env(env_path: &PathBuf, new_key: &str) -> Result<(), String> {
     if let Some(parent) = env_path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| format!("Failed to create dir: {}", e))?;
     }
-    std::fs::write(env_path, lines.join("\n") + "\n")
-        .map_err(|e| format!("Failed to write .env: {}", e))?;
+    let temp_path = env_path.with_extension(format!("env.tmp.{}", std::process::id()));
+    std::fs::write(&temp_path, lines.join("\n") + "\n")
+        .map_err(|e| format!("Failed to write temporary .env: {}", e))?;
+    #[cfg(unix)]
+    std::fs::set_permissions(
+        &temp_path,
+        std::os::unix::fs::PermissionsExt::from_mode(0o600),
+    )
+    .map_err(|e| format!("Failed to restrict .env permissions: {}", e))?;
+    std::fs::rename(&temp_path, env_path)
+        .map_err(|e| format!("Failed to replace .env atomically: {}", e))?;
     Ok(())
 }
 
@@ -546,38 +567,6 @@ pub async fn serve(
         .layer(DefaultBodyLimit::max(body_limit.max(1)))
         .with_state(server);
 
-    // Apply API key auth on all routes if configured
-    let app = if admin_key.is_some() || guest_key.is_some() {
-        let admin = admin_key.clone();
-        let guest = guest_key.clone();
-        if admin.is_some() {
-            tracing::info!("Admin API key authentication enabled");
-        }
-        if guest.is_some() {
-            tracing::info!("Guest API key enabled (read-only access)");
-        }
-        app.layer(axum::middleware::from_fn(
-            move |req: axum::extract::Request, next: axum::middleware::Next| {
-                let admin = admin.clone();
-                let guest = guest.clone();
-                async move {
-                    let method = req.method().clone();
-                    let path = req.uri().path().to_string();
-                    let headers = req.headers().clone();
-                    if let Err((status, msg)) =
-                        check_api_key(&headers, &admin, &guest, &method, &path)
-                    {
-                        return (status, msg).into_response();
-                    }
-                    next.run(req).await
-                }
-            },
-        ))
-    } else {
-        tracing::info!("API key authentication disabled (no keys configured — local dev)");
-        app
-    };
-
     // Nest MCP Streamable HTTP under /mcp
     let mcp_router = axum::Router::new().route(
         "/mcp",
@@ -591,7 +580,38 @@ pub async fn serve(
         }),
     );
 
+    // Apply one authentication middleware to both REST and MCP routes.
     let app = app.merge(mcp_router);
+    let app = if admin_key.is_some() || guest_key.is_some() {
+        let admin = admin_key.clone();
+        let guest = guest_key.clone();
+        tracing::info!(
+            "Authentication enabled for REST and MCP (admin={}, guest={})",
+            admin.is_some(),
+            guest.is_some()
+        );
+        app.layer(axum::middleware::from_fn(
+            move |req: axum::extract::Request, next: axum::middleware::Next| {
+                let admin = admin.clone();
+                let guest = guest.clone();
+                async move {
+                    let method = req.method().clone();
+                    let path = req.uri().path().to_string();
+                    let headers = req.headers().clone();
+                    let (active_admin, active_guest) = active_credentials(&admin, &guest);
+                    if let Err((status, msg)) =
+                        check_api_key(&headers, &active_admin, &active_guest, &method, &path)
+                    {
+                        return (status, msg).into_response();
+                    }
+                    next.run(req).await
+                }
+            },
+        ))
+    } else {
+        tracing::info!("Authentication disabled for REST and MCP (no keys configured)");
+        app
+    };
 
     let addr = format!("{}:{}", bind_address, port);
     tracing::info!("HTTP + MCP Streamable HTTP server listening on {}", addr);
@@ -638,6 +658,9 @@ mod tests {
                 "/api/documents"
             )
             .is_ok()
+        );
+        assert!(
+            check_api_key(&headers, &admin, &guest, &axum::http::Method::POST, "/mcp").is_err()
         );
         assert_eq!(
             check_api_key(
@@ -711,5 +734,24 @@ mod tests {
         assert!(!allows_bind_without_auth("0.0.0.0", false, false));
         assert!(allows_bind_without_auth("0.0.0.0", true, false));
         assert!(allows_bind_without_auth("0.0.0.0", false, true));
+    }
+
+    #[test]
+    fn key_rotation_replaces_credentials_and_restricts_permissions() {
+        let path = std::env::temp_dir().join(format!("ragfer-auth-{}.env", std::process::id()));
+        std::fs::write(&path, "RAG_API_KEY=old\nOTHER=value\n").unwrap();
+        write_key_to_env(&path, "new").unwrap();
+        assert_eq!(read_key_from_env(&path).as_deref(), Some("new"));
+        let contents = std::fs::read_to_string(&path).unwrap();
+        assert!(contents.contains("OTHER=value"));
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+        }
+        let _ = std::fs::remove_file(path);
     }
 }
