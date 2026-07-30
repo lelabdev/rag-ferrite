@@ -228,7 +228,7 @@ Pipeline: strip chars → lowercase → synonym lookup → stop word filter → 
 
 ## Monitor (TUI)
 
-Built into the binary at `src/monitor/` (3 files: `mod.rs`, `ui.rs`, `api.rs`). Connects to server via HTTP.
+Built into the binary at `src/monitor/` (3 files: `mod.rs`, `ui.rs`, `api.rs`). Connects to server via HTTP. The navigation shell exposes `1` Dashboard, `2` Library, `3` Query, `4` Ingest, and `5` Admin; the dashboard remains the live ingestion monitor while the other views provide the interactive extension points.
 
 Env vars: `RAGFER_URL`, `RAGFER_KEY`, `RAGFER_REFRESH`.
 

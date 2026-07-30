@@ -10,7 +10,7 @@ use ratatui::{
     widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph},
 };
 
-use super::{App, ColorMode, Panel, SPINNER};
+use super::{App, ColorMode, Panel, SPINNER, View};
 
 // ── Pendulum frames (ported from unicode_animations Dart package) ──
 pub(super) fn generate_pendulum_frames() -> Vec<String> {
@@ -228,6 +228,10 @@ fn render_progress_bar<'a>(
 // ── UI ──
 
 pub(super) fn ui(f: &mut Frame, app: &mut App) {
+    if app.view != View::Dashboard {
+        render_workspace(f, app);
+        return;
+    }
     let size = f.area();
     let data = app.data.as_ref();
     let cm = app.color_mode;
@@ -248,7 +252,7 @@ pub(super) fn ui(f: &mut Frame, app: &mut App) {
 
     // ── Header ──
     let header = Block::default().borders(Borders::TOP).title(Span::styled(
-        " rag-ferrite monitor ",
+        format!(" rag-ferrite · {} ", app.view.label()),
         Style::default()
             .fg(color_for(cm, Color::Cyan))
             .add_modifier(Modifier::BOLD),
@@ -796,8 +800,11 @@ pub(super) fn ui(f: &mut Frame, app: &mut App) {
         .add_modifier(Modifier::BOLD);
     let dim_style = Style::default().fg(color_for(cm, Color::DarkGray));
     let footer = Line::from(vec![
+        Span::styled("1-5", key_style),
+        Span::styled(" views ", dim_style),
+        Span::styled("•", dim_style),
         Span::styled("TAB", key_style),
-        Span::styled(" switch ", dim_style),
+        Span::styled(" panels ", dim_style),
         Span::styled("•", dim_style),
         Span::styled(" ↑↓", key_style),
         Span::styled(" scroll ", dim_style),
@@ -910,6 +917,46 @@ pub(super) fn ui(f: &mut Frame, app: &mut App) {
 }
 
 /// Compute a centered rect of `percent_x`% width and `percent_y`% height inside `r`.
+fn render_workspace(f: &mut Frame, app: &App) {
+    let title = format!(" {} ", app.view.label());
+    let block = Block::default().borders(Borders::ALL).title(title);
+    let area = f.area();
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+
+    let lines: Vec<Line> = match app.view {
+        View::Library => {
+            if app.documents.is_empty() {
+                vec![Line::from("No documents loaded. Press r to refresh.")]
+            } else {
+                app.documents
+                    .iter()
+                    .map(|document| {
+                        Line::from(format!(
+                            "#{:<6} {:<42} {:<18} {}",
+                            document.id,
+                            document.name.as_deref().unwrap_or("(unnamed)"),
+                            document.collection_id.as_deref().unwrap_or("-"),
+                            document.status.as_deref().unwrap_or("-")
+                        ))
+                    })
+                    .collect()
+            }
+        }
+        View::Query => vec![Line::from(
+            "Query workspace — use the CLI/API for query input",
+        )],
+        View::Ingest => vec![Line::from(
+            "Ingestion workspace — submissions use the shared queue",
+        )],
+        View::Admin => vec![Line::from(
+            "Administration workspace — r rebuilds, f flushes, C cancels",
+        )],
+        View::Dashboard => Vec::new(),
+    };
+    f.render_widget(Paragraph::new(lines), inner);
+}
+
 fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
     let popup_layout = Layout::default()
         .direction(Direction::Vertical)

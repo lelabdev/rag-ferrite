@@ -68,7 +68,36 @@ pub(crate) struct StatusResponse {
     pub error: Option<String>,
 }
 
+#[derive(serde::Deserialize, Default, Clone)]
+pub(crate) struct Document {
+    pub id: i64,
+    pub name: Option<String>,
+    pub collection_id: Option<String>,
+    pub status: Option<String>,
+}
+
+#[derive(serde::Deserialize, Default)]
+struct DocumentsResponse {
+    #[serde(default)]
+    files: Vec<Document>,
+}
+
 // ── HTTP fetch ──
+
+pub(crate) fn fetch_documents(url: &str) -> Result<Vec<Document>, String> {
+    let endpoint = format!("{}/api/documents", url.trim_end_matches('/'));
+    let req = ureq::get(&endpoint).timeout(Duration::from_secs(5));
+    let req = if let Some(key) = crate::client::resolve_api_key() {
+        req.set("Authorization", &format!("Bearer {}", key))
+    } else {
+        req
+    };
+    req.call()
+        .map_err(|e| format!("{}: {}", endpoint, e))?
+        .into_json::<DocumentsResponse>()
+        .map(|response| response.files)
+        .map_err(|e| e.to_string())
+}
 
 /// Fetch batch progress from the rag-ferrite server.
 pub(crate) fn fetch_progress(url: &str) -> Result<ProgressResponse, String> {

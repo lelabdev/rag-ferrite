@@ -51,7 +51,7 @@ Décisions clés :
 - Delete instantané (pas de rebuild synchrone des indexes)
 - Dictionnaire externe de classification de query (TOML optionnel, `dictionaries/query_classification.toml`)
 - CLI intégré dans le binaire (src/client.rs) — remplace l'ancien CLI Python
-- Monitor TUI intégré au binaire (src/monitor/) — remplace l'ancien binaire standalone rag-monitor
+- Monitor TUI intégré au binaire (src/monitor/) — dashboard live plus navigation shell `1` Dashboard, `2` Library, `3` Query, `4` Ingest, `5` Admin ; remplace l'ancien binaire standalone rag-monitor
 - Server struct extraite de main.rs → src/server.rs
 - Tags consolidés dans src/tag_rules.rs (sanitize + global state)
 - IngestOptions éliminé — le moteur utilise params::IngestConfig directement
