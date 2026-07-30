@@ -39,7 +39,7 @@ Décisions clés :
 - Parent-child chunking avec contextual retrieval
 - Parents parallèles (JoinSet) + enfants en batch pour la vitesse d'ingestion
 - LLM profiles modulaires : modèles différents pour ingestion, query, reranker (`[[llm_profile]]` dans config)
-- Queue d'ingestion non-bloquante (canal mpsc + worker en arrière-plan)
+- Bounded ingestion queue (mpsc channel + single background worker): REST and MCP share the queue; rebuild/flush operations are serialized with writes, with inline-size, HTTP-body, and per-job timeout limits.
 - Merge des children consécutifs trop petits (<100 chars) pour les docs techniques
 - Skip des petits chunks avant l'appel LLM (économise les tokens, stats précises)
 - Endpoint de progression pour monitorer les ingestions actives

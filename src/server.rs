@@ -11,7 +11,7 @@ use crate::{engine, ingestion, llm, pipeline, service, types};
 pub(crate) struct RagFerriteServer {
     pub pipeline: pipeline::QueryPipeline,
     pub query_fallback_pipeline: Option<pipeline::QueryPipeline>,
-    /// LLM provider dedicated to ingestion (MCP tool calls that bypass the queue).
+    /// LLM provider dedicated to ingestion. All transports use ingestion_manager.
     pub ingestion_llm: Option<llm::LlmProvider>,
     pub ingest_config: IngestConfig,
     pub ingestion_manager: ingestion::IngestionManager,
@@ -51,28 +51,17 @@ impl RagFerriteServer {
 
     #[tool(name = "ingest_file", description = "Parse and index a document file (PDF, TXT, MD) into the RAG.")]
     async fn ingest_file(&self, params: Parameters<IngestFileParams>) -> String {
-        service::ingest_file_service(
-            &self.pipeline,
-            &self.ingest_config,
-            self.ingestion_llm.as_ref(),
-            &params.0.file_path,
-        )
-        .await
-        .to_string()
+        self.ingestion_manager
+            .ingest_file(params.0.file_path)
+            .to_string()
     }
 
     #[tool(name = "ingest_data", description = "Index content directly (text, HTML, or markdown) with a source identifier.")]
     async fn ingest_data(&self, params: Parameters<IngestDataParams>) -> String {
         let p = params.0;
-        service::ingest_data_service(
-            &self.pipeline,
-            &self.ingest_config,
-            self.ingestion_llm.as_ref(),
-            &p.content,
-            &p.source,
-        )
-        .await
-        .to_string()
+        self.ingestion_manager
+            .ingest_data(p.content, p.source)
+            .to_string()
     }
 
     #[tool(name = "delete_file", description = "Remove a document and all its chunks by source ID.")]
@@ -187,11 +176,7 @@ impl RagFerriteServer {
 
     #[tool(name = "rebuild_indexes", description = "Rebuild HNSW + BM25 indexes for the general collection and run a WAL checkpoint. Use after bulk deletes or if search quality seems degraded.")]
     async fn rebuild_indexes(&self, _params: Parameters<NoParams>) -> String {
-        tokio::task::spawn_blocking(|| {
-            engine::rebuild_and_save_indexes("general");
-            engine::wal_checkpoint();
-        });
-        "Rebuilding indexes + WAL checkpoint started.".to_string()
+        self.ingestion_manager.rebuild_indexes().to_string()
     }
 
     #[tool(name = "flush_indexes", description = "Flush the incremental HNSW buffer to disk. Makes recently ingested chunks fully persistent and searchable.")]

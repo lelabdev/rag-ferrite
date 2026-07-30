@@ -290,6 +290,9 @@ async fn main() -> Result<()> {
             defer_index_rebuild: config.advanced.defer_index_rebuild,
             wal_checkpoint_interval: config.advanced.wal_checkpoint_interval,
             ingested_dir: config.advanced.ingested_dir.clone(),
+            queue_capacity: config.advanced.ingestion_queue_capacity,
+            max_inline_content_bytes: config.advanced.max_inline_content_bytes,
+            ingestion_timeout_secs: config.advanced.ingestion_timeout_secs,
         };
 
     let reranker_for_fallback = reranker.clone();
@@ -355,7 +358,7 @@ async fn main() -> Result<()> {
             tracing::info!("API key authentication disabled (no keys — local dev)");
         }
         tracing::info!("Starting MCP Streamable HTTP on {}:{}", http_bind, http_port);
-        api::serve(server, http_port, http_bind, admin_key, guest_key).await?;
+        api::serve(server, http_port, http_bind, admin_key, guest_key, config.advanced.http_body_limit_bytes).await?;
     } else {
         tracing::info!("Starting MCP server on stdio...");
         let service = server.serve(rmcp::transport::io::stdio()).await?;
