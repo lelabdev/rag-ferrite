@@ -931,9 +931,15 @@ fn render_workspace(f: &mut Frame, app: &App) {
             } else {
                 app.documents
                     .iter()
-                    .map(|document| {
+                    .enumerate()
+                    .map(|(index, document)| {
                         Line::from(format!(
-                            "#{:<6} {:<42} {:<18} {}",
+                            "{}#{:<6} {:<42} {:<18} {}",
+                            if index == app.library_cursor {
+                                "▶ "
+                            } else {
+                                "  "
+                            },
                             document.id,
                             document.name.as_deref().unwrap_or("(unnamed)"),
                             document.collection_id.as_deref().unwrap_or("-"),
@@ -943,11 +949,18 @@ fn render_workspace(f: &mut Frame, app: &App) {
                     .collect()
             }
         }
-        View::Query => vec![Line::from(
-            "Query workspace — use the CLI/API for query input",
-        )],
+        View::Query => {
+            if app.query_results.is_empty() {
+                vec![Line::from("Query workspace — press Q to enter a query")]
+            } else {
+                app.query_results
+                    .iter()
+                    .map(|line| Line::from(line.clone()))
+                    .collect()
+            }
+        }
         View::Ingest => vec![Line::from(
-            "Ingestion workspace — submissions use the shared queue",
+            "Ingestion workspace — press i to submit a file to the shared queue",
         )],
         View::Admin => vec![Line::from(
             "Administration workspace — r rebuilds, f flushes, C cancels",

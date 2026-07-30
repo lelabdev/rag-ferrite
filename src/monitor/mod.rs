@@ -24,8 +24,8 @@ use crossterm::{
 use ratatui::{Terminal, backend::CrosstermBackend};
 
 use api::{
-    BatchProgress, CurrentFile, Document, FileResult, ProgressResponse, fetch_documents,
-    fetch_progress, post_action,
+    BatchProgress, CurrentFile, Document, FileResult, ProgressResponse, delete_document,
+    fetch_documents, fetch_progress, post_action, post_json,
 };
 use ui::{build_folder_map, generate_pendulum_frames, parent_folder, ui};
 
@@ -82,6 +82,9 @@ enum ColorMode {
 struct App {
     data: Option<ProgressResponse>,
     documents: Vec<Document>,
+    library_cursor: usize,
+    workspace_message: Option<String>,
+    query_results: Vec<String>,
     error: Option<String>,
     view: View,
     focus: Panel,
@@ -107,6 +110,9 @@ impl App {
         Self {
             data: None,
             documents: Vec::new(),
+            library_cursor: 0,
+            workspace_message: None,
+            query_results: Vec::new(),
             error: None,
             view: View::Dashboard,
             focus: Panel::Completed,
@@ -218,6 +224,18 @@ fn open_selected_file(app: &mut App, terminal: &mut Terminal<CrosstermBackend<St
 }
 
 // ── Entry point ──
+
+fn prompt_line(prompt: &str) -> Option<String> {
+    disable_raw_mode().ok();
+    print!("\r\n{}", prompt);
+    use std::io::Write;
+    io::stdout().flush().ok();
+    let mut input = String::new();
+    io::stdin().read_line(&mut input).ok()?;
+    enable_raw_mode().ok();
+    let value = input.trim().to_string();
+    (!value.is_empty()).then_some(value)
+}
 
 pub fn run(args: &[String]) {
     // Load .env from the binary's directory (same folder as the server's .env)
@@ -395,7 +413,13 @@ pub fn run(args: &[String]) {
                 }
                 match key.code {
                     KeyCode::Char('1') => app.view = View::Dashboard,
-                    KeyCode::Char('2') => app.view = View::Library,
+                    KeyCode::Char('2') => {
+                        app.view = View::Library;
+                        match fetch_documents(url) {
+                            Ok(documents) => app.documents = documents,
+                            Err(error) => app.error = Some(error),
+                        }
+                    }
                     KeyCode::Char('3') => app.view = View::Query,
                     KeyCode::Char('4') => app.view = View::Ingest,
                     KeyCode::Char('5') => app.view = View::Admin,
@@ -418,6 +442,17 @@ pub fn run(args: &[String]) {
                         app.scroll_pending = 0;
                         app.scroll_folders_completed = 0;
                         app.scroll_folders_queue = 0;
+                    }
+                    KeyCode::Char('j') => {
+                        if app.view == View::Library && app.library_cursor + 1 < app.documents.len()
+                        {
+                            app.library_cursor += 1;
+                        }
+                    }
+                    KeyCode::Char('k') => {
+                        if app.view == View::Library {
+                            app.library_cursor = app.library_cursor.saturating_sub(1);
+                        }
                     }
                     KeyCode::Down => match app.focus {
                         Panel::Completed => {
@@ -611,6 +646,55 @@ pub fn run(args: &[String]) {
                             ColorMode::StatsOnly => ColorMode::Mono,
                             ColorMode::Mono => ColorMode::Full,
                         };
+                    }
+                    KeyCode::Char('d') if app.view == View::Library => {
+                        if let Some(document) = app.documents.get(app.library_cursor) {
+                            let id = document.id;
+                            let name = document.name.clone().unwrap_or_else(|| id.to_string());
+                            if prompt_line(&format!("Delete {}? type 'yes' to confirm: ", name))
+                                .as_deref()
+                                == Some("yes")
+                            {
+                                match delete_document(url, id) {
+                                    Ok(message) => {
+                                        app.workspace_message =
+                                            Some(format!("Deleted #{}: {}", id, message));
+                                        app.documents.remove(app.library_cursor);
+                                        app.library_cursor = app
+                                            .library_cursor
+                                            .min(app.documents.len().saturating_sub(1));
+                                    }
+                                    Err(error) => app.error = Some(error),
+                                }
+                            }
+                        }
+                    }
+                    KeyCode::Char('i') if app.view == View::Ingest => {
+                        if let Some(path) = prompt_line("Ingest file path: ") {
+                            match post_json(
+                                url,
+                                "/api/ingest",
+                                &serde_json::json!({"paths": [path]}),
+                            ) {
+                                Ok(message) => app.workspace_message = Some(message),
+                                Err(error) => app.error = Some(error),
+                            }
+                        }
+                    }
+                    KeyCode::Char('Q') if app.view == View::Query => {
+                        if let Some(query) = prompt_line("Query: ") {
+                            match post_json(
+                                url,
+                                "/api/query",
+                                &serde_json::json!({"query": query, "limit": 10}),
+                            ) {
+                                Ok(message) => {
+                                    app.query_results =
+                                        message.lines().map(str::to_string).collect()
+                                }
+                                Err(error) => app.error = Some(error),
+                            }
+                        }
                     }
                     KeyCode::Char('C') => {
                         // Cancel batch via server API

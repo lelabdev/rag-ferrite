@@ -121,6 +121,36 @@ pub(crate) fn fetch_progress(url: &str) -> Result<ProgressResponse, String> {
 }
 
 /// POST an action to the rag-ferrite server (cancel, stop, rebuild, flush).
+pub(crate) fn post_json(url: &str, path: &str, body: &serde_json::Value) -> Result<String, String> {
+    let full_url = format!("{}{}", url.trim_end_matches('/'), path);
+    let req = ureq::post(&full_url).timeout(Duration::from_secs(30));
+    let req = if let Some(key) = crate::client::resolve_api_key() {
+        req.set("Authorization", &format!("Bearer {}", key))
+    } else {
+        req
+    };
+    req.set("Content-Type", "application/json")
+        .send_json(body)
+        .map_err(|e| format!("{}: {}", full_url, e))?
+        .into_string()
+        .map_err(|e| e.to_string())
+}
+
+pub(crate) fn delete_document(url: &str, source_id: i64) -> Result<String, String> {
+    let full_url = format!("{}/api/documents/{}", url.trim_end_matches('/'), source_id);
+    let req = ureq::delete(&full_url).timeout(Duration::from_secs(10));
+    let req = if let Some(key) = crate::client::resolve_api_key() {
+        req.set("Authorization", &format!("Bearer {}", key))
+    } else {
+        req
+    };
+    req.call()
+        .map_err(|e| format!("{}: {}", full_url, e))?
+        .into_string()
+        .map_err(|e| e.to_string())
+}
+
+/// POST an action to the rag-ferrite server (cancel, stop, rebuild, flush).
 pub(crate) fn post_action(url: &str, path: &str) -> Result<String, String> {
     let full_url = format!("{}{}", url.trim_end_matches('/'), path);
     let req = ureq::post(&full_url).timeout(Duration::from_secs(5));
