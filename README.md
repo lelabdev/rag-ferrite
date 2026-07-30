@@ -265,7 +265,7 @@ Access levels:
 
 - **Admin key (`RAG_API_KEY`):** read and write access.
 - **Guest key (`RAG_GUEST_API_KEY`):** GET endpoints and `POST /api/query` only.
-- **No keys:** open access, intended for loopback development.
+- **No keys:** open access, intended for loopback development. The authentication middleware remains installed, so generating an admin key immediately protects subsequent requests without restarting the server.
 
 Generate and inspect keys through the CLI:
 

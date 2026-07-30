@@ -412,11 +412,6 @@ async fn keys_generate() -> impl IntoResponse {
     match write_key_to_env(&env_path, &new_key) {
         Ok(()) => {
             tracing::info!("API key regenerated via /api/keys/generate");
-            // Also update the env var so the NEXT request uses the new key
-            // SAFETY: single-threaded admin operation during key rotation
-            unsafe {
-                std::env::set_var("RAG_API_KEY", &new_key);
-            }
             (
                 StatusCode::OK,
                 Json(serde_json::json!({
@@ -628,36 +623,31 @@ pub async fn serve(
 
     // Apply one authentication middleware to both REST and MCP routes.
     let app = app.merge(mcp_router);
-    let app = if admin_key.is_some() || guest_key.is_some() {
-        let admin = admin_key.clone();
-        let guest = guest_key.clone();
-        tracing::info!(
-            "Authentication enabled for REST and MCP (admin={}, guest={})",
-            admin.is_some(),
-            guest.is_some()
-        );
-        app.layer(axum::middleware::from_fn(
-            move |req: axum::extract::Request, next: axum::middleware::Next| {
-                let admin = admin.clone();
-                let guest = guest.clone();
-                async move {
-                    let method = req.method().clone();
-                    let path = req.uri().path().to_string();
-                    let headers = req.headers().clone();
-                    let (active_admin, active_guest) = active_credentials(&admin, &guest);
-                    if let Err((status, msg)) =
-                        check_api_key(&headers, &active_admin, &active_guest, &method, &path)
-                    {
-                        return (status, msg).into_response();
-                    }
-                    next.run(req).await
+    let admin = admin_key.clone();
+    let guest = guest_key.clone();
+    tracing::info!(
+        "Authentication middleware installed for REST and MCP (admin={}, guest={})",
+        admin.is_some(),
+        guest.is_some()
+    );
+    let app = app.layer(axum::middleware::from_fn(
+        move |req: axum::extract::Request, next: axum::middleware::Next| {
+            let admin = admin.clone();
+            let guest = guest.clone();
+            async move {
+                let method = req.method().clone();
+                let path = req.uri().path().to_string();
+                let headers = req.headers().clone();
+                let (active_admin, active_guest) = active_credentials(&admin, &guest);
+                if let Err((status, msg)) =
+                    check_api_key(&headers, &active_admin, &active_guest, &method, &path)
+                {
+                    return (status, msg).into_response();
                 }
-            },
-        ))
-    } else {
-        tracing::info!("Authentication disabled for REST and MCP (no keys configured)");
-        app
-    };
+                next.run(req).await
+            }
+        },
+    ));
 
     let addr = format!("{}:{}", bind_address, port);
     tracing::info!("HTTP + MCP Streamable HTTP server listening on {}", addr);
@@ -739,6 +729,19 @@ mod tests {
             .0,
             StatusCode::UNAUTHORIZED
         );
+    }
+
+    #[test]
+    fn authentication_is_installed_without_startup_keys_and_does_not_mutate_environment() {
+        let source = include_str!("api.rs");
+        let conditional_middleware = [
+            "let app = if admin_key",
+            ".is_some() || guest_key.is_some()",
+        ]
+        .concat();
+        let environment_mutation = ["std::env::set_var", "(\"RAG_API_KEY\""].concat();
+        assert!(!source.contains(&conditional_middleware));
+        assert!(!source.contains(&environment_mutation));
     }
 
     #[test]

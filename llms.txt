@@ -90,7 +90,7 @@ GitHub Actions runs formatting, Clippy with `-D warnings`, all-target tests, and
 
 REST and MCP adapters share structured application errors with `error_code` values. HTTP maps validation to 400, auth to 401/403, missing resources to 404, conflicts to 409, queue backpressure to 429, and internal failures to 500.
 
-HTTP binds to loopback by default. Non-loopback binding requires configured API authentication unless `advanced.unsafe_bind_without_auth` is explicitly enabled. MCP Host-header allowlisting is configured with `advanced.allowed_hosts` and is separate from authentication. One middleware protects both REST and `/mcp`; credentials are re-read from the active `.env` state so key rotation takes effect immediately, with atomic replacement and restrictive permissions.
+HTTP binds to loopback by default. Non-loopback binding requires configured API authentication unless `advanced.unsafe_bind_without_auth` is explicitly enabled. MCP Host-header allowlisting is configured with `advanced.allowed_hosts` and is separate from authentication. One middleware protects both REST and `/mcp`, including servers started without credentials; credentials are re-read from the active `.env` state so bootstrap and key rotation take effect immediately without process-environment mutation, with atomic replacement and restrictive permissions.
 
 ## Query pipeline
 
