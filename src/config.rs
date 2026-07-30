@@ -634,6 +634,22 @@ pub struct AdvancedConfig {
     /// Directory name for ingested files (default: "ingested")
     #[serde(default = "default_ingested_dir")]
     pub ingested_dir: String,
+
+    /// Maximum number of queued ingestion jobs.
+    #[serde(default = "default_ingestion_queue_capacity")]
+    pub ingestion_queue_capacity: usize,
+
+    /// Maximum inline content accepted by MCP/REST ingestion.
+    #[serde(default = "default_max_inline_content_bytes")]
+    pub max_inline_content_bytes: usize,
+
+    /// Maximum time allowed for one ingestion job.
+    #[serde(default = "default_ingestion_timeout_secs")]
+    pub ingestion_timeout_secs: u64,
+
+    /// Maximum HTTP request body size.
+    #[serde(default = "default_http_body_limit_bytes")]
+    pub http_body_limit_bytes: usize,
 }
 
 fn default_chunk_size() -> usize { 800 }
@@ -657,6 +673,10 @@ fn default_defer_index_rebuild() -> bool { true }
 fn default_wal_checkpoint_interval() -> usize { 50 }
 fn default_move_after_ingest() -> bool { true }
 fn default_ingested_dir() -> String { "ingested".into() }
+fn default_ingestion_queue_capacity() -> usize { 32 }
+fn default_max_inline_content_bytes() -> usize { 10 * 1024 * 1024 }
+fn default_ingestion_timeout_secs() -> u64 { 900 }
+fn default_http_body_limit_bytes() -> usize { 12 * 1024 * 1024 }
 
 impl Default for AdvancedConfig {
     fn default() -> Self {
@@ -682,6 +702,10 @@ impl Default for AdvancedConfig {
             wal_checkpoint_interval: default_wal_checkpoint_interval(),
             move_after_ingest: default_move_after_ingest(),
             ingested_dir: default_ingested_dir(),
+            ingestion_queue_capacity: default_ingestion_queue_capacity(),
+            max_inline_content_bytes: default_max_inline_content_bytes(),
+            ingestion_timeout_secs: default_ingestion_timeout_secs(),
+            http_body_limit_bytes: default_http_body_limit_bytes(),
         }
     }
 }

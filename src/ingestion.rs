@@ -34,9 +34,8 @@ enum IngestJob {
         files: Vec<String>,
         move_after_ingest: bool,
     },
-    /// Flush indexes: rebuild HNSW + BM25 + WAL checkpoint.
-    /// Sent at the end of a batch ingestion to defer expensive index operations.
-    FlushIndexes,
+    /// Rebuild HNSW + BM25 + WAL checkpoint, serialized with ingestion writes.
+    RebuildIndexes,
 }
 
 // ── Progress tracking ──────────────────────────────────────────────────
@@ -140,9 +139,14 @@ pub struct BatchError {
 
 // ── Manager ────────────────────────────────────────────────────────────
 
+fn inline_content_allowed(content_len: usize, max_bytes: usize) -> bool {
+    content_len <= max_bytes
+}
+
 pub struct IngestionManager {
     pub progress: Arc<Mutex<IngestProgress>>,
-    sender: mpsc::UnboundedSender<IngestJob>,
+    sender: mpsc::Sender<IngestJob>,
+    max_inline_content_bytes: usize,
     /// LLM provider dedicated to ingestion (contextual retrieval, scoring, tagging).
     /// Separate from the query pipeline's LLM so different profiles can be used.
     pub ingestion_llm: Option<LlmProvider>,
@@ -153,6 +157,7 @@ impl Clone for IngestionManager {
         IngestionManager {
             progress: self.progress.clone(),
             sender: self.sender.clone(),
+            max_inline_content_bytes: self.max_inline_content_bytes,
             ingestion_llm: self.ingestion_llm.clone(),
         }
     }
@@ -166,41 +171,48 @@ impl IngestionManager {
         ingest_config: IngestConfig,
         ingestion_llm: Option<LlmProvider>,
     ) -> Self {
-        let (sender, receiver) = mpsc::unbounded_channel();
+        let (sender, receiver) = mpsc::channel(ingest_config.queue_capacity.max(1));
         let progress = Arc::new(Mutex::new(IngestProgress::default()));
 
         let worker_progress = progress.clone();
         let worker_llm = ingestion_llm.clone();
-        let worker_sender = sender.clone();
+        let max_inline_content_bytes = ingest_config.max_inline_content_bytes;
+        let ingestion_timeout_secs = ingest_config.ingestion_timeout_secs;
         tokio::spawn(async move {
-            background_worker(receiver, pipeline, ingest_config, worker_progress, worker_llm, worker_sender).await;
+            background_worker(receiver, pipeline, ingest_config, worker_progress, worker_llm, ingestion_timeout_secs).await;
         });
 
-        IngestionManager { progress, sender, ingestion_llm }
+        IngestionManager {
+            progress,
+            sender,
+            max_inline_content_bytes,
+            ingestion_llm,
+        }
     }
 
     /// Queue a file ingestion. Returns immediately.
     pub fn ingest_file(&self, file_path: String) -> serde_json::Value {
-        match self.sender.send(IngestJob::File { file_path: file_path.clone() }) {
-            Ok(()) => serde_json::json!({
-                "status": "queued",
-                "file_path": file_path,
-                "message": "Ingestion queued. Check GET /api/ingest/progress for status."
-            }),
-            Err(_) => serde_json::json!({ "error": "Failed to queue ingestion" }),
-        }
+        self.try_queue(IngestJob::File { file_path: file_path.clone() }, serde_json::json!({
+            "status": "queued",
+            "file_path": file_path,
+            "message": "Ingestion queued. Check GET /api/ingest/progress for status."
+        }))
     }
 
     /// Queue a data ingestion. Returns immediately.
     pub fn ingest_data(&self, content: String, source: String) -> serde_json::Value {
-        match self.sender.send(IngestJob::Data { content, source: source.clone() }) {
-            Ok(()) => serde_json::json!({
-                "status": "queued",
-                "source": source,
-                "message": "Ingestion queued. Check GET /api/ingest/progress for status."
-            }),
-            Err(_) => serde_json::json!({ "error": "Failed to queue ingestion" }),
+        if !inline_content_allowed(content.len(), self.max_inline_content_bytes) {
+            return serde_json::json!({
+                "error": "Inline content exceeds the configured limit",
+                "error_code": "content_too_large",
+                "max_bytes": self.max_inline_content_bytes,
+            });
         }
+        self.try_queue(IngestJob::Data { content, source: source.clone() }, serde_json::json!({
+            "status": "queued",
+            "source": source,
+            "message": "Ingestion queued. Check GET /api/ingest/progress for status."
+        }))
     }
 
     /// Queue a batch of files. Returns immediately with batch_id.
@@ -210,18 +222,30 @@ impl IngestionManager {
             .unwrap_or_default()
             .as_millis());
         let total = files.len();
-        match self.sender.send(IngestJob::Batch {
+        self.try_queue(IngestJob::Batch {
             batch_id: batch_id.clone(),
             files,
             move_after_ingest,
-        }) {
-            Ok(()) => serde_json::json!({
-                "status": "queued",
-                "batch_id": batch_id,
-                "total_files": total,
-                "message": "Batch queued. Check GET /api/ingest/batch/{batch_id}/progress for status."
+        }, serde_json::json!({
+            "status": "queued",
+            "batch_id": batch_id,
+            "total_files": total,
+            "message": "Batch queued. Check GET /api/ingest/batch/{batch_id}/progress for status."
+        }))
+    }
+
+    fn try_queue(&self, job: IngestJob, queued: serde_json::Value) -> serde_json::Value {
+        match self.sender.try_send(job) {
+            Ok(()) => queued,
+            Err(mpsc::error::TrySendError::Full(_)) => serde_json::json!({
+                "error": "Ingestion queue is full",
+                "error_code": "queue_full",
+                "retry_after_seconds": 5,
             }),
-            Err(_) => serde_json::json!({ "error": "Failed to queue batch" }),
+            Err(mpsc::error::TrySendError::Closed(_)) => serde_json::json!({
+                "error": "Ingestion worker is unavailable",
+                "error_code": "queue_closed",
+            }),
         }
     }
 
@@ -260,13 +284,14 @@ impl IngestionManager {
     /// Queue a flush: rebuild HNSW + BM25 indexes + WAL checkpoint.
     /// Call after a batch of ingestion jobs to finalize indexes.
     pub fn flush_indexes(&self) -> serde_json::Value {
-        match self.sender.send(IngestJob::FlushIndexes) {
-            Ok(()) => serde_json::json!({
-                "status": "queued",
-                "message": "Index rebuild + WAL checkpoint queued."
-            }),
-            Err(_) => serde_json::json!({ "error": "Failed to queue flush" }),
-        }
+        self.try_queue(IngestJob::RebuildIndexes, serde_json::json!({
+            "status": "queued",
+            "message": "Index rebuild + WAL checkpoint queued."
+        }))
+    }
+
+    pub fn rebuild_indexes(&self) -> serde_json::Value {
+        self.flush_indexes()
     }
 
     /// Cancel the running batch. The worker will stop after the current file.
@@ -281,36 +306,57 @@ impl IngestionManager {
 
 // ── Background worker ──────────────────────────────────────────────────
 
+fn rebuild_indexes_serialized() {
+    tracing::info!("RebuildIndexes: rebuilding indexes + WAL checkpoint...");
+    engine::rebuild_and_save_indexes("general");
+    engine::wal_checkpoint();
+    tracing::info!("RebuildIndexes complete.");
+}
+
+async fn run_with_timeout<F>(
+    progress: &Arc<Mutex<IngestProgress>>,
+    timeout_secs: u64,
+    job: F,
+) where
+    F: std::future::Future<Output = ()>,
+{
+    if tokio::time::timeout(std::time::Duration::from_secs(timeout_secs.max(1)), job)
+        .await
+        .is_err()
+    {
+        let mut p = progress.lock().unwrap();
+        p.status = IngestStatus::Idle;
+        p.current_source = None;
+        p.last_error = Some(format!("Ingestion timed out after {} seconds", timeout_secs));
+        if let Some(ref mut batch) = p.batch {
+            batch.status = BatchStatus::Failed;
+        }
+    }
+}
+
 async fn background_worker(
-    mut receiver: mpsc::UnboundedReceiver<IngestJob>,
+    mut receiver: mpsc::Receiver<IngestJob>,
     pipeline: QueryPipeline,
     ingest_config: IngestConfig,
     progress: Arc<Mutex<IngestProgress>>,
     ingestion_llm: Option<LlmProvider>,
-    sender: mpsc::UnboundedSender<IngestJob>,
+    ingestion_timeout_secs: u64,
 ) {
     while let Some(job) = receiver.recv().await {
         match job {
             IngestJob::File { file_path } => {
-                process_file_job(&pipeline, &ingest_config, &progress, &ingestion_llm, &file_path).await;
-                // Auto-flush index after single-file ingestion so content is immediately searchable
-                let _ = sender.send(IngestJob::FlushIndexes);
+                run_with_timeout(&progress, ingestion_timeout_secs, process_file_job(&pipeline, &ingest_config, &progress, &ingestion_llm, &file_path)).await;
+                rebuild_indexes_serialized();
             }
             IngestJob::Data { content, source } => {
-                process_data_job(&pipeline, &ingest_config, &progress, &ingestion_llm, &content, &source).await;
-                let _ = sender.send(IngestJob::FlushIndexes);
+                run_with_timeout(&progress, ingestion_timeout_secs, process_data_job(&pipeline, &ingest_config, &progress, &ingestion_llm, &content, &source)).await;
+                rebuild_indexes_serialized();
             }
             IngestJob::Batch { batch_id, files, move_after_ingest } => {
-                process_batch_job(&pipeline, &ingest_config, &progress, &ingestion_llm, &batch_id, &files, move_after_ingest).await;
-                // Flush indexes after batch so new chunks are immediately searchable
-                let _ = sender.send(IngestJob::FlushIndexes);
+                run_with_timeout(&progress, ingestion_timeout_secs, process_batch_job(&pipeline, &ingest_config, &progress, &ingestion_llm, &batch_id, &files, move_after_ingest)).await;
+                rebuild_indexes_serialized();
             }
-            IngestJob::FlushIndexes => {
-                tracing::info!("FlushIndexes: rebuilding indexes + WAL checkpoint...");
-                engine::rebuild_and_save_indexes("general");
-                engine::wal_checkpoint();
-                tracing::info!("FlushIndexes complete.");
-            }
+            IngestJob::RebuildIndexes => rebuild_indexes_serialized(),
         }
     }
 
@@ -672,6 +718,17 @@ async fn process_batch_job(
         }
         p.status = IngestStatus::Idle;
         p.current_source = None;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::inline_content_allowed;
+
+    #[test]
+    fn inline_content_limit_rejects_oversized_payloads() {
+        assert!(inline_content_allowed(10, 10));
+        assert!(!inline_content_allowed(11, 10));
     }
 }
 

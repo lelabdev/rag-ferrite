@@ -654,7 +654,9 @@ curl -X POST http://localhost:4242/api/ingest \
   }'
 ```
 
-Batch ingestion returns immediately with a batch identifier.
+Batch ingestion returns immediately with a batch identifier. REST and MCP ingestion share the same bounded worker queue, so queue-full responses provide backpressure instead of retaining unlimited content in memory. Inline ingestion is limited by `advanced.max_inline_content_bytes`; HTTP requests are limited by `advanced.http_body_limit_bytes`.
+
+Index rebuild and flush jobs use the same queue and cannot race ingestion writes. Individual jobs are bounded by `advanced.ingestion_timeout_secs`.
 
 Monitor progress:
 
@@ -692,6 +694,10 @@ Configuration:
 [advanced]
 move_after_ingest = true
 ingested_dir = "ingested"
+ingestion_queue_capacity = 32
+max_inline_content_bytes = 10485760
+ingestion_timeout_secs = 900
+http_body_limit_bytes = 12582912
 ```
 
 Disable it for a specific request:

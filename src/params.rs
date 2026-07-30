@@ -24,6 +24,9 @@ pub struct IngestConfig {
     pub defer_index_rebuild: bool,
     pub wal_checkpoint_interval: usize,
     pub ingested_dir: String,
+    pub queue_capacity: usize,
+    pub max_inline_content_bytes: usize,
+    pub ingestion_timeout_secs: u64,
 }
 
 // ── Shared parameter structs ─────────────────────────────────────────

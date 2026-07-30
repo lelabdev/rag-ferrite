@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Path, Query, State},
+    extract::{DefaultBodyLimit, Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::IntoResponse,
     routing::{delete, get, post},
@@ -95,10 +95,11 @@ fn default_max_edges() -> usize {
 // --- Helpers ---
 
 fn json_response(val: serde_json::Value) -> (StatusCode, Json<serde_json::Value>) {
-    let code = if val.get("error").is_some() {
-        StatusCode::INTERNAL_SERVER_ERROR
-    } else {
-        StatusCode::OK
+    let code = match val.get("error_code").and_then(|v| v.as_str()) {
+        Some("queue_full") => StatusCode::TOO_MANY_REQUESTS,
+        Some("content_too_large") => StatusCode::PAYLOAD_TOO_LARGE,
+        Some(_) => StatusCode::INTERNAL_SERVER_ERROR,
+        None => StatusCode::OK,
     };
     (code, Json(val))
 }
@@ -250,13 +251,9 @@ async fn delete_document(
 }
 
 async fn rebuild_indexes(
-    State(_server): State<Arc<RagFerriteServer>>,
+    State(server): State<Arc<RagFerriteServer>>,
 ) -> impl IntoResponse {
-    tokio::task::spawn_blocking(|| {
-        engine::rebuild_and_save_indexes("general");
-        engine::wal_checkpoint();
-    });
-    (StatusCode::OK, Json(serde_json::json!({"status": "rebuilding + WAL checkpoint"})))
+    json_response(server.ingestion_manager.rebuild_indexes())
 }
 
 async fn flush_indexes(
@@ -438,7 +435,7 @@ async fn keys_current() -> impl IntoResponse {
 
 // --- Server startup ---
 
-pub async fn serve(server: Arc<RagFerriteServer>, port: u16, bind_address: String, admin_key: Option<String>, guest_key: Option<String>) -> anyhow::Result<()> {
+pub async fn serve(server: Arc<RagFerriteServer>, port: u16, bind_address: String, admin_key: Option<String>, guest_key: Option<String>, body_limit: usize) -> anyhow::Result<()> {
     use rmcp::transport::streamable_http_server::{
         StreamableHttpService,
         session::local::LocalSessionManager,
@@ -497,6 +494,7 @@ pub async fn serve(server: Arc<RagFerriteServer>, port: u16, bind_address: Strin
         .route("/api/keys", get(keys_list))
         .route("/api/keys/current", get(keys_current))
         .layer(CorsLayer::permissive())
+        .layer(DefaultBodyLimit::max(body_limit.max(1)))
         .with_state(server);
 
     // Apply API key auth on all routes if configured
