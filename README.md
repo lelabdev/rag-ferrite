@@ -778,7 +778,7 @@ The monitor displays:
 * activity events;
 * ingestion history.
 
-The monitor now has a navigation shell for the main interactive areas: `1` dashboard, `2` library, `3` query, `4` ingestion, and `5` administration. The dashboard remains the live progress view; the other views are the extension points for interactive library, query, ingestion, and administrative workflows. `?` shows keyboard help and `q` exits.
+The monitor now has interactive workspaces: `1` dashboard, `2` library, `3` query, `4` ingestion, and `5` administration. In Library, `j/k` select and `d` deletes after confirmation; in Query, `Q` submits a query; in Ingest, `i` submits a file through the shared queue. The dashboard remains the live progress view. `?` shows keyboard help and `q` exits.
 
 Environment variables:
 
