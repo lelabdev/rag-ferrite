@@ -615,7 +615,7 @@ The `benchmark` tool accepts the legacy JSON array format and a versioned datase
 }
 ```
 
-Results include Recall@k, precision@k, MRR, nDCG, empty-result rate, p50/p95 latency, and per-query metrics. Retrieval filters are applied before candidate limits, with adaptive over-fetching for sqlite-vec and FTS5. The benchmark measures retrieval, not final assistant answer faithfulness. See `examples/benchmark-golden.json` for a complete template. The semantic chunking evaluation protocol is documented in `docs/semantic-chunking-evaluation.md`; semantic chunking is intentionally not enabled without repeatable quality gains. Persistent per-operation LLM caching is similarly deferred until instrumentation demonstrates meaningful repeated cost; see `docs/llm-cache-evaluation.md`. The optional web library console is planned in `docs/web-interface-plan.md` and remains separate from chatbot/model functionality.
+Results include Recall@k, precision@k, MRR, nDCG, empty-result rate, p50/p95 latency, and per-query metrics. Retrieval filters are applied before candidate limits, with adaptive over-fetching for sqlite-vec and FTS5. The benchmark measures retrieval, not final assistant answer faithfulness. See `examples/benchmark-golden.json` for a complete template. The semantic chunking evaluation protocol is documented in `docs/semantic-chunking-evaluation.md`; semantic chunking is intentionally not enabled without repeatable quality gains. Persistent per-operation LLM caching is similarly deferred until instrumentation demonstrates meaningful repeated cost; see `docs/llm-cache-evaluation.md`. The optional web library console is enabled with `advanced.web_ui_enabled = true` and served at `/`. It supports authenticated text ingestion, progress, document listing/deletion, and retrieval inspection; the delivery constraints are documented in `docs/web-interface-plan.md`. It remains separate from chatbot/model functionality.
 
 ### Administration
 
@@ -709,6 +709,7 @@ http_body_limit_bytes = 12582912
 allowed_ingest_roots = ["/srv/rag-ferrite/inbox", "/srv/rag-ferrite/library"]
 http_bind_address = "127.0.0.1"
 allowed_hosts = ["localhost", "127.0.0.1", "rag.example.internal"]
+web_ui_enabled = false
 ```
 
 Disable it for a specific request:
