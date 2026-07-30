@@ -479,6 +479,7 @@ async fn main() -> Result<()> {
             config.advanced.http_body_limit_bytes,
             config.advanced.allowed_hosts.clone(),
             config.advanced.unsafe_bind_without_auth,
+            config.advanced.web_ui_enabled,
         )
         .await?;
     } else {
