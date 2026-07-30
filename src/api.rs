@@ -501,7 +501,8 @@ async fn web_ui() -> Html<&'static str> {
 <script>
 const $=id=>document.getElementById(id);const headers=()=>{const k=$("key").value;return k?{Authorization:`Bearer ${k}`}:{}};
 async function api(path,opt={}){opt.headers={...headers(),...(opt.headers||{})};const r=await fetch(path,opt);const j=await r.json().catch(()=>({error:r.statusText}));if(!r.ok)throw Error(j.error||r.statusText);return j}
-async function refresh(){try{const [d,p]=await Promise.all([api('/api/documents'),api('/api/ingest/progress')]);$('documents').innerHTML=d.files.map(x=>`<p><b>#${x.id}</b> ${x.name||'(unnamed)'} <span class="muted">${x.collection_id||''}</span> <button onclick="del(${x.id})">Delete</button></p>`).join('')||'<p class="muted">No documents</p>';$('progress').textContent=JSON.stringify(p,null,2)}catch(e){$('documents').textContent=e;$('progress').textContent=e}}
+function documentRow(x){const row=document.createElement('p');const id=document.createElement('b');id.textContent='#'+x.id;row.append(id,' ',document.createTextNode(x.name||'(unnamed)'));if(x.collection_id){const collection=document.createElement('span');collection.className='muted';collection.textContent=' '+x.collection_id;row.append(collection)}const button=document.createElement('button');button.textContent='Delete';button.onclick=()=>del(x.id);row.append(' ',button);return row}
+async function refresh(){try{const [d,p]=await Promise.all([api('/api/documents'),api('/api/ingest/progress')]);const documents=$('documents');documents.replaceChildren(...(d.files.length?d.files.map(documentRow):[Object.assign(document.createElement('p'),{className:'muted',textContent:'No documents'})]));$('progress').textContent=JSON.stringify(p,null,2)}catch(e){$('documents').textContent=e;$('progress').textContent=e}}
 async function ingest(){try{const j=await api('/api/ingest/data',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({source:$('source').value,content:$('content').value})});$('ingest-msg').textContent=JSON.stringify(j);refresh()}catch(e){$('ingest-msg').textContent=e}}
 async function del(id){if(!confirm('Delete document #'+id+'?'))return;try{await api('/api/documents/'+id,{method:'DELETE'});refresh()}catch(e){alert(e)}}
 async function search(){try{const j=await api('/api/query',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({query:$('query').value,limit:10})});$('results').textContent=JSON.stringify(j,null,2)}catch(e){$('results').textContent=e}}
@@ -771,6 +772,13 @@ mod tests {
             json_response(serde_json::json!({ "error_code": "internal_error" })).0,
             StatusCode::INTERNAL_SERVER_ERROR
         );
+    }
+
+    #[tokio::test]
+    async fn web_console_renders_document_metadata_as_text() {
+        let page = web_ui().await.0;
+        assert!(page.contains("document.createElement"));
+        assert!(!page.contains("innerHTML"));
     }
 
     #[test]

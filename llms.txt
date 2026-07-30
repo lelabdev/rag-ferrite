@@ -139,7 +139,7 @@ The `benchmark` MCP tool accepts either the legacy JSON array of golden entries 
 }
 ```
 
-It reports Recall@k, precision@k, MRR, nDCG, empty-result rate, p50/p95 latency, and per-query details. It evaluates retrieval only; answer-level faithfulness is outside the server's scope. Semantic chunking remains optional and disabled; the reproducible evaluation protocol is in `docs/semantic-chunking-evaluation.md`. Persistent per-operation LLM caching is deferred until operation-level telemetry demonstrates meaningful repeated cost; see `docs/llm-cache-evaluation.md`. The optional web library console is enabled with `advanced.web_ui_enabled = true` and served at `/`. It uses authenticated REST for text ingestion, progress, source listing/deletion, and retrieval inspection; it remains MCP-first and does not host a chatbot or model. See `docs/web-interface-plan.md`.
+It reports Recall@k, precision@k, MRR, nDCG, empty-result rate, p50/p95 latency, and per-query details. It evaluates retrieval only; answer-level faithfulness is outside the server's scope. Semantic chunking remains optional and disabled; the reproducible evaluation protocol is in `docs/semantic-chunking-evaluation.md`. Persistent per-operation LLM caching is deferred until operation-level telemetry demonstrates meaningful repeated cost; see `docs/llm-cache-evaluation.md`. The optional web library console is enabled with `advanced.web_ui_enabled = true` and served at `/`. It uses authenticated REST for text ingestion, progress, source listing/deletion, and retrieval inspection; it remains MCP-first and does not host a chatbot or model. Indexed metadata is rendered through DOM text nodes, never HTML interpolation. See `docs/web-interface-plan.md`.
 
 ## HTTP API Endpoints
 
