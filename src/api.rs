@@ -552,3 +552,38 @@ pub async fn serve(server: Arc<RagFerriteServer>, port: u16, bind_address: Strin
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn authentication_allows_admin_everywhere_and_guest_only_reads() {
+        let admin = Some("admin-secret".to_string());
+        let guest = Some("guest-secret".to_string());
+        let mut headers = HeaderMap::new();
+        headers.insert("authorization", "Bearer admin-secret".parse().unwrap());
+        assert!(check_api_key(&headers, &admin, &guest, &axum::http::Method::POST, "/api/ingest").is_ok());
+
+        headers.insert("authorization", "Bearer guest-secret".parse().unwrap());
+        assert!(check_api_key(&headers, &admin, &guest, &axum::http::Method::GET, "/api/documents").is_ok());
+        assert_eq!(check_api_key(&headers, &admin, &guest, &axum::http::Method::POST, "/api/ingest").unwrap_err().0, StatusCode::FORBIDDEN);
+    }
+
+    #[test]
+    fn authentication_rejects_invalid_or_missing_credentials() {
+        let admin = Some("admin-secret".to_string());
+        let guest = None;
+        let headers = HeaderMap::new();
+        assert_eq!(check_api_key(&headers, &admin, &guest, &axum::http::Method::GET, "/api/status").unwrap_err().0, StatusCode::UNAUTHORIZED);
+    }
+
+    #[test]
+    fn generated_keys_are_unique_32_byte_hex_values() {
+        let first = generate_random_key();
+        let second = generate_random_key();
+        assert_eq!(first.len(), 64);
+        assert!(first.chars().all(|c| c.is_ascii_hexdigit()));
+        assert_ne!(first, second);
+    }
+}
