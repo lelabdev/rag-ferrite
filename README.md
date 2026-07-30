@@ -615,7 +615,7 @@ The `benchmark` tool accepts the legacy JSON array format and a versioned datase
 }
 ```
 
-Results include Recall@k, precision@k, MRR, nDCG, empty-result rate, p50/p95 latency, and per-query metrics. Retrieval filters are applied before candidate limits, with adaptive over-fetching for sqlite-vec and FTS5. The benchmark measures retrieval, not final assistant answer faithfulness. See `examples/benchmark-golden.json` for a complete template. The semantic chunking evaluation protocol is documented in `docs/semantic-chunking-evaluation.md`; semantic chunking is intentionally not enabled without repeatable quality gains. Persistent per-operation LLM caching is similarly deferred until instrumentation demonstrates meaningful repeated cost; see `docs/llm-cache-evaluation.md`.
+Results include Recall@k, precision@k, MRR, nDCG, empty-result rate, p50/p95 latency, and per-query metrics. Retrieval filters are applied before candidate limits, with adaptive over-fetching for sqlite-vec and FTS5. The benchmark measures retrieval, not final assistant answer faithfulness. See `examples/benchmark-golden.json` for a complete template. The semantic chunking evaluation protocol is documented in `docs/semantic-chunking-evaluation.md`; semantic chunking is intentionally not enabled without repeatable quality gains. Persistent per-operation LLM caching is similarly deferred until instrumentation demonstrates meaningful repeated cost; see `docs/llm-cache-evaluation.md`. The optional web library console is planned in `docs/web-interface-plan.md` and remains separate from chatbot/model functionality.
 
 ### Administration
 
