@@ -385,8 +385,19 @@ pub fn search_vector(
     limit: usize,
     filter: Option<&SearchFilter>,
 ) -> Result<Vec<(i64, f64)>> {
+    let conn = get_conn()?;
+    let allowed_ids = filtered_ids_for_filter(&conn, filter)?;
+    search_vector_with_allowed_ids(query_embedding, limit, filter, allowed_ids.as_ref())
+}
+
+fn search_vector_with_allowed_ids(
+    query_embedding: &[f32],
+    limit: usize,
+    filter: Option<&SearchFilter>,
+    allowed_ids: Option<&std::collections::HashSet<i64>>,
+) -> Result<Vec<(i64, f64)>> {
     // Try sqlite-vec first (fast path)
-    if let Ok(results) = search_vector_sqlite_vec(query_embedding, limit, filter) {
+    if let Ok(results) = search_vector_sqlite_vec(query_embedding, limit, allowed_ids) {
         return Ok(results);
     }
     // Fallback to brute-force if sqlite-vec fails
@@ -398,31 +409,43 @@ pub fn search_vector(
 fn search_vector_sqlite_vec(
     query_embedding: &[f32],
     limit: usize,
-    filter: Option<&SearchFilter>,
+    allowed_ids: Option<&std::collections::HashSet<i64>>,
 ) -> Result<Vec<(i64, f64)>> {
     let conn = get_conn()?;
-    let valid_ids = filter
-        .map(|f| get_filtered_chunk_ids_with_conn(&conn, f))
-        .transpose()?;
     let query_bytes: Vec<u8> = query_embedding
         .iter()
         .flat_map(|f| f.to_ne_bytes())
         .collect();
-    let mut stmt = conn.prepare(
-        "SELECT rowid, distance FROM chunks_vec WHERE embedding MATCH ?1 AND k = ?2 ORDER BY distance"
-    )?;
-    let rows = stmt.query_map(rusqlite::params![query_bytes, limit as i64], |row| {
-        let chunk_id: i64 = row.get(0)?;
-        let distance: f64 = row.get(1)?;
-        Ok((chunk_id, 1.0 - distance))
-    })?;
-    let mut scored: Vec<(i64, f64)> = rows.filter_map(|r| r.ok()).collect();
-    if let Some(valid_ids) = valid_ids {
-        scored.retain(|(id, _)| valid_ids.contains(id));
-    }
-    scored.truncate(limit);
+    let mut candidate_limit = limit.max(1);
+
+    // sqlite-vec cannot apply the relational filter inside the KNN scan. Fetch
+    // progressively larger windows until the filtered result is complete or
+    // the index is exhausted, so narrow filters do not lose low-ranked matches.
+    let scored = loop {
+        let mut stmt = conn.prepare(
+            "SELECT rowid, distance FROM chunks_vec WHERE embedding MATCH ?1 AND k = ?2 ORDER BY distance"
+        )?;
+        let rows = stmt.query_map(rusqlite::params![&query_bytes, candidate_limit as i64], |row| {
+            let chunk_id: i64 = row.get(0)?;
+            let distance: f64 = row.get(1)?;
+            Ok((chunk_id, 1.0 - distance))
+        })?;
+        let raw: Vec<(i64, f64)> = rows.collect::<rusqlite::Result<_>>()?;
+        let filtered: Vec<(i64, f64)> = raw
+            .iter()
+            .filter(|(id, _)| allowed_ids.is_none_or(|ids| ids.contains(id)))
+            .copied()
+            .take(limit)
+            .collect();
+
+        if allowed_ids.is_none() || filtered.len() >= limit || raw.len() < candidate_limit {
+            break filtered;
+        }
+        candidate_limit = candidate_limit.saturating_mul(2);
+    };
+
     tracing::debug!(
-        "[vector_search] sqlite-vec returned {} results",
+        "[vector_search] sqlite-vec returned {} filtered results",
         scored.len()
     );
     Ok(scored)
@@ -485,12 +508,20 @@ pub fn search_bm25(
     filter: Option<&SearchFilter>,
 ) -> Result<Vec<(i64, f64)>> {
     let conn = get_conn()?;
-    let valid_ids = filter
-        .map(|f| get_filtered_chunk_ids_with_conn(&conn, f))
-        .transpose()?;
+    let allowed_ids = filtered_ids_for_filter(&conn, filter)?;
+    search_bm25_with_allowed_ids(query, limit, allowed_ids.as_ref())
+}
 
-    // FTS5 BM25 search — returns negative BM25 score (more negative = better)
-    let fts_results: Vec<(i64, f64)> = {
+fn search_bm25_with_allowed_ids(
+    query: &str,
+    limit: usize,
+    allowed_ids: Option<&std::collections::HashSet<i64>>,
+) -> Result<Vec<(i64, f64)>> {
+    let conn = get_conn()?;
+    let mut candidate_limit = limit.max(1);
+
+    loop {
+        // FTS5 BM25 search — returns negative BM25 score (more negative = better)
         let mut stmt = conn.prepare(
             "SELECT chunk_id, bm25(chunks_fts) as score
              FROM chunks_fts
@@ -498,31 +529,25 @@ pub fn search_bm25(
              ORDER BY score
              LIMIT ?2",
         )?;
-        let rows = stmt.query_map(rusqlite::params![query, limit * 4], |row| {
+        let rows = stmt.query_map(rusqlite::params![query, candidate_limit as i64], |row| {
             let id: i64 = row.get(0)?;
             let score: f64 = row.get(1)?;
-            // FTS5 bm25() returns negative values (more negative = better match)
-            // Normalize to positive: negate it
             Ok((id, -score))
         })?;
-        rows.filter_map(|r| r.ok()).collect()
-    };
+        let raw: Vec<(i64, f64)> = rows.collect::<rusqlite::Result<_>>()?;
+        let result: Vec<(i64, f64)> = raw
+            .iter()
+            .filter(|(id, _)| allowed_ids.is_none_or(|ids| ids.contains(id)))
+            .copied()
+            .take(limit)
+            .collect();
 
-    // Apply filter if present
-    let filtered = if let Some(valid_ids) = valid_ids {
-        fts_results
-            .into_iter()
-            .filter(|(id, _)| valid_ids.contains(id))
-            .collect::<Vec<_>>()
-    } else {
-        fts_results
-    };
-
-    let mut result = filtered;
-    result.truncate(limit);
-
-    tracing::debug!("[bm25_search] returning top {}", result.len());
-    Ok(result)
+        if allowed_ids.is_none() || result.len() >= limit || raw.len() < candidate_limit {
+            tracing::debug!("[bm25_search] returning top {}", result.len());
+            return Ok(result);
+        }
+        candidate_limit = candidate_limit.saturating_mul(2);
+    }
 }
 
 /// Hybrid search combining vector + BM25 via Reciprocal Rank Fusion (RRF).
@@ -540,9 +565,21 @@ pub fn search_hybrid(
         top_k * 2
     };
 
-    // 1. Run vector and BM25 search
-    let vector_results = search_vector(&query_embedding, candidate_k, filter.as_ref())?;
-    let bm25_results = search_bm25(&query_text, candidate_k, filter.as_ref())?;
+    // 1. Resolve the relational filter once and share it between retrieval paths.
+    // This avoids materializing the same potentially large ID set twice.
+    let conn = get_conn()?;
+    let allowed_ids = filtered_ids_for_filter(&conn, filter.as_ref())?;
+    let vector_results = search_vector_with_allowed_ids(
+        &query_embedding,
+        candidate_k,
+        filter.as_ref(),
+        allowed_ids.as_ref(),
+    )?;
+    let bm25_results = search_bm25_with_allowed_ids(
+        &query_text,
+        candidate_k,
+        allowed_ids.as_ref(),
+    )?;
 
     tracing::info!(
         "[hybrid] Raw candidates - Vector: {}, BM25: {}",
@@ -718,6 +755,15 @@ fn build_filter_clause(filter: Option<&SearchFilter>) -> (String, Vec<rusqlite::
     (clause, params)
 }
 
+fn filtered_ids_for_filter(
+    conn: &rusqlite::Connection,
+    filter: Option<&SearchFilter>,
+) -> Result<Option<std::collections::HashSet<i64>>> {
+    filter
+        .map(|f| get_filtered_chunk_ids_with_conn(conn, f))
+        .transpose()
+}
+
 fn get_filtered_chunk_ids_with_conn(
     conn: &rusqlite::Connection,
     filter: &SearchFilter,
@@ -768,7 +814,25 @@ mod tests {
             metadata_like: Some("keep".to_string()),
             ..Default::default()
         };
-        let ids = get_filtered_chunk_ids_with_conn(&conn, &filter).unwrap();
-        assert_eq!(ids.into_iter().collect::<Vec<_>>(), vec![7]);
+        let ids = filtered_ids_for_filter(&conn, Some(&filter)).unwrap();
+        assert_eq!(ids.unwrap().into_iter().collect::<Vec<_>>(), vec![7]);
+    }
+
+    #[test]
+    fn no_filter_does_not_materialize_an_allowed_id_set() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        assert!(filtered_ids_for_filter(&conn, None).unwrap().is_none());
+    }
+
+    #[test]
+    fn filtered_candidates_preserve_matches_outside_initial_window() {
+        let allowed: std::collections::HashSet<i64> = [99_i64].into_iter().collect();
+        let candidates = [(1_i64, 1.0), (2, 0.9), (99, 0.8)];
+        let filtered: Vec<_> = candidates
+            .iter()
+            .filter(|(id, _)| allowed.contains(id))
+            .copied()
+            .collect();
+        assert_eq!(filtered, vec![(99, 0.8)]);
     }
 }

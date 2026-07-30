@@ -62,7 +62,7 @@ Document → Extract text (pdftotext / docx-lite / raw)
 
 Parent-child ingestion commits each parent group atomically with its children and their FTS5/sqlite-vec rows. Parent and child rows use the canonical `chunk_role` values (`parent`/`child`), and parents carry a stable `logical_parent_index` so interrupted work resumes from the exact committed set. Content deduplication uses SHA-256; legacy hashes are upgraded lazily when matched.
 
-Filtered vector and BM25 searches compute their allowed chunk IDs through the connection they already hold; they never reacquire the global SQLite mutex. The query cache key includes every search filter, canonicalizes unordered ID lists, and carries a global data version incremented after source, chunk, deletion, and collection mutations.
+Filtered vector and BM25 searches resolve one shared allowed chunk-ID set per hybrid query. sqlite-vec and FTS5 use adaptive over-fetching so matches outside the initial candidate window are not lost; brute-force vector search applies SQL filters directly. The query cache key includes every search filter, canonicalizes unordered ID lists, and carries a global data version incremented after source, chunk, deletion, and collection mutations.
 ```
 
 Engine uses `params::IngestConfig` (not IngestOptions — deleted). Constructed from `Config` in `main.rs`, passed to engine methods.
