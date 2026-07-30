@@ -632,6 +632,8 @@ Results include Recall@k, precision@k, MRR, nDCG, empty-result rate, p50/p95 lat
 
 Pull requests and `main` run the Rust quality gates: `cargo fmt --all -- --check`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test --all-targets`, and `cargo audit`. Cargo dependencies and build artifacts are cached; Dependabot checks Cargo dependencies weekly.
 
+REST errors use structured `error_code` values and accurate statuses: validation `400`, authentication `401/403`, missing resources `404`, conflicts `409`, queue backpressure `429`, and internal failures `500`.
+
 ## HTTP ingestion
 
 ### One file

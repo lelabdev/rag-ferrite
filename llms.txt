@@ -88,6 +88,8 @@ Before ingesting, use `check_ingestion()` to preview:
 
 GitHub Actions runs formatting, Clippy with `-D warnings`, all-target tests, and `cargo audit` on pull requests and `main`. The repository uses a documented compatibility allowlist for the existing lint baseline; new warnings outside that list fail CI. Cargo dependencies and build artifacts are cached, and Dependabot checks Cargo dependencies weekly.
 
+REST and MCP adapters share structured application errors with `error_code` values. HTTP maps validation to 400, auth to 401/403, missing resources to 404, conflicts to 409, queue backpressure to 429, and internal failures to 500.
+
 ## Query pipeline
 
 ```
