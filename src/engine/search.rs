@@ -1,5 +1,5 @@
+use crate::types::{SearchFilter, SearchResult};
 use anyhow::Result;
-use crate::types::{SearchResult, SearchFilter};
 
 use crate::embedding::EmbeddingProvider;
 use crate::llm::LlmProvider;
@@ -26,13 +26,19 @@ pub async fn search_hybrid_with_expansion(
     filter: Option<SearchFilter>,
 ) -> Result<Vec<SearchResult>> {
     // ── 1. Tag routing — pick which collection to search ──
-    let routed_collection = if filter.as_ref().and_then(|f| f.collection_id.as_ref()).is_none() {
+    let routed_collection = if filter
+        .as_ref()
+        .and_then(|f| f.collection_id.as_ref())
+        .is_none()
+    {
         match super::tag_routing::route_query(query) {
             Ok(route) => {
                 if let Some(ref coll) = route.collection {
                     tracing::info!(
                         "Tag routing: query '{}' → collection '{}' (keywords: {:?})",
-                        query, coll, route.keywords
+                        query,
+                        coll,
+                        route.keywords
                     );
                     Some(coll.clone())
                 } else {
@@ -52,7 +58,8 @@ pub async fn search_hybrid_with_expansion(
     let collection = routed_collection.clone().unwrap_or_else(|| {
         // Fallback: first collection in DB
         if let Ok(conn) = crate::engine::get_conn() {
-            if let Ok(mut stmt) = conn.prepare("SELECT DISTINCT collection_id FROM sources LIMIT 1") {
+            if let Ok(mut stmt) = conn.prepare("SELECT DISTINCT collection_id FROM sources LIMIT 1")
+            {
                 if let Ok(rows) = stmt.query_map([], |row| row.get::<_, String>(0)) {
                     for row in rows.flatten() {
                         return row;
@@ -101,12 +108,9 @@ pub async fn search_hybrid_with_expansion(
         let query_embedding = embedder.embed(q).await?;
         let filter_clone = filter.clone();
 
-        if let Ok(results) = crate::storage::search_hybrid(
-            q.to_string(),
-            query_embedding,
-            limit,
-            filter_clone,
-        ) {
+        if let Ok(results) =
+            crate::storage::search_hybrid(q.to_string(), query_embedding, limit, filter_clone)
+        {
             for result in results {
                 if seen_doc_ids.insert(result.doc_id) {
                     all_results.push(result);
@@ -116,7 +120,11 @@ pub async fn search_hybrid_with_expansion(
     }
 
     // Sort by score descending
-    all_results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    all_results.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     all_results.truncate(limit);
 
     Ok(all_results)

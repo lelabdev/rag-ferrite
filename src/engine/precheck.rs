@@ -1,7 +1,11 @@
 use super::get_conn;
 
 /// Pre-ingestion check: language detection, duplicate detection, size warnings.
-pub fn pre_check_document(content: &str, filename: &str, chunk_size: usize) -> crate::types::PreCheckReport {
+pub fn pre_check_document(
+    content: &str,
+    filename: &str,
+    chunk_size: usize,
+) -> crate::types::PreCheckReport {
     let mut warnings = Vec::new();
 
     let char_count = content.len();
@@ -9,11 +13,17 @@ pub fn pre_check_document(content: &str, filename: &str, chunk_size: usize) -> c
     let extraction_ok = !content.trim().is_empty();
 
     if char_count < 100 {
-        warnings.push(format!("Very short content ({} chars), may not provide useful retrieval results", char_count));
+        warnings.push(format!(
+            "Very short content ({} chars), may not provide useful retrieval results",
+            char_count
+        ));
     }
 
     if char_count > 500_000 {
-        warnings.push(format!("Large document ({} chars), ingestion may take a while", char_count));
+        warnings.push(format!(
+            "Large document ({} chars), ingestion may take a while",
+            char_count
+        ));
     }
 
     let estimated_chunks = if char_count == 0 {
@@ -28,7 +38,10 @@ pub fn pre_check_document(content: &str, filename: &str, chunk_size: usize) -> c
 
     let is_duplicate = check_duplicate_source(filename);
     if is_duplicate {
-        warnings.push(format!("A document named '{}' already exists in the index", filename));
+        warnings.push(format!(
+            "A document named '{}' already exists in the index",
+            filename
+        ));
     }
 
     crate::types::PreCheckReport {
@@ -53,13 +66,22 @@ fn detect_language(text: &str) -> String {
     for ch in sample.chars() {
         match ch {
             'à' | 'â' | 'é' | 'è' | 'ê' | 'ë' | 'î' | 'ï' | 'ô' | 'ù' | 'û' | 'ü' | 'ÿ' | 'ç'
-            | 'À' | 'Â' | 'É' | 'È' | 'Ê' | 'Ë' | 'Î' | 'Ï' | 'Ô' | 'Ù' | 'Û' | 'Ü' | 'Ÿ' | 'Ç' => {
+            | 'À' | 'Â' | 'É' | 'È' | 'Ê' | 'Ë' | 'Î' | 'Ï' | 'Ô' | 'Ù' | 'Û' | 'Ü' | 'Ÿ' | 'Ç' =>
+            {
                 french_accents += 1;
                 latin_chars += 1;
             }
             c if ('\u{4E00}'..='\u{9FFF}').contains(&c) => cjk_chars += 1,
-            c if ('\u{3040}'..='\u{309F}').contains(&c) || ('\u{30A0}'..='\u{30FF}').contains(&c) => cjk_chars += 1,
-            c if ('\u{0600}'..='\u{06FF}').contains(&c) || ('\u{0750}'..='\u{077F}').contains(&c) => arabic_chars += 1,
+            c if ('\u{3040}'..='\u{309F}').contains(&c)
+                || ('\u{30A0}'..='\u{30FF}').contains(&c) =>
+            {
+                cjk_chars += 1
+            }
+            c if ('\u{0600}'..='\u{06FF}').contains(&c)
+                || ('\u{0750}'..='\u{077F}').contains(&c) =>
+            {
+                arabic_chars += 1
+            }
             c if ('\u{0400}'..='\u{04FF}').contains(&c) => cyrillic_chars += 1,
             'a'..='z' | 'A'..='Z' => latin_chars += 1,
             _ => {}
@@ -122,14 +144,20 @@ pub fn verify_chunks(chunks: &[String], source: &str) -> crate::types::ChunkVeri
     // Warn on empty chunks
     let empty_count = chunks.iter().filter(|c| c.trim().is_empty()).count();
     if empty_count > 0 {
-        warnings.push(format!("{} empty chunks found for source '{}'", empty_count, source));
+        warnings.push(format!(
+            "{} empty chunks found for source '{}'",
+            empty_count, source
+        ));
     }
 
     // Warn if coverage < 90%
     if coverage_ratio < 0.9 {
         warnings.push(format!(
             "Low chunk coverage {:.1}% for source '{}' ({} source chars, {} chunk chars)",
-            coverage_ratio * 100.0, source, source_chars, chunk_chars
+            coverage_ratio * 100.0,
+            source,
+            source_chars,
+            chunk_chars
         ));
     }
 
@@ -141,5 +169,3 @@ pub fn verify_chunks(chunks: &[String], source: &str) -> crate::types::ChunkVeri
         warnings,
     }
 }
-
-

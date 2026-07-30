@@ -1,7 +1,6 @@
 /// Global chunk counter for real-time progress tracking.
 /// Set by the ingestion manager before each batch, incremented by the engine
 /// each time a parent chunk is committed to the DB.
-
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 static CHUNK_COUNTER: AtomicUsize = AtomicUsize::new(0);

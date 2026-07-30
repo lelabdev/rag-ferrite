@@ -11,13 +11,34 @@ pub fn calculate_rank_metrics(expected: &[i64], ranked: &[i64], k: usize) -> (f6
     let ranked = &ranked[..ranked.len().min(k)];
     let expected_set: std::collections::HashSet<i64> = expected.iter().copied().collect();
     let relevant = ranked.iter().filter(|id| expected_set.contains(id)).count();
-    let recall = if expected_set.is_empty() { 0.0 } else { relevant as f64 / expected_set.len() as f64 };
-    let precision = if ranked.is_empty() { 0.0 } else { relevant as f64 / ranked.len() as f64 };
-    let reciprocal_rank = ranked.iter().position(|id| expected_set.contains(id)).map(|i| 1.0 / (i + 1) as f64).unwrap_or(0.0);
-    let dcg: f64 = ranked.iter().enumerate().filter(|(_, id)| expected_set.contains(id)).map(|(i, _)| 1.0 / ((i + 2) as f64).log2()).sum();
+    let recall = if expected_set.is_empty() {
+        0.0
+    } else {
+        relevant as f64 / expected_set.len() as f64
+    };
+    let precision = if ranked.is_empty() {
+        0.0
+    } else {
+        relevant as f64 / ranked.len() as f64
+    };
+    let reciprocal_rank = ranked
+        .iter()
+        .position(|id| expected_set.contains(id))
+        .map(|i| 1.0 / (i + 1) as f64)
+        .unwrap_or(0.0);
+    let dcg: f64 = ranked
+        .iter()
+        .enumerate()
+        .filter(|(_, id)| expected_set.contains(id))
+        .map(|(i, _)| 1.0 / ((i + 2) as f64).log2())
+        .sum();
     let ideal_len = expected_set.len().min(k);
     let ideal_dcg: f64 = (0..ideal_len).map(|i| 1.0 / ((i + 2) as f64).log2()).sum();
-    let ndcg = if ideal_dcg == 0.0 { 0.0 } else { dcg / ideal_dcg };
+    let ndcg = if ideal_dcg == 0.0 {
+        0.0
+    } else {
+        dcg / ideal_dcg
+    };
     (recall, precision, reciprocal_rank, ndcg)
 }
 
@@ -86,10 +107,18 @@ pub async fn run_benchmark(
         }
         let (recall_at_k, precision_at_k, reciprocal_rank, ndcg) =
             calculate_rank_metrics(&entry.relevant_source_ids, &found_ids, limit);
-        let matched = entry.relevant_source_ids.iter().filter(|id| found_ids.contains(id)).count();
+        let matched = entry
+            .relevant_source_ids
+            .iter()
+            .filter(|id| found_ids.contains(id))
+            .count();
         let is_hit = matched > 0;
-        if is_hit { hits += 1; }
-        if results.is_empty() { empty_results += 1; }
+        if is_hit {
+            hits += 1;
+        }
+        if results.is_empty() {
+            empty_results += 1;
+        }
         total_score += recall_at_k;
         total_recall += recall_at_k;
         total_precision += precision_at_k;
@@ -116,7 +145,9 @@ pub async fn run_benchmark(
     let avg_score = total_score / divisor;
     latencies.sort_unstable();
     let percentile = |p: usize| -> u64 {
-        if latencies.is_empty() { return 0; }
+        if latencies.is_empty() {
+            return 0;
+        }
         let index = ((latencies.len() - 1) * p).div_ceil(100);
         latencies[index]
     };
@@ -157,12 +188,16 @@ pub fn get_graph_data(
         let mut stmt = conn.prepare(sql)?;
         stmt.query_map(rusqlite::params![coll], |row| {
             Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
-        })?.filter_map(|r| r.ok()).collect()
+        })?
+        .filter_map(|r| r.ok())
+        .collect()
     } else {
         let mut stmt = conn.prepare(sql)?;
         stmt.query_map([], |row| {
             Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
-        })?.filter_map(|r| r.ok()).collect()
+        })?
+        .filter_map(|r| r.ok())
+        .collect()
     };
 
     if sources.is_empty() {
@@ -175,12 +210,14 @@ pub fn get_graph_data(
     // Build nodes
     let nodes: Vec<crate::types::GraphNode> = sources
         .iter()
-        .map(|(id, name, collection_id, chunk_count)| crate::types::GraphNode {
-            id: *id,
-            name: name.clone().unwrap_or_else(|| format!("doc_{}", id)),
-            collection: collection_id.clone(),
-            chunk_count: *chunk_count,
-        })
+        .map(
+            |(id, name, collection_id, chunk_count)| crate::types::GraphNode {
+                id: *id,
+                name: name.clone().unwrap_or_else(|| format!("doc_{}", id)),
+                collection: collection_id.clone(),
+                chunk_count: *chunk_count,
+            },
+        )
         .collect();
 
     let source_ids: Vec<i64> = sources.iter().map(|(id, _, _, _)| *id).collect();
@@ -189,9 +226,7 @@ pub fn get_graph_data(
     let mut centroids: std::collections::HashMap<i64, Vec<f32>> = std::collections::HashMap::new();
 
     for source_id in &source_ids {
-        let mut stmt = conn.prepare(
-            "SELECT embedding FROM chunks WHERE source_id = ?1",
-        )?;
+        let mut stmt = conn.prepare("SELECT embedding FROM chunks WHERE source_id = ?1")?;
         let embeddings: Vec<Vec<f32>> = stmt
             .query_map(rusqlite::params![source_id], |row| {
                 let blob: Vec<u8> = row.get(0)?;

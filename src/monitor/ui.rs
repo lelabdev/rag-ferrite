@@ -3,11 +3,11 @@
 use std::char;
 
 use ratatui::{
+    Frame,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph},
-    Frame,
 };
 
 use super::{App, ColorMode, Panel, SPINNER};
@@ -300,14 +300,8 @@ pub(super) fn ui(f: &mut Frame, app: &mut App) {
             format!("{} RUNNING", spinner_char),
             Style::default().fg(color_for(cm, Color::Yellow)),
         ),
-        "completed" => Span::styled(
-            "✓ DONE",
-            Style::default().fg(color_for(cm, Color::Green)),
-        ),
-        "failed" => Span::styled(
-            "✗ FAILED",
-            Style::default().fg(color_for(cm, Color::Red)),
-        ),
+        "completed" => Span::styled("✓ DONE", Style::default().fg(color_for(cm, Color::Green))),
+        "failed" => Span::styled("✗ FAILED", Style::default().fg(color_for(cm, Color::Red))),
         _ => Span::styled(
             status_str.to_uppercase(),
             Style::default().fg(color_for(cm, Color::DarkGray)),
@@ -471,8 +465,7 @@ pub(super) fn ui(f: &mut Frame, app: &mut App) {
                                 Some("error") | Some("failed") => Color::Red,
                                 _ => Color::Yellow,
                             };
-                            let file_name =
-                                name.rfind('/').map(|i| &name[i + 1..]).unwrap_or(name);
+                            let file_name = name.rfind('/').map(|i| &name[i + 1..]).unwrap_or(name);
                             let text = format!(
                                 " {:<48} {:>4}ch {:>6.1}s",
                                 truncate(file_name, 48),
@@ -484,10 +477,7 @@ pub(super) fn ui(f: &mut Frame, app: &mut App) {
                                     format!("{} ", status_icon),
                                     Style::default().fg(color_for(cm, color_raw)),
                                 ),
-                                Span::styled(
-                                    text,
-                                    Style::default().fg(color_for(cm, color_raw)),
-                                ),
+                                Span::styled(text, Style::default().fg(color_for(cm, color_raw))),
                             ]))
                         })
                         .collect()
@@ -552,21 +542,14 @@ pub(super) fn ui(f: &mut Frame, app: &mut App) {
                             Some("error") | Some("failed") => Color::Red,
                             _ => Color::Yellow,
                         };
-                        let text = format!(
-                            " {:<48} {:>4}ch {:>6.1}s",
-                            truncate(name, 48),
-                            chunks,
-                            dur
-                        );
+                        let text =
+                            format!(" {:<48} {:>4}ch {:>6.1}s", truncate(name, 48), chunks, dur);
                         ListItem::new(Line::from(vec![
                             Span::styled(
                                 format!("{} ", status_icon),
                                 Style::default().fg(color_for(cm, color_raw)),
                             ),
-                            Span::styled(
-                                text,
-                                Style::default().fg(color_for(cm, color_raw)),
-                            ),
+                            Span::styled(text, Style::default().fg(color_for(cm, color_raw))),
                         ]))
                     })
                     .collect()

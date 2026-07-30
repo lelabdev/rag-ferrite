@@ -19,16 +19,11 @@ use chrono::Local;
 use crossterm::{
     event::{self, Event, KeyCode, KeyEventKind},
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
-use ratatui::{
-    backend::CrosstermBackend,
-    Terminal,
-};
+use ratatui::{Terminal, backend::CrosstermBackend};
 
-use api::{
-    fetch_progress, post_action, BatchProgress, CurrentFile, FileResult, ProgressResponse,
-};
+use api::{BatchProgress, CurrentFile, FileResult, ProgressResponse, fetch_progress, post_action};
 use ui::{build_folder_map, generate_pendulum_frames, parent_folder, ui};
 
 // ── Braille spinner (10 frames) ──
@@ -126,7 +121,10 @@ fn open_selected_file(app: &mut App, terminal: &mut Terminal<CrosstermBackend<St
             if files.is_empty() {
                 return;
             }
-            let idx = files.len().saturating_sub(1).saturating_sub(app.scroll_completed);
+            let idx = files
+                .len()
+                .saturating_sub(1)
+                .saturating_sub(app.scroll_completed);
             if idx >= files.len() {
                 return;
             }
@@ -227,7 +225,10 @@ pub fn run(args: &[String]) {
         .collect();
     // Use client config for URL, allow override via positional arg
     let default_url = crate::client::get_server_url();
-    let url = non_flag_args.get(1).map(|s| s.as_str()).unwrap_or(&default_url);
+    let url = non_flag_args
+        .get(1)
+        .map(|s| s.as_str())
+        .unwrap_or(&default_url);
     let refresh: f64 = non_flag_args
         .get(0)
         .and_then(|s| s.parse().ok())
@@ -309,11 +310,7 @@ pub fn run(args: &[String]) {
                     avg_time_per_file_seconds: Some(4.2),
                     elapsed_seconds: Some(done as f64 * 4.2),
                     eta_seconds: Some((220 - done) as f64 * 4.2),
-                    error_rate: Some(if done > 50 && done < 55 {
-                        3.6
-                    } else {
-                        0.0
-                    }),
+                    error_rate: Some(if done > 50 && done < 55 { 3.6 } else { 0.0 }),
                     errors: Vec::new(),
                     current_file: Some(CurrentFile {
                         name: Some(format!(
@@ -416,8 +413,7 @@ pub fn run(args: &[String]) {
                                                     } else {
                                                         ""
                                                     };
-                                                    Some(folder)
-                                                        == app.expanded_folder.as_deref()
+                                                    Some(folder) == app.expanded_folder.as_deref()
                                                 })
                                                 .count()
                                                 .saturating_sub(1)
@@ -473,8 +469,7 @@ pub fn run(args: &[String]) {
                                                     } else {
                                                         ""
                                                     };
-                                                    Some(folder)
-                                                        == app.expanded_folder.as_deref()
+                                                    Some(folder) == app.expanded_folder.as_deref()
                                                 })
                                                 .count()
                                                 .saturating_sub(1)
@@ -534,8 +529,7 @@ pub fn run(args: &[String]) {
                                     .map(|b| {
                                         let map = build_folder_map(&b.files, &b.pending_files);
                                         let keys: Vec<&String> = map.keys().collect();
-                                        keys.get(app.scroll_folders_completed)
-                                            .map(|k| (*k).clone())
+                                        keys.get(app.scroll_folders_completed).map(|k| (*k).clone())
                                     })
                                     .flatten(),
                                 Panel::Queue => app

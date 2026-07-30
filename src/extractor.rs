@@ -13,7 +13,8 @@ pub fn extract_text(file_path: &str) -> Result<String> {
         anyhow::bail!("File not found: {}", file_path);
     }
 
-    let ext = path.extension()
+    let ext = path
+        .extension()
         .and_then(|e| e.to_str())
         .unwrap_or("")
         .to_lowercase();
@@ -34,11 +35,13 @@ fn extract_pdf_text(pdf_path: &str) -> Result<String> {
 
     let output = Command::new("pdftotext")
         .arg(pdf_path)
-        .arg("-")  // Write to stdout
+        .arg("-") // Write to stdout
         .output()
         .map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {
-                anyhow::anyhow!("pdftotext not found. Install poppler-utils: apt install poppler-utils")
+                anyhow::anyhow!(
+                    "pdftotext not found. Install poppler-utils: apt install poppler-utils"
+                )
             } else {
                 anyhow::anyhow!("Failed to run pdftotext: {}", e)
             }
@@ -53,11 +56,18 @@ fn extract_pdf_text(pdf_path: &str) -> Result<String> {
         .unwrap_or_else(|e| String::from_utf8_lossy(&e.into_bytes()).to_string());
     let char_count = text.len();
 
-    tracing::info!("Extracted {} chars from PDF ({} KB)", char_count, char_count / 1024);
+    tracing::info!(
+        "Extracted {} chars from PDF ({} KB)",
+        char_count,
+        char_count / 1024
+    );
 
     // Warn if output suspiciously short
     if char_count < 10_000 {
-        tracing::warn!("PDF extraction suspiciously short ({} chars). PDF may be image-based or encrypted.", char_count);
+        tracing::warn!(
+            "PDF extraction suspiciously short ({} chars). PDF may be image-based or encrypted.",
+            char_count
+        );
     }
 
     Ok(text)
@@ -79,7 +89,11 @@ mod tests {
         let result = extract_text("/nonexistent/path/to/file.pdf");
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
-        assert!(err.contains("not found"), "Expected 'not found' in error, got: {}", err);
+        assert!(
+            err.contains("not found"),
+            "Expected 'not found' in error, got: {}",
+            err
+        );
     }
 
     #[test]
@@ -94,8 +108,11 @@ mod tests {
         let result = extract_text(&path_str);
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
-        assert!(err.contains("Unsupported") || err.contains("unsupported"),
-            "Expected 'Unsupported' in error, got: {}", err);
+        assert!(
+            err.contains("Unsupported") || err.contains("unsupported"),
+            "Expected 'Unsupported' in error, got: {}",
+            err
+        );
 
         // Cleanup
         let _ = std::fs::remove_dir_all(&dir);

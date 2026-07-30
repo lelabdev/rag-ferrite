@@ -1,7 +1,7 @@
-use anyhow::{anyhow, Result};
+use crate::llm::LlmProvider;
+use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use crate::llm::LlmProvider;
 
 /// Truncate a string to at most `max_chars` Unicode characters (byte-safe).
 fn truncate_chars(s: &str, max_chars: usize) -> String {
@@ -33,7 +33,11 @@ pub enum RerankerType {
     /// LLM-based reranking via LlmProvider
     Llm,
     /// Cohere Rerank API
-    Cohere { api_key: String, model: String, base_url: String },
+    Cohere {
+        api_key: String,
+        model: String,
+        base_url: String,
+    },
     /// No reranking
     Disabled,
 }
@@ -76,9 +80,19 @@ impl Reranker {
         }
     }
 
-    pub fn new_cohere(api_key: String, top_k: usize, preview_chars: usize, model: String, base_url: String) -> Self {
+    pub fn new_cohere(
+        api_key: String,
+        top_k: usize,
+        preview_chars: usize,
+        model: String,
+        base_url: String,
+    ) -> Self {
         Self {
-            reranker_type: RerankerType::Cohere { api_key, model, base_url },
+            reranker_type: RerankerType::Cohere {
+                api_key,
+                model,
+                base_url,
+            },
             llm: None,
             client: reqwest::Client::new(),
             top_k,
@@ -160,11 +174,14 @@ impl Reranker {
         }
 
         match &self.reranker_type {
-            RerankerType::Llm => {
-                self.rerank_llm(query, candidates).await
-            }
-            RerankerType::Cohere { api_key, model, base_url } => {
-                self.rerank_cohere(query, candidates, api_key, model, base_url).await
+            RerankerType::Llm => self.rerank_llm(query, candidates).await,
+            RerankerType::Cohere {
+                api_key,
+                model,
+                base_url,
+            } => {
+                self.rerank_cohere(query, candidates, api_key, model, base_url)
+                    .await
             }
             RerankerType::Disabled => unreachable!(),
         }
@@ -176,7 +193,9 @@ impl Reranker {
         query: &str,
         candidates: Vec<RerankCandidate>,
     ) -> Result<Vec<RerankedResult>> {
-        let provider = self.llm.as_ref()
+        let provider = self
+            .llm
+            .as_ref()
             .ok_or_else(|| anyhow!("No LLM provider for reranker"))?;
 
         // Build a prompt that scores each candidate
@@ -196,7 +215,10 @@ impl Reranker {
             candidates_text.join("\n")
         );
 
-        let messages = vec![crate::llm::ChatMessage { role: "user".into(), content: prompt }];
+        let messages = vec![crate::llm::ChatMessage {
+            role: "user".into(),
+            content: prompt,
+        }];
         let content = provider.chat(messages).await?;
 
         // Parse scores from LLM response
@@ -210,7 +232,10 @@ impl Reranker {
                     score: f64,
                 }
                 if let Ok(entries) = serde_json::from_str::<Vec<ScoreEntry>>(json_str) {
-                    entries.into_iter().map(|e| (e.index, e.score.clamp(0.0, 1.0))).collect()
+                    entries
+                        .into_iter()
+                        .map(|e| (e.index, e.score.clamp(0.0, 1.0)))
+                        .collect()
                 } else {
                     vec![]
                 }
@@ -226,9 +251,7 @@ impl Reranker {
             .into_iter()
             .enumerate()
             .map(|(i, c)| {
-                let llm_score = scores.iter()
-                    .find(|(idx, _)| *idx == i)
-                    .map(|(_, s)| *s);
+                let llm_score = scores.iter().find(|(idx, _)| *idx == i).map(|(_, s)| *s);
                 RerankedResult {
                     doc_id: c.doc_id,
                     content: c.content,
@@ -258,7 +281,8 @@ impl Reranker {
         model: &str,
         base_url: &str,
     ) -> Result<Vec<RerankedResult>> {
-        let doc_texts: Vec<String> = candidates.iter()
+        let doc_texts: Vec<String> = candidates
+            .iter()
             .map(|c| c.content.chars().take(500).collect())
             .collect();
 
@@ -275,7 +299,8 @@ impl Reranker {
             documents: doc_texts,
         };
 
-        let resp = self.client
+        let resp = self
+            .client
             .post(base_url)
             .header("Authorization", format!("Bearer {}", api_key))
             .json(&body)
@@ -300,12 +325,11 @@ impl Reranker {
 
         let data: RerankResponse = resp.json().await?;
 
-        let cand_map: std::collections::HashMap<usize, RerankCandidate> = candidates
-            .into_iter()
-            .enumerate()
-            .collect();
+        let cand_map: std::collections::HashMap<usize, RerankCandidate> =
+            candidates.into_iter().enumerate().collect();
 
-        let mut results: Vec<RerankedResult> = data.results
+        let mut results: Vec<RerankedResult> = data
+            .results
             .into_iter()
             .filter_map(|entry| {
                 cand_map.get(&entry.index).map(|c| RerankedResult {

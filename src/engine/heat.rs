@@ -76,7 +76,10 @@ impl HeatTracker {
         tokio::spawn(async move {
             background_worker(receiver).await;
         });
-        tracing::info!("Heat tracker worker spawned (flush every {}s)", FLUSH_INTERVAL_SECS);
+        tracing::info!(
+            "Heat tracker worker spawned (flush every {}s)",
+            FLUSH_INTERVAL_SECS
+        );
         HeatTracker { sender }
     }
 
@@ -136,13 +139,10 @@ fn flush_and_decay(buffer: &std::collections::HashMap<String, i32>) -> Result<()
     //    decay = DAILY_DECAY^(elapsed_days since last_queried_at)
     //    For collections never queried, last_queried_at is NULL → skip (heat stays 0).
     {
-        let mut stmt = conn.prepare(
-            "SELECT collection, heat_score, last_queried_at FROM collection_heat",
-        )?;
+        let mut stmt =
+            conn.prepare("SELECT collection, heat_score, last_queried_at FROM collection_heat")?;
         let rows: Vec<(String, f64, Option<f64>)> = stmt
-            .query_map([], |row| {
-                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
-            })?
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
             .collect::<Result<Vec<_>, _>>()?;
         drop(stmt);
 
@@ -212,7 +212,8 @@ pub fn get_all_heat() -> Result<Vec<CollectionHeat>> {
             query_count: row.get(3)?,
         })
     })?;
-    rows.collect::<Result<Vec<_>, _>>().map_err(|e| anyhow::anyhow!(e))
+    rows.collect::<Result<Vec<_>, _>>()
+        .map_err(|e| anyhow::anyhow!(e))
 }
 
 /// Map a set of source_ids to their collection names.
@@ -222,9 +223,7 @@ pub fn collections_for_sources(source_ids: &[i64]) -> Result<Vec<String>> {
         return Ok(Vec::new());
     }
     let conn = super::get_conn()?;
-    let placeholders: Vec<String> = (0..source_ids.len())
-        .map(|_| "?".to_string())
-        .collect();
+    let placeholders: Vec<String> = (0..source_ids.len()).map(|_| "?".to_string()).collect();
     let sql = format!(
         "SELECT DISTINCT collection_id FROM sources WHERE id IN ({})",
         placeholders.join(",")
@@ -238,7 +237,8 @@ pub fn collections_for_sources(source_ids: &[i64]) -> Result<Vec<String>> {
         let coll: String = row.get(0)?;
         Ok(coll)
     })?;
-    rows.filter_map(Result::ok).collect::<Vec<_>>()
+    rows.filter_map(Result::ok)
+        .collect::<Vec<_>>()
         .into_iter()
         .try_fold(Vec::new(), |mut acc, coll| {
             acc.push(coll);
@@ -344,5 +344,6 @@ pub fn get_chunk_qa_report() -> Result<Vec<ChunkQaSource>> {
         })
     })?;
 
-    rows.collect::<Result<Vec<_>, _>>().map_err(|e| anyhow::anyhow!(e))
+    rows.collect::<Result<Vec<_>, _>>()
+        .map_err(|e| anyhow::anyhow!(e))
 }

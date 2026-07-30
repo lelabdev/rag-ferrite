@@ -1,6 +1,5 @@
 /// Global activity log for ingestion progress monitoring.
 /// Engine pushes events here; ingestion.rs reads them when building progress responses.
-
 use std::sync::Mutex;
 
 /// Maximum number of events retained in the ring buffer.
@@ -31,7 +30,9 @@ fn log_instance() -> &'static Mutex<ActivityLog> {
 
 impl ActivityLog {
     pub fn new() -> Self {
-        Self { events: Vec::with_capacity(MAX_EVENTS) }
+        Self {
+            events: Vec::with_capacity(MAX_EVENTS),
+        }
     }
 
     /// Push an event, evicting the oldest if the buffer is full.

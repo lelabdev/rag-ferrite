@@ -425,11 +425,14 @@ fn search_vector_sqlite_vec(
         let mut stmt = conn.prepare(
             "SELECT rowid, distance FROM chunks_vec WHERE embedding MATCH ?1 AND k = ?2 ORDER BY distance"
         )?;
-        let rows = stmt.query_map(rusqlite::params![&query_bytes, candidate_limit as i64], |row| {
-            let chunk_id: i64 = row.get(0)?;
-            let distance: f64 = row.get(1)?;
-            Ok((chunk_id, 1.0 - distance))
-        })?;
+        let rows = stmt.query_map(
+            rusqlite::params![&query_bytes, candidate_limit as i64],
+            |row| {
+                let chunk_id: i64 = row.get(0)?;
+                let distance: f64 = row.get(1)?;
+                Ok((chunk_id, 1.0 - distance))
+            },
+        )?;
         let raw: Vec<(i64, f64)> = rows.collect::<rusqlite::Result<_>>()?;
         let filtered: Vec<(i64, f64)> = raw
             .iter()
@@ -575,11 +578,8 @@ pub fn search_hybrid(
         filter.as_ref(),
         allowed_ids.as_ref(),
     )?;
-    let bm25_results = search_bm25_with_allowed_ids(
-        &query_text,
-        candidate_k,
-        allowed_ids.as_ref(),
-    )?;
+    let bm25_results =
+        search_bm25_with_allowed_ids(&query_text, candidate_k, allowed_ids.as_ref())?;
 
     tracing::info!(
         "[hybrid] Raw candidates - Vector: {}, BM25: {}",

@@ -13,7 +13,7 @@ pub fn create_chunk_tags_table(db_path: &str) -> Result<()> {
             PRIMARY KEY (chunk_id, tag)
          );
          CREATE INDEX IF NOT EXISTS idx_chunk_tags_tag ON chunk_tags(tag);
-         CREATE INDEX IF NOT EXISTS idx_chunk_tags_chunk_id ON chunk_tags(chunk_id);"
+         CREATE INDEX IF NOT EXISTS idx_chunk_tags_chunk_id ON chunk_tags(chunk_id);",
     )?;
     tracing::info!("chunk_tags table ready");
     Ok(())
@@ -30,7 +30,7 @@ pub fn create_collection_tags_table(db_path: &str) -> Result<()> {
             chunk_count INTEGER NOT NULL DEFAULT 0,
             PRIMARY KEY (tag, collection)
          );
-         CREATE INDEX IF NOT EXISTS idx_collection_tags_tag ON collection_tags(tag);"
+         CREATE INDEX IF NOT EXISTS idx_collection_tags_tag ON collection_tags(tag);",
     )?;
     tracing::info!("collection_tags table ready");
     Ok(())
@@ -64,7 +64,9 @@ pub fn update_collection_tags(
     if !tag_counts.is_empty() {
         tracing::debug!(
             "Updated collection_tags: {} unique tags for source {} in collection '{}'",
-            tag_counts.len(), source_id, collection_id
+            tag_counts.len(),
+            source_id,
+            collection_id
         );
     }
     Ok(())
@@ -73,12 +75,19 @@ pub fn update_collection_tags(
 /// Insert tags for all chunks of a source, matched by original chunk_index.
 /// tags_per_chunk contains (chunk_index, tags) pairs.
 /// If `conn` is provided, uses it (avoids deadlock when caller already holds get_conn lock).
-pub fn insert_chunk_tags(source_id: i64, tags_per_chunk: &[(i32, Vec<String>)], conn: Option<&Connection>) -> Result<()> {
+pub fn insert_chunk_tags(
+    source_id: i64,
+    tags_per_chunk: &[(i32, Vec<String>)],
+    conn: Option<&Connection>,
+) -> Result<()> {
     // If caller provided a connection, use it. Otherwise get our own.
     let owned_conn;
     let conn: &Connection = match conn {
         Some(c) => c,
-        None => { owned_conn = get_conn()?; &owned_conn }
+        None => {
+            owned_conn = get_conn()?;
+            &owned_conn
+        }
     };
 
     for &(chunk_index, ref tags) in tags_per_chunk {
@@ -103,7 +112,11 @@ pub fn insert_chunk_tags(source_id: i64, tags_per_chunk: &[(i32, Vec<String>)], 
             }
         }
     }
-    tracing::debug!("Inserted tags for {} chunks of source {}", tags_per_chunk.len(), source_id);
+    tracing::debug!(
+        "Inserted tags for {} chunks of source {}",
+        tags_per_chunk.len(),
+        source_id
+    );
     Ok(())
 }
 
@@ -120,33 +133,56 @@ pub fn get_chunk_ids_for_tags(tags: &[String]) -> anyhow::Result<Vec<i64>> {
         // Single tag: simple lookup
         let sql = "SELECT chunk_id FROM chunk_tags WHERE tag = ?1";
         let mut stmt = conn.prepare(sql)?;
-        let ids: Vec<i64> = stmt.query_map(rusqlite::params![tags[0]], |row| row.get(0))?.filter_map(|r| r.ok()).collect();
+        let ids: Vec<i64> = stmt
+            .query_map(rusqlite::params![tags[0]], |row| row.get(0))?
+            .filter_map(|r| r.ok())
+            .collect();
         tracing::debug!("Found {} chunk_ids for 1 tag", ids.len());
         return Ok(ids);
     }
 
     // Multiple tags: INTERSECT — chunk must have ALL tags
-    let selects: Vec<String> = tags.iter().enumerate().map(|(i, _)| {
-        format!("SELECT chunk_id FROM chunk_tags WHERE tag = ?{}", i + 1)
-    }).collect();
+    let selects: Vec<String> = tags
+        .iter()
+        .enumerate()
+        .map(|(i, _)| format!("SELECT chunk_id FROM chunk_tags WHERE tag = ?{}", i + 1))
+        .collect();
     let sql = selects.join(" INTERSECT ");
-    let params: Vec<&dyn rusqlite::types::ToSql> = tags.iter().map(|t| t as &dyn rusqlite::types::ToSql).collect();
+    let params: Vec<&dyn rusqlite::types::ToSql> = tags
+        .iter()
+        .map(|t| t as &dyn rusqlite::types::ToSql)
+        .collect();
     let mut stmt = conn.prepare(&sql)?;
-    let ids: Vec<i64> = stmt.query_map(params.as_slice(), |row| row.get(0))?.filter_map(|r| r.ok()).collect();
-    tracing::debug!("Found {} chunk_ids for {} tags (AND intersection)", ids.len(), tags.len());
+    let ids: Vec<i64> = stmt
+        .query_map(params.as_slice(), |row| row.get(0))?
+        .filter_map(|r| r.ok())
+        .collect();
+    tracing::debug!(
+        "Found {} chunk_ids for {} tags (AND intersection)",
+        ids.len(),
+        tags.len()
+    );
     Ok(ids)
 }
 
 /// Fetch tags for a batch of chunk IDs using a single IN query.
-pub fn get_tags_for_chunk_ids(chunk_ids: &[i64]) -> Result<std::collections::HashMap<i64, Vec<String>>> {
+pub fn get_tags_for_chunk_ids(
+    chunk_ids: &[i64],
+) -> Result<std::collections::HashMap<i64, Vec<String>>> {
     if chunk_ids.is_empty() {
         return Ok(std::collections::HashMap::new());
     }
     let conn = get_conn()?;
     let mut map = std::collections::HashMap::new();
 
-    let sql = format!("SELECT chunk_id, tag FROM chunk_tags WHERE chunk_id IN ({}) ORDER BY tag", crate::engine::query::in_placeholders(chunk_ids.len()));
-    let params: Vec<&dyn rusqlite::types::ToSql> = chunk_ids.iter().map(|id| id as &dyn rusqlite::types::ToSql).collect();
+    let sql = format!(
+        "SELECT chunk_id, tag FROM chunk_tags WHERE chunk_id IN ({}) ORDER BY tag",
+        crate::engine::query::in_placeholders(chunk_ids.len())
+    );
+    let params: Vec<&dyn rusqlite::types::ToSql> = chunk_ids
+        .iter()
+        .map(|id| id as &dyn rusqlite::types::ToSql)
+        .collect();
     let mut stmt = conn.prepare(&sql)?;
     let rows = stmt.query_map(params.as_slice(), |row| {
         Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))

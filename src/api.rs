@@ -1,18 +1,18 @@
 use axum::{
+    Json, Router,
     extract::{DefaultBodyLimit, Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::IntoResponse,
     routing::{delete, get, post},
-    Json, Router,
 };
 use serde::Deserialize;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tower_http::cors::CorsLayer;
 
+use crate::RagFerriteServer;
 use crate::engine;
 use crate::params::*;
-use crate::RagFerriteServer;
 
 // --- API Key authentication middleware ---
 
@@ -38,9 +38,9 @@ pub fn check_api_key(
     let Some(auth_header) = headers.get("authorization") else {
         return Err((StatusCode::UNAUTHORIZED, "Missing Authorization header"));
     };
-    let auth_str = auth_header.to_str().map_err(|_| {
-        (StatusCode::BAD_REQUEST, "Invalid Authorization header")
-    })?;
+    let auth_str = auth_header
+        .to_str()
+        .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid Authorization header"))?;
     let token = auth_str.strip_prefix("Bearer ").unwrap_or("");
 
     // Admin key → full access
@@ -53,8 +53,7 @@ pub fn check_api_key(
     // Guest key → read-only (excluding key management endpoints)
     if let Some(guest) = guest_key {
         if token == guest {
-            let is_read = method == axum::http::Method::GET
-                || path == "/api/query"; // POST query is read-only
+            let is_read = method == axum::http::Method::GET || path == "/api/query"; // POST query is read-only
             // Key management requires admin key regardless of method
             if path.starts_with("/api/keys") {
                 return Err((StatusCode::FORBIDDEN, "Key management requires admin key"));
@@ -128,9 +127,7 @@ async fn ingest_progress(State(server): State<Arc<RagFerriteServer>>) -> impl In
     (StatusCode::OK, Json(serde_json::json!(progress)))
 }
 
-async fn list_documents(
-    State(_server): State<Arc<RagFerriteServer>>,
-) -> impl IntoResponse {
+async fn list_documents(State(_server): State<Arc<RagFerriteServer>>) -> impl IntoResponse {
     json_response(crate::service::list_sources_service())
 }
 
@@ -144,14 +141,13 @@ async fn get_document(
             match found {
                 Some(s) => {
                     let info = crate::types::SourceInfo::from(s);
-                    (
-                        StatusCode::OK,
-                        Json(serde_json::json!(info)),
-                    )
+                    (StatusCode::OK, Json(serde_json::json!(info)))
                 }
                 None => (
                     StatusCode::NOT_FOUND,
-                    Json(serde_json::json!({ "error": format!("Document {} not found", source_id) })),
+                    Json(
+                        serde_json::json!({ "error": format!("Document {} not found", source_id) }),
+                    ),
                 ),
             }
         }
@@ -166,7 +162,12 @@ async fn get_chunk_neighbors(
     State(_server): State<Arc<RagFerriteServer>>,
     Path(params): Path<NeighborsPath>,
 ) -> impl IntoResponse {
-    json_response(crate::service::neighbors_service(params.source_id, params.chunk_index, 2, 2))
+    json_response(crate::service::neighbors_service(
+        params.source_id,
+        params.chunk_index,
+        2,
+        2,
+    ))
 }
 
 async fn query_documents(
@@ -174,15 +175,22 @@ async fn query_documents(
     Json(req): Json<QueryParams>,
 ) -> impl IntoResponse {
     // Use fallback pipeline during active ingestion (if configured)
-    let pipeline = if server.ingestion_manager.get_progress().status == crate::ingestion::IngestStatus::Running {
-        server.query_fallback_pipeline.as_ref().unwrap_or(&server.pipeline)
+    let pipeline = if server.ingestion_manager.get_progress().status
+        == crate::ingestion::IngestStatus::Running
+    {
+        server
+            .query_fallback_pipeline
+            .as_ref()
+            .unwrap_or(&server.pipeline)
     } else {
         &server.pipeline
     };
     let val = crate::service::query_service(
         pipeline,
         &req.query,
-        req.limit.unwrap_or(server.default_query_limit).clamp(1, server.max_query_limit),
+        req.limit
+            .unwrap_or(server.default_query_limit)
+            .clamp(1, server.max_query_limit),
         req.source_ids,
         req.metadata_like,
         req.tags,
@@ -197,10 +205,9 @@ async fn ingest_data(
     State(server): State<Arc<RagFerriteServer>>,
     Json(req): Json<IngestDataParams>,
 ) -> impl IntoResponse {
-    let val = server.ingestion_manager.ingest_data(
-        req.content,
-        req.source,
-    );
+    let val = server
+        .ingestion_manager
+        .ingest_data(req.content, req.source);
     json_response(val)
 }
 
@@ -225,7 +232,9 @@ async fn ingest(
         all_paths.insert(0, fp);
     }
     if all_paths.is_empty() {
-        return json_response(serde_json::json!({ "error": "No files provided. Use 'file_path' or 'paths'." }));
+        return json_response(
+            serde_json::json!({ "error": "No files provided. Use 'file_path' or 'paths'." }),
+        );
     }
     // Use API override or fall back to config default
     let move_after = req.move_after_ingest.unwrap_or(server.move_after_ingest);
@@ -250,22 +259,16 @@ async fn delete_document(
     (code, Json(val))
 }
 
-async fn rebuild_indexes(
-    State(server): State<Arc<RagFerriteServer>>,
-) -> impl IntoResponse {
+async fn rebuild_indexes(State(server): State<Arc<RagFerriteServer>>) -> impl IntoResponse {
     json_response(server.ingestion_manager.rebuild_indexes())
 }
 
-async fn flush_indexes(
-    State(server): State<Arc<RagFerriteServer>>,
-) -> impl IntoResponse {
+async fn flush_indexes(State(server): State<Arc<RagFerriteServer>>) -> impl IntoResponse {
     let val = server.ingestion_manager.flush_indexes();
     json_response(val)
 }
 
-async fn cancel_batch(
-    State(server): State<Arc<RagFerriteServer>>,
-) -> impl IntoResponse {
+async fn cancel_batch(State(server): State<Arc<RagFerriteServer>>) -> impl IntoResponse {
     let val = server.ingestion_manager.cancel_batch();
     json_response(val)
 }
@@ -289,10 +292,13 @@ async fn reload_config() -> impl IntoResponse {
 
 async fn get_history() -> impl IntoResponse {
     let entries = crate::engine::history::snapshot();
-    (StatusCode::OK, Json(serde_json::json!({
-        "history": entries,
-        "total": entries.len()
-    })))
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "history": entries,
+            "total": entries.len()
+        })),
+    )
 }
 
 // --- API Key management handlers ---
@@ -376,11 +382,16 @@ async fn keys_generate() -> impl IntoResponse {
             tracing::info!("API key regenerated via /api/keys/generate");
             // Also update the env var so the NEXT request uses the new key
             // SAFETY: single-threaded admin operation during key rotation
-            unsafe { std::env::set_var("RAG_API_KEY", &new_key); }
-            (StatusCode::OK, Json(serde_json::json!({
-                "key": new_key,
-                "message": "New API key generated. The next request must use this key."
-            })))
+            unsafe {
+                std::env::set_var("RAG_API_KEY", &new_key);
+            }
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "key": new_key,
+                    "message": "New API key generated. The next request must use this key."
+                })),
+            )
         }
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -395,7 +406,7 @@ async fn keys_list() -> impl IntoResponse {
 
     if let Some(key) = read_key_from_env(&env_path) {
         if key.len() > 16 {
-            let masked = format!("{}...{}", &key[..8], &key[key.len()-8..]);
+            let masked = format!("{}...{}", &key[..8], &key[key.len() - 8..]);
             keys.push(serde_json::json!({ "masked": masked, "type": "admin" }));
         } else {
             keys.push(serde_json::json!({ "masked": format!("{}...{}", &key[..4], &key[key.len()-4..]), "type": "admin" }));
@@ -406,7 +417,7 @@ async fn keys_list() -> impl IntoResponse {
     if let Ok(guest) = std::env::var("RAG_GUEST_API_KEY") {
         if !guest.is_empty() {
             if guest.len() > 16 {
-                let masked = format!("{}...{}", &guest[..8], &guest[guest.len()-8..]);
+                let masked = format!("{}...{}", &guest[..8], &guest[guest.len() - 8..]);
                 keys.push(serde_json::json!({ "masked": masked, "type": "guest" }));
             } else {
                 keys.push(serde_json::json!({ "masked": format!("{}...{}", &guest[..4], &guest[guest.len()-4..]), "type": "guest" }));
@@ -414,31 +425,46 @@ async fn keys_list() -> impl IntoResponse {
         }
     }
 
-    (StatusCode::OK, Json(serde_json::json!({
-        "keys": keys,
-        "total": keys.len()
-    })))
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "keys": keys,
+            "total": keys.len()
+        })),
+    )
 }
 
 async fn keys_current() -> impl IntoResponse {
     let env_path = server_env_path();
     match read_key_from_env(&env_path) {
-        Some(key) => (StatusCode::OK, Json(serde_json::json!({
-            "key": key,
-            "type": "admin"
-        }))),
-        None => (StatusCode::NOT_FOUND, Json(serde_json::json!({
-            "error": "No API key found in .env file"
-        }))),
+        Some(key) => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "key": key,
+                "type": "admin"
+            })),
+        ),
+        None => (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({
+                "error": "No API key found in .env file"
+            })),
+        ),
     }
 }
 
 // --- Server startup ---
 
-pub async fn serve(server: Arc<RagFerriteServer>, port: u16, bind_address: String, admin_key: Option<String>, guest_key: Option<String>, body_limit: usize) -> anyhow::Result<()> {
+pub async fn serve(
+    server: Arc<RagFerriteServer>,
+    port: u16,
+    bind_address: String,
+    admin_key: Option<String>,
+    guest_key: Option<String>,
+    body_limit: usize,
+) -> anyhow::Result<()> {
     use rmcp::transport::streamable_http_server::{
-        StreamableHttpService,
-        session::local::LocalSessionManager,
+        StreamableHttpService, session::local::LocalSessionManager,
     };
 
     // Create MCP Streamable HTTP service
@@ -449,9 +475,9 @@ pub async fn serve(server: Arc<RagFerriteServer>, port: u16, bind_address: Strin
             "0.0.0.0",
             &bind_address,
             // Tailscale IPs for remote MCP access
-            "100.90.185.42",  // aether
-            "100.97.67.73",   // nova
-            "100.88.8.1",     // tuftux
+            "100.90.185.42", // aether
+            "100.97.67.73",  // nova
+            "100.88.8.1",    // tuftux
             // Docker bridge IPs for LobeChat MCP access
             "10.0.1.1",       // host on lobe-network bridge
             "lobe-rag-proxy", // socat proxy in lobe-network
@@ -479,8 +505,8 @@ pub async fn serve(server: Arc<RagFerriteServer>, port: u16, bind_address: Strin
         .route("/api/query", post(query_documents))
         .route("/api/ingest/data", post(ingest_data))
         .route("/api/ingest", post(ingest))
-        .route("/api/ingest/file", post(ingest))  // alias — same endpoint
-        .route("/api/ingest/batch", post(ingest))  // alias — same endpoint
+        .route("/api/ingest/file", post(ingest)) // alias — same endpoint
+        .route("/api/ingest/batch", post(ingest)) // alias — same endpoint
         .route("/api/documents/{source_id}", delete(delete_document))
         .route("/api/graph", get(get_graph))
         .route("/api/rebuild-indexes", post(rebuild_indexes))
@@ -507,37 +533,42 @@ pub async fn serve(server: Arc<RagFerriteServer>, port: u16, bind_address: Strin
         if guest.is_some() {
             tracing::info!("Guest API key enabled (read-only access)");
         }
-        app.layer(axum::middleware::from_fn(move |req: axum::extract::Request, next: axum::middleware::Next| {
-            let admin = admin.clone();
-            let guest = guest.clone();
-            async move {
-                let method = req.method().clone();
-                let path = req.uri().path().to_string();
-                let headers = req.headers().clone();
-                if let Err((status, msg)) = check_api_key(&headers, &admin, &guest, &method, &path) {
-                    return (status, msg).into_response();
+        app.layer(axum::middleware::from_fn(
+            move |req: axum::extract::Request, next: axum::middleware::Next| {
+                let admin = admin.clone();
+                let guest = guest.clone();
+                async move {
+                    let method = req.method().clone();
+                    let path = req.uri().path().to_string();
+                    let headers = req.headers().clone();
+                    if let Err((status, msg)) =
+                        check_api_key(&headers, &admin, &guest, &method, &path)
+                    {
+                        return (status, msg).into_response();
+                    }
+                    next.run(req).await
                 }
-                next.run(req).await
-            }
-        }))
+            },
+        ))
     } else {
         tracing::info!("API key authentication disabled (no keys configured — local dev)");
         app
     };
 
     // Nest MCP Streamable HTTP under /mcp
-    let mcp_router = axum::Router::new()
-        .route("/mcp", axum::routing::any(move |req| {
+    let mcp_router = axum::Router::new().route(
+        "/mcp",
+        axum::routing::any(move |req| {
             let mcp = mcp_service.clone();
             async move {
                 tower::ServiceExt::oneshot(mcp, req)
                     .await
                     .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "MCP service error"))
             }
-        }));
+        }),
+    );
 
-    let app = app
-        .merge(mcp_router);
+    let app = app.merge(mcp_router);
 
     let addr = format!("{}:{}", bind_address, port);
     tracing::info!("HTTP + MCP Streamable HTTP server listening on {}", addr);
@@ -563,11 +594,40 @@ mod tests {
         let guest = Some("guest-secret".to_string());
         let mut headers = HeaderMap::new();
         headers.insert("authorization", "Bearer admin-secret".parse().unwrap());
-        assert!(check_api_key(&headers, &admin, &guest, &axum::http::Method::POST, "/api/ingest").is_ok());
+        assert!(
+            check_api_key(
+                &headers,
+                &admin,
+                &guest,
+                &axum::http::Method::POST,
+                "/api/ingest"
+            )
+            .is_ok()
+        );
 
         headers.insert("authorization", "Bearer guest-secret".parse().unwrap());
-        assert!(check_api_key(&headers, &admin, &guest, &axum::http::Method::GET, "/api/documents").is_ok());
-        assert_eq!(check_api_key(&headers, &admin, &guest, &axum::http::Method::POST, "/api/ingest").unwrap_err().0, StatusCode::FORBIDDEN);
+        assert!(
+            check_api_key(
+                &headers,
+                &admin,
+                &guest,
+                &axum::http::Method::GET,
+                "/api/documents"
+            )
+            .is_ok()
+        );
+        assert_eq!(
+            check_api_key(
+                &headers,
+                &admin,
+                &guest,
+                &axum::http::Method::POST,
+                "/api/ingest"
+            )
+            .unwrap_err()
+            .0,
+            StatusCode::FORBIDDEN
+        );
     }
 
     #[test]
@@ -575,7 +635,18 @@ mod tests {
         let admin = Some("admin-secret".to_string());
         let guest = None;
         let headers = HeaderMap::new();
-        assert_eq!(check_api_key(&headers, &admin, &guest, &axum::http::Method::GET, "/api/status").unwrap_err().0, StatusCode::UNAUTHORIZED);
+        assert_eq!(
+            check_api_key(
+                &headers,
+                &admin,
+                &guest,
+                &axum::http::Method::GET,
+                "/api/status"
+            )
+            .unwrap_err()
+            .0,
+            StatusCode::UNAUTHORIZED
+        );
     }
 
     #[test]

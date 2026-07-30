@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
@@ -50,7 +50,10 @@ impl EmbeddingProvider {
             detected_dimensions: std::sync::Arc::new(std::sync::OnceLock::new()),
             api_key,
             base_url,
-            client: reqwest::Client::builder().timeout(Duration::from_secs(120)).build().unwrap(),
+            client: reqwest::Client::builder()
+                .timeout(Duration::from_secs(120))
+                .build()
+                .unwrap(),
             batch_size,
         }
     }
@@ -84,18 +87,31 @@ impl EmbeddingProvider {
     }
 
     async fn embed_openai(&self, texts: &[String]) -> Result<Vec<Vec<f32>>> {
-        let api_key = self.api_key.as_ref()
-            .ok_or_else(|| anyhow!("API key required for OpenAI. Set EMBEDDING_API_KEY env or config."))?;
+        let api_key = self.api_key.as_ref().ok_or_else(|| {
+            anyhow!("API key required for OpenAI. Set EMBEDDING_API_KEY env or config.")
+        })?;
 
-        let base = self.base_url.as_deref().unwrap_or("https://api.openai.com/v1");
+        let base = self
+            .base_url
+            .as_deref()
+            .unwrap_or("https://api.openai.com/v1");
         let url = format!("{}/embeddings", base);
 
-        let batch_size = if self.batch_size > 0 { self.batch_size } else { 20 };
+        let batch_size = if self.batch_size > 0 {
+            self.batch_size
+        } else {
+            20
+        };
         let mut all_embeddings = Vec::with_capacity(texts.len());
 
         for (i, chunk) in texts.chunks(batch_size).enumerate() {
             let total_batches = texts.len().div_ceil(batch_size);
-            tracing::info!("Embedding batch {}/{} ({} texts)", i + 1, total_batches, chunk.len());
+            tracing::info!(
+                "Embedding batch {}/{} ({} texts)",
+                i + 1,
+                total_batches,
+                chunk.len()
+            );
 
             let body = EmbeddingRequest {
                 model: self.model.clone(),
@@ -107,7 +123,8 @@ impl EmbeddingProvider {
             let max_retries = 3;
             let resp = loop {
                 attempt += 1;
-                match self.client
+                match self
+                    .client
                     .post(&url)
                     .header("Authorization", format!("Bearer {}", api_key))
                     .json(&body)
@@ -116,7 +133,12 @@ impl EmbeddingProvider {
                 {
                     Ok(r) => break r,
                     Err(e) if attempt < max_retries => {
-                        tracing::warn!("Embedding attempt {}/{} failed: {} — retrying in 2s", attempt, max_retries, e);
+                        tracing::warn!(
+                            "Embedding attempt {}/{} failed: {} — retrying in 2s",
+                            attempt,
+                            max_retries,
+                            e
+                        );
                         tokio::time::sleep(std::time::Duration::from_secs(2)).await;
                     }
                     Err(e) => {
@@ -141,10 +163,14 @@ impl EmbeddingProvider {
     }
 
     async fn embed_cohere(&self, texts: &[String]) -> Result<Vec<Vec<f32>>> {
-        let api_key = self.api_key.as_ref()
-            .ok_or_else(|| anyhow!("API key required for Cohere. Set EMBEDDING_API_KEY env or config."))?;
+        let api_key = self.api_key.as_ref().ok_or_else(|| {
+            anyhow!("API key required for Cohere. Set EMBEDDING_API_KEY env or config.")
+        })?;
 
-        let base = self.base_url.as_deref().unwrap_or("https://api.cohere.ai/v1");
+        let base = self
+            .base_url
+            .as_deref()
+            .unwrap_or("https://api.cohere.ai/v1");
         let url = format!("{}/embed", base);
 
         #[derive(Debug, Serialize)]
@@ -171,7 +197,8 @@ impl EmbeddingProvider {
             embedding_types: Some(vec!["float".into()]),
         };
 
-        let resp = self.client
+        let resp = self
+            .client
             .post(&url)
             .header("Authorization", format!("Bearer {}", api_key))
             .json(&body)
@@ -195,7 +222,8 @@ impl EmbeddingProvider {
         }
 
         let data: CohereResponse = resp.json().await?;
-        data.embeddings.float
+        data.embeddings
+            .float
             .ok_or_else(|| anyhow!("No float embeddings in Cohere response"))
     }
 
@@ -225,11 +253,7 @@ impl EmbeddingProvider {
                 input: batch.to_vec(),
             };
 
-            let resp = self.client
-                .post(&url)
-                .json(&body)
-                .send()
-                .await?;
+            let resp = self.client.post(&url).json(&body).send().await?;
 
             if !resp.status().is_success() {
                 let status = resp.status();

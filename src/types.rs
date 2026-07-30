@@ -245,7 +245,9 @@ pub struct GoldenDataset {
     pub entries: Vec<GoldenEntry>,
 }
 
-fn default_golden_dataset_version() -> u32 { 1 }
+fn default_golden_dataset_version() -> u32 {
+    1
+}
 
 /// A single entry in the golden dataset JSON file.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
