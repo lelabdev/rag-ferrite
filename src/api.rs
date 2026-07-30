@@ -113,6 +113,10 @@ fn json_response(val: serde_json::Value) -> (StatusCode, Json<serde_json::Value>
 
 // --- Handlers ---
 
+async fn get_tags(State(_server): State<Arc<RagFerriteServer>>) -> impl IntoResponse {
+    json_response(crate::service::tag_collection_map_service())
+}
+
 async fn get_graph(
     State(_server): State<Arc<RagFerriteServer>>,
     Query(params): Query<GraphQuery>,
@@ -493,6 +497,7 @@ async fn web_ui() -> Html<&'static str> {
 <section><h2>Ingest text</h2><input id="source" placeholder="source name"><br><textarea id="content" rows="5" style="width:100%;margin: .6rem 0;background:#222;color:inherit" placeholder="Paste text or Markdown"></textarea><button onclick="ingest()">Queue ingestion</button><span id="ingest-msg"></span></section>
 <div class="grid"><section><h2>Documents</h2><div id="documents">Loading…</div></section><section><h2>Progress</h2><pre id="progress">Loading…</pre></section></div>
 <section><h2>Search</h2><input id="query" placeholder="Query" style="width:70%"><button onclick="search()">Search</button><pre id="results"></pre></section>
+<div class="grid"><section><h2>Tags</h2><button onclick="tags()">Load tags</button><pre id="tags"></pre></section><section><h2>Relationships</h2><button onclick="graph()">Load source graph</button><pre id="graph"></pre></section></div>
 <script>
 const $=id=>document.getElementById(id);const headers=()=>{const k=$("key").value;return k?{Authorization:`Bearer ${k}`}:{}};
 async function api(path,opt={}){opt.headers={...headers(),...(opt.headers||{})};const r=await fetch(path,opt);const j=await r.json().catch(()=>({error:r.statusText}));if(!r.ok)throw Error(j.error||r.statusText);return j}
@@ -500,6 +505,8 @@ async function refresh(){try{const [d,p]=await Promise.all([api('/api/documents'
 async function ingest(){try{const j=await api('/api/ingest/data',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({source:$('source').value,content:$('content').value})});$('ingest-msg').textContent=JSON.stringify(j);refresh()}catch(e){$('ingest-msg').textContent=e}}
 async function del(id){if(!confirm('Delete document #'+id+'?'))return;try{await api('/api/documents/'+id,{method:'DELETE'});refresh()}catch(e){alert(e)}}
 async function search(){try{const j=await api('/api/query',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({query:$('query').value,limit:10})});$('results').textContent=JSON.stringify(j,null,2)}catch(e){$('results').textContent=e}}
+async function tags(){try{$('tags').textContent=JSON.stringify(await api('/api/tags'),null,2)}catch(e){$('tags').textContent=e}}
+async function graph(){try{$('graph').textContent=JSON.stringify(await api('/api/graph'),null,2)}catch(e){$('graph').textContent=e}}
 refresh();setInterval(refresh,5000);
 </script></body></html>"#,
     )
@@ -584,6 +591,7 @@ pub async fn serve(
         .route("/api/ingest/batch", post(ingest)) // alias — same endpoint
         .route("/api/documents/{source_id}", delete(delete_document))
         .route("/api/graph", get(get_graph))
+        .route("/api/tags", get(get_tags))
         .route("/api/rebuild-indexes", post(rebuild_indexes))
         .route("/api/flush-indexes", post(flush_indexes))
         .route("/api/service/cancel-batch", post(cancel_batch))
