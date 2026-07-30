@@ -225,6 +225,24 @@ fn open_selected_file(app: &mut App, terminal: &mut Terminal<CrosstermBackend<St
 
 // ── Entry point ──
 
+fn edit_config(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<(), String> {
+    disable_raw_mode().map_err(|e| e.to_string())?;
+    execute!(terminal.backend_mut(), LeaveAlternateScreen).map_err(|e| e.to_string())?;
+    let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vi".to_string());
+    let home = std::env::var("HOME").map_err(|e| e.to_string())?;
+    let config = format!("{}/.config/ragfer/config.toml", home);
+    let result = std::process::Command::new(editor).arg(config).status();
+    execute!(terminal.backend_mut(), EnterAlternateScreen).map_err(|e| e.to_string())?;
+    enable_raw_mode().map_err(|e| e.to_string())?;
+    result.map_err(|e| e.to_string()).and_then(|status| {
+        if status.success() {
+            Ok(())
+        } else {
+            Err(format!("Editor exited with {}", status))
+        }
+    })
+}
+
 fn prompt_line(prompt: &str) -> Option<String> {
     disable_raw_mode().ok();
     print!("\r\n{}", prompt);
@@ -667,6 +685,15 @@ pub fn run(args: &[String]) {
                                     Err(error) => app.error = Some(error),
                                 }
                             }
+                        }
+                    }
+                    KeyCode::Char('e') if app.view == View::Admin => {
+                        match edit_config(&mut terminal) {
+                            Ok(()) => match post_action(url, "/api/reload") {
+                                Ok(message) => app.workspace_message = Some(message),
+                                Err(error) => app.error = Some(error),
+                            },
+                            Err(error) => app.error = Some(error),
                         }
                     }
                     KeyCode::Char('i') if app.view == View::Ingest => {

@@ -963,7 +963,7 @@ fn render_workspace(f: &mut Frame, app: &App) {
             "Ingestion workspace — press i to submit a file to the shared queue",
         )],
         View::Admin => vec![Line::from(
-            "Administration workspace — r rebuilds, f flushes, C cancels",
+            "Administration workspace — e edits config, r rebuilds, f flushes, C cancels",
         )],
         View::Dashboard => Vec::new(),
     };
