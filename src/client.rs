@@ -735,7 +735,7 @@ Usage:
     ragfer ingest-batch <paths...>   Ingest multiple files
     ragfer ingest-data <name>        Ingest stdin as text
     ragfer delete <source_id>        Delete a document
-    ragfer flush                     Flush HNSW buffer to disk
+    ragfer flush                     Refresh derived indexes and checkpoint SQLite
     ragfer rebuild                   Rebuild all indexes
     ragfer cancel                    Cancel running batch
     ragfer stop                      Stop the server

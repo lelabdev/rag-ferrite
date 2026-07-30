@@ -91,7 +91,7 @@ pub fn init(data_dir: &std::path::Path, config: &crate::config::Config) -> Resul
     conn.execute_batch("PRAGMA journal_mode=WAL;")?;
     conn.execute_batch("PRAGMA foreign_keys=ON;")?;
 
-    // Create core tables (previously created by rag_engine::init_source_db)
+    // Create the core SQLite tables.
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS sources (
             id INTEGER PRIMARY KEY,

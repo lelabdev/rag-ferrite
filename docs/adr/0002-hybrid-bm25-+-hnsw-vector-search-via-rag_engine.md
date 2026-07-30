@@ -1,5 +1,7 @@
 # ADR-0002: Hybrid BM25 + HNSW vector search via rag_engine
 
+> **Superseded by ADR-0017.** This document records the historical design and is not the current storage architecture.
+
 ## Status
 Accepted
 

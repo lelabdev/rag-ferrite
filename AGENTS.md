@@ -6,12 +6,12 @@ Moteur RAG personnel, en Rust. Binaire unique `rag-ferrite`, MCP server (stdio o
 
 | Composant | Choix | Rôle |
 |---|---|---|
-| Coeur RAG | rag_engine (fork lelabdev/rag-engine) | HNSW vector search, BM25, hybrid fusion (RRF), SQLite storage, semantic chunking |
+| Coeur RAG | SQLite + sqlite-vec + FTS5 | Vector search, BM25, hybrid fusion (RRF), semantic chunking |
 | MCP Server | rmcp | Exposition stdio + Streamable HTTP |
 | Embeddings | OpenRouter (Qwen3 8B) | 512 dims (sweet spot perf/RAM) |
 | LLM | Ollama Cloud (Gemma4 31B) | Scoring, contextual retrieval, tagging, reranking |
 | LLM Profiles | Modular per action | Ingestion, query, reranker peuvent utiliser des providers/models différents |
-| Stockage | SQLite + HNSW | 1 fichier DB, backup = cp |
+| Stockage | SQLite + sqlite-vec + FTS5 | 1 fichier DB, backup = cp |
 | TUI Monitor | ratatui | Intégré dans le binaire (src/monitor/) |
 
 ## Architecture
@@ -35,7 +35,7 @@ Le daemon expose :
 ADR dans `docs/adr/`. Index dans `docs/DECISIONS.md`.
 
 Décisions clés :
-- Binaire unique, Rust, SQLite + HNSW (pas de DB externe, pas de Python)
+- Binaire unique, Rust, SQLite + sqlite-vec + FTS5 (pas de DB externe, pas de Python)
 - Parent-child chunking avec contextual retrieval
 - Parents parallèles (JoinSet) + enfants en batch pour la vitesse d'ingestion
 - LLM profiles modulaires : modèles différents pour ingestion, query, reranker (`[[llm_profile]]` dans config)
@@ -45,7 +45,7 @@ Décisions clés :
 - Skip des petits chunks avant l'appel LLM (économise les tokens, stats précises)
 - Endpoint de progression pour monitorer les ingestions actives
 - Dimensions embedding : 512. Contenu broad (livres, transcriptions, docs tech) où BM25 + tag routing compensent la perte minime. RAM basse, 4× plus de données sans OOM
-- Fork de rag_engine sous `lelabdev/rag-engine` — mmap pour le chargement vectoriel (l'OS gère le page cache, collections froides naturellement évitées de la RAM)
+- SQLite est l'index de retrieval dérivé : sqlite-vec pour les vecteurs, FTS5 pour BM25, WAL pour la durabilité.
 - Chunk heat async batched (canal mpsc + flush 30s) vs anciens N UPDATEs synchrones
 - Patterns atomiques globaux pour signaux transversaux (chunk_counter, cancel)
 - Delete instantané (pas de rebuild synchrone des indexes)
@@ -92,7 +92,7 @@ src/
 │   ├── search.rs (137 lines) — hybrid search
 │   ├── query.rs (199 lines) — query helpers
 │   ├── benchmark.rs (225 lines) — benchmarks
-│   ├── indexes.rs (129 lines) — HNSW/BM25 index management
+│   ├── indexes.rs (129 lines) — sqlite-vec/FTS5 index management
 │   ├── heat.rs (348 lines) — collection heat tracking
 │   ├── tag_routing.rs (163 lines) — tag-based routing
 │   ├── tags.rs (129 lines) — tag DB operations
@@ -132,10 +132,10 @@ Document → Pre-ingestion check (qualité, doublons, langue)
          → Relevance scoring LLM (1-10, filtre le bruit)
          → Contextual retrieval (LLM context prefix, batch + retry)
          → Auto-tagging (2-3 tags par chunk)
-         → Embedding batch → SQLite + HNSW + BM25
+         → Embedding batch → SQLite + sqlite-vec + FTS5/BM25
 ```
 
-Ingestion mise en queue via canal mpsc — HTTP retourne immédiatement.
+Ingestion mise en queue via canal mpsc — HTTP retourne immédiatement. Flush rebuilds FTS5 and checkpoints SQLite; it does not persist external vector-index files.
 Progression : GET /api/ingest/progress
 
 ## Pipeline de query
@@ -145,7 +145,7 @@ Query → MCP tool call
       → Classification (simple / standard / complex)
       → [Si standard/complex] Query expansion (LLM multi-query)
       → Tag routing (sélection collection via collection_tags)
-      → Hybrid retrieval (BM25 + HNSW + RRF)
+      → Hybrid retrieval (BM25 + sqlite-vec + FTS5 + RRF)
       → LLM reranking (scoring 0-1 des top-k résultats)
       → Query caching (résultats en cache 300s)
       → [Quality gate] Score de confiance

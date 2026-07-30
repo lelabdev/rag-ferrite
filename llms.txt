@@ -37,7 +37,7 @@ src/
 │   ├── search.rs (137 lines) — hybrid search
 │   ├── query.rs (199 lines) — query helpers
 │   ├── benchmark.rs (225 lines) — benchmarks
-│   ├── indexes.rs (129 lines) — HNSW/BM25 index management
+│   ├── indexes.rs (129 lines) — sqlite-vec/FTS5 index management
 │   ├── heat.rs (348 lines) — collection heat tracking
 │   ├── tag_routing.rs (163 lines) — tag-based routing
 │   ├── tags.rs (129 lines) — tag DB operations
@@ -97,7 +97,7 @@ HTTP binds to loopback by default. Non-loopback binding requires configured API 
 ```
 Query → Classify (simple / standard / complex)
       → [standard/complex] Query expansion (LLM multi-query)
-      → Hybrid retrieval (BM25 + HNSW + RRF fusion)
+      → Hybrid retrieval (BM25 + sqlite-vec + FTS5 + RRF fusion)
       → [standard/complex] LLM reranking (0-1 scoring of top results)
       → Query cache (TTL 300s in memory)
       → Quality gate (confidence score)
@@ -123,8 +123,8 @@ Query → Classify (simple / standard / complex)
 | `suggest_collection(query)` | Tag routing: suggest best collection for a query |
 | `tag_map()` | Full tag → collection mapping with chunk counts |
 | `reassign_collection(source_id, collection)` | Move a source and its chunks to a different collection |
-| `rebuild_indexes()` | Rebuild HNSW + BM25 indexes + WAL checkpoint |
-| `flush_indexes()` | Flush incremental HNSW buffer to disk |
+| `rebuild_indexes()` | Rebuild FTS5 and checkpoint SQLite |
+| `flush_indexes()` | Flush SQLite/WAL state and refresh derived indexes |
 
 ### Retrieval evaluation
 
@@ -154,7 +154,7 @@ It reports Recall@k, precision@k, MRR, nDCG, empty-result rate, p50/p95 latency,
 | GET | `/api/documents/{id}` | Get document details |
 | DELETE | `/api/documents/{id}` | Delete document |
 | GET | `/api/graph` | Source relationship graph |
-| POST | `/api/flush-indexes` | Flush HNSW + BM25 + WAL checkpoint |
+| POST | `/api/flush-indexes` | Refresh derived indexes + WAL checkpoint |
 | POST | `/api/rebuild-indexes` | Full index rebuild |
 | POST | `/api/service/cancel-batch` | Cancel running batch |
 | POST | `/api/service/stop` | Graceful server shutdown |
@@ -265,7 +265,7 @@ mcp_servers:
 | Binary size | 15 MB | 8 GB+ (Docker) | Node.js | Node.js CLI |
 | Language | Rust | Python | TypeScript | TypeScript |
 | Database | SQLite | ChromaDB | SQLite | In-memory |
-| Hybrid search | BM25 + HNSW + RRF | BM25 + vector + RRF | Vector only | BM25 + vector |
+| Hybrid search | BM25 + sqlite-vec + RRF | BM25 + vector + RRF | Vector only | BM25 + vector |
 | MCP support | Native | Native | Native | No |
 | Relevance scoring | LLM (ingestion) | No | No | No |
 | Contextual retrieval | LLM (ingestion) | No | No | No |

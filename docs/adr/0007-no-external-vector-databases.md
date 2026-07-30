@@ -7,7 +7,7 @@ Accepted
 Single binary model. External DBs break this.
 
 ## Decision
-SQLite + HNSW via rag_engine. No Qdrant, Milvus, Weaviate.
+SQLite with sqlite-vec and FTS5. No Qdrant, Milvus, Weaviate.
 
 ## Alternatives considered
 - Qdrant (Docker)
