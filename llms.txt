@@ -139,7 +139,7 @@ The `benchmark` MCP tool accepts either the legacy JSON array of golden entries 
 }
 ```
 
-It reports Recall@k, precision@k, MRR, nDCG, empty-result rate, p50/p95 latency, and per-query details. It evaluates retrieval only; answer-level faithfulness is outside the server's scope.
+It reports Recall@k, precision@k, MRR, nDCG, empty-result rate, p50/p95 latency, and per-query details. It evaluates retrieval only; answer-level faithfulness is outside the server's scope. Semantic chunking remains optional and disabled; the reproducible evaluation protocol is in `docs/semantic-chunking-evaluation.md`.
 
 ## HTTP API Endpoints
 
