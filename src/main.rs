@@ -386,6 +386,11 @@ async fn main() -> Result<()> {
         queue_capacity: config.advanced.ingestion_queue_capacity,
         max_inline_content_bytes: config.advanced.max_inline_content_bytes,
         ingestion_timeout_secs: config.advanced.ingestion_timeout_secs,
+        allowed_ingest_roots: if config.advanced.allowed_ingest_roots.is_empty() {
+            vec![config.data_dir.join("inbox")]
+        } else {
+            config.advanced.allowed_ingest_roots.clone()
+        },
     };
 
     let reranker_for_fallback = reranker.clone();

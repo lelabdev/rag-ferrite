@@ -688,6 +688,10 @@ pub struct AdvancedConfig {
     /// Maximum HTTP request body size.
     #[serde(default = "default_http_body_limit_bytes")]
     pub http_body_limit_bytes: usize,
+
+    /// Filesystem roots allowed for local ingestion and path-based tools.
+    #[serde(default)]
+    pub allowed_ingest_roots: Vec<PathBuf>,
 }
 
 fn default_chunk_size() -> usize {
@@ -794,6 +798,7 @@ impl Default for AdvancedConfig {
             max_inline_content_bytes: default_max_inline_content_bytes(),
             ingestion_timeout_secs: default_ingestion_timeout_secs(),
             http_body_limit_bytes: default_http_body_limit_bytes(),
+            allowed_ingest_roots: Vec::new(),
         }
     }
 }

@@ -142,10 +142,38 @@ fn inline_content_allowed(content_len: usize, max_bytes: usize) -> bool {
     content_len <= max_bytes
 }
 
+pub fn validate_allowed_path(
+    requested: &str,
+    allowed_roots: &[std::path::PathBuf],
+) -> Result<std::path::PathBuf, String> {
+    let path = std::path::Path::new(requested);
+    let canonical_path = std::fs::canonicalize(path)
+        .map_err(|e| format!("Cannot access requested path '{}': {}", requested, e))?;
+    let canonical_roots: Vec<std::path::PathBuf> = allowed_roots
+        .iter()
+        .filter_map(|root| std::fs::canonicalize(root).ok())
+        .collect();
+    if canonical_roots.is_empty() {
+        return Err("No allowed ingestion roots are configured".to_string());
+    }
+    if canonical_roots
+        .iter()
+        .any(|root| canonical_path.starts_with(root))
+    {
+        Ok(canonical_path)
+    } else {
+        Err(format!(
+            "Path '{}' is outside the configured ingestion roots",
+            requested
+        ))
+    }
+}
+
 pub struct IngestionManager {
     pub progress: Arc<Mutex<IngestProgress>>,
     sender: mpsc::Sender<IngestJob>,
     max_inline_content_bytes: usize,
+    allowed_ingest_roots: Vec<std::path::PathBuf>,
     /// LLM provider dedicated to ingestion (contextual retrieval, scoring, tagging).
     /// Separate from the query pipeline's LLM so different profiles can be used.
     pub ingestion_llm: Option<LlmProvider>,
@@ -157,6 +185,7 @@ impl Clone for IngestionManager {
             progress: self.progress.clone(),
             sender: self.sender.clone(),
             max_inline_content_bytes: self.max_inline_content_bytes,
+            allowed_ingest_roots: self.allowed_ingest_roots.clone(),
             ingestion_llm: self.ingestion_llm.clone(),
         }
     }
@@ -176,6 +205,7 @@ impl IngestionManager {
         let worker_progress = progress.clone();
         let worker_llm = ingestion_llm.clone();
         let max_inline_content_bytes = ingest_config.max_inline_content_bytes;
+        let allowed_ingest_roots = ingest_config.allowed_ingest_roots.clone();
         let ingestion_timeout_secs = ingest_config.ingestion_timeout_secs;
         tokio::spawn(async move {
             background_worker(
@@ -193,12 +223,26 @@ impl IngestionManager {
             progress,
             sender,
             max_inline_content_bytes,
+            allowed_ingest_roots,
             ingestion_llm,
         }
     }
 
     /// Queue a file ingestion. Returns immediately.
+    pub fn validate_file_path(&self, file_path: &str) -> Result<std::path::PathBuf, String> {
+        validate_allowed_path(file_path, &self.allowed_ingest_roots)
+    }
+
     pub fn ingest_file(&self, file_path: String) -> serde_json::Value {
+        let file_path = match self.validate_file_path(&file_path) {
+            Ok(path) => path.to_string_lossy().into_owned(),
+            Err(error) => {
+                return serde_json::json!({
+                    "error_code": "path_not_allowed",
+                    "error": error,
+                });
+            }
+        };
         self.try_queue(
             IngestJob::File {
                 file_path: file_path.clone(),
@@ -243,11 +287,27 @@ impl IngestionManager {
                 .as_millis()
         );
         let total = files.len();
+        let files: Vec<String> = match files
+            .iter()
+            .map(|path| {
+                self.validate_file_path(path)
+                    .map(|p| p.to_string_lossy().into_owned())
+            })
+            .collect()
+        {
+            Ok(files) => files,
+            Err(error) => {
+                return serde_json::json!({
+                    "error_code": "path_not_allowed",
+                    "error": error,
+                });
+            }
+        };
         self.try_queue(IngestJob::Batch {
             batch_id: batch_id.clone(),
             files,
             move_after_ingest,
-        }, serde_json::json!({
+        },  serde_json::json!({
             "status": "queued",
             "batch_id": batch_id,
             "total_files": total,
@@ -865,12 +925,61 @@ async fn process_batch_job(
 
 #[cfg(test)]
 mod tests {
-    use super::inline_content_allowed;
+    use super::{inline_content_allowed, validate_allowed_path};
 
     #[test]
     fn inline_content_limit_rejects_oversized_payloads() {
         assert!(inline_content_allowed(10, 10));
         assert!(!inline_content_allowed(11, 10));
+    }
+
+    #[test]
+    fn path_validation_rejects_parent_traversal_and_accepts_root_files() {
+        let root = std::env::temp_dir().join(format!("ragfer-path-test-{}", std::process::id()));
+        let nested = root.join("nested");
+        std::fs::create_dir_all(&nested).unwrap();
+        let inside = nested.join("document.txt");
+        std::fs::write(&inside, "safe").unwrap();
+        let outside = root.parent().unwrap().join("outside-ragfer.txt");
+        std::fs::write(&outside, "outside").unwrap();
+
+        assert!(
+            validate_allowed_path(inside.to_str().unwrap(), std::slice::from_ref(&root)).is_ok()
+        );
+        assert!(
+            validate_allowed_path(
+                nested
+                    .join("..")
+                    .join("../outside-ragfer.txt")
+                    .to_str()
+                    .unwrap(),
+                std::slice::from_ref(&root),
+            )
+            .is_err()
+        );
+
+        let _ = std::fs::remove_file(outside);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn path_validation_rejects_symlink_escape() {
+        use std::os::unix::fs::symlink;
+        let root = std::env::temp_dir().join(format!("ragfer-symlink-test-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let outside = root.parent().unwrap().join("outside-ragfer-link.txt");
+        std::fs::write(&outside, "outside").unwrap();
+        let link = root.join("link.txt");
+        symlink(&outside, &link).unwrap();
+
+        assert!(
+            validate_allowed_path(link.to_str().unwrap(), std::slice::from_ref(&root)).is_err()
+        );
+
+        let _ = std::fs::remove_file(&link);
+        let _ = std::fs::remove_file(outside);
+        let _ = std::fs::remove_dir_all(root);
     }
 }
 

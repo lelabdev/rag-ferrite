@@ -100,6 +100,7 @@ fn json_response(val: serde_json::Value) -> (StatusCode, Json<serde_json::Value>
         Some("invalid_source_id" | "invalid_configuration" | "invalid_input") => {
             StatusCode::BAD_REQUEST
         }
+        Some("path_not_allowed") => StatusCode::FORBIDDEN,
         Some("not_found") => StatusCode::NOT_FOUND,
         Some("conflict") => StatusCode::CONFLICT,
         Some("unauthorized") => StatusCode::UNAUTHORIZED,

@@ -27,6 +27,7 @@ pub struct IngestConfig {
     pub queue_capacity: usize,
     pub max_inline_content_bytes: usize,
     pub ingestion_timeout_secs: u64,
+    pub allowed_ingest_roots: Vec<std::path::PathBuf>,
 }
 
 // ── Shared parameter structs ─────────────────────────────────────────

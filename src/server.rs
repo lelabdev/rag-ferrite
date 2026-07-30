@@ -105,9 +105,20 @@ impl RagFerriteServer {
     async fn check_ingestion(&self, params: Parameters<CheckIngestionParams>) -> String {
         let p = params.0;
         let (content, filename) = if let Some(ref file_path) = p.file_path {
-            match crate::extractor::extract_text(file_path) {
+            let safe_path = match self.ingestion_manager.validate_file_path(file_path) {
+                Ok(path) => path,
+                Err(error) => {
+                    return serde_json::json!({
+                        "error_code": "path_not_allowed",
+                        "error": error,
+                    })
+                    .to_string();
+                }
+            };
+            let safe_path = safe_path.to_string_lossy();
+            match crate::extractor::extract_text(&safe_path) {
                 Ok(text) => {
-                    let name = std::path::Path::new(file_path)
+                    let name = std::path::Path::new(safe_path.as_ref())
                         .file_name()
                         .map(|n| n.to_string_lossy().to_string())
                         .unwrap_or_else(|| file_path.clone());
@@ -138,7 +149,17 @@ impl RagFerriteServer {
     )]
     async fn benchmark(&self, params: Parameters<BenchmarkParams>) -> String {
         let p = params.0;
-        let content = match std::fs::read_to_string(&p.file_path) {
+        let safe_path = match self.ingestion_manager.validate_file_path(&p.file_path) {
+            Ok(path) => path,
+            Err(error) => {
+                return serde_json::json!({
+                    "error_code": "path_not_allowed",
+                    "error": error,
+                })
+                .to_string();
+            }
+        };
+        let content = match std::fs::read_to_string(&safe_path) {
             Ok(c) => c,
             Err(e) => return serde_json::json!({ "error": format!("Failed to read golden dataset: {}", e) }).to_string(),
         };
