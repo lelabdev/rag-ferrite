@@ -97,6 +97,13 @@ fn json_response(val: serde_json::Value) -> (StatusCode, Json<serde_json::Value>
     let code = match val.get("error_code").and_then(|v| v.as_str()) {
         Some("queue_full") => StatusCode::TOO_MANY_REQUESTS,
         Some("content_too_large") => StatusCode::PAYLOAD_TOO_LARGE,
+        Some("invalid_source_id" | "invalid_configuration" | "invalid_input") => {
+            StatusCode::BAD_REQUEST
+        }
+        Some("not_found") => StatusCode::NOT_FOUND,
+        Some("conflict") => StatusCode::CONFLICT,
+        Some("unauthorized") => StatusCode::UNAUTHORIZED,
+        Some("forbidden") => StatusCode::FORBIDDEN,
         Some(_) => StatusCode::INTERNAL_SERVER_ERROR,
         None => StatusCode::OK,
     };
@@ -145,9 +152,10 @@ async fn get_document(
                 }
                 None => (
                     StatusCode::NOT_FOUND,
-                    Json(
-                        serde_json::json!({ "error": format!("Document {} not found", source_id) }),
-                    ),
+                    Json(serde_json::json!({
+                        "error_code": "not_found",
+                        "error": format!("Document {} not found", source_id)
+                    })),
                 ),
             }
         }
@@ -232,9 +240,10 @@ async fn ingest(
         all_paths.insert(0, fp);
     }
     if all_paths.is_empty() {
-        return json_response(
-            serde_json::json!({ "error": "No files provided. Use 'file_path' or 'paths'." }),
-        );
+        return json_response(serde_json::json!({
+            "error_code": "invalid_input",
+            "error": "No files provided. Use 'file_path' or 'paths'."
+        }));
     }
     // Use API override or fall back to config default
     let move_after = req.move_after_ingest.unwrap_or(server.move_after_ingest);
@@ -247,16 +256,7 @@ async fn delete_document(
     Path(source_id): Path<String>,
 ) -> impl IntoResponse {
     let val = crate::service::delete_service(&source_id);
-    let code = if val.get("error").is_some() {
-        if source_id.parse::<i64>().is_err() {
-            StatusCode::BAD_REQUEST
-        } else {
-            StatusCode::INTERNAL_SERVER_ERROR
-        }
-    } else {
-        StatusCode::OK
-    };
-    (code, Json(val))
+    json_response(val)
 }
 
 async fn rebuild_indexes(State(server): State<Arc<RagFerriteServer>>) -> impl IntoResponse {
@@ -656,5 +656,29 @@ mod tests {
         assert_eq!(first.len(), 64);
         assert!(first.chars().all(|c| c.is_ascii_hexdigit()));
         assert_ne!(first, second);
+    }
+
+    #[test]
+    fn error_codes_map_to_client_actionable_statuses() {
+        assert_eq!(
+            json_response(serde_json::json!({ "error_code": "invalid_input" })).0,
+            StatusCode::BAD_REQUEST
+        );
+        assert_eq!(
+            json_response(serde_json::json!({ "error_code": "not_found" })).0,
+            StatusCode::NOT_FOUND
+        );
+        assert_eq!(
+            json_response(serde_json::json!({ "error_code": "conflict" })).0,
+            StatusCode::CONFLICT
+        );
+        assert_eq!(
+            json_response(serde_json::json!({ "error_code": "queue_full" })).0,
+            StatusCode::TOO_MANY_REQUESTS
+        );
+        assert_eq!(
+            json_response(serde_json::json!({ "error_code": "internal_error" })).0,
+            StatusCode::INTERNAL_SERVER_ERROR
+        );
     }
 }

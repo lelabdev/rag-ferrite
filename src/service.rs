@@ -6,7 +6,31 @@ use crate::llm;
 use crate::params::IngestConfig;
 use crate::pipeline::QueryPipeline;
 use crate::types::{ChunkResult, HybridResult, SourceInfo};
-use serde_json::json;
+use serde_json::{Value, json};
+
+/// Typed application error shared by REST and MCP adapters.
+#[derive(Debug, Clone)]
+pub struct AppError {
+    pub code: &'static str,
+    pub message: String,
+}
+
+impl AppError {
+    pub fn new(code: &'static str, message: impl Into<String>) -> Self {
+        Self {
+            code,
+            message: message.into(),
+        }
+    }
+
+    pub fn into_json(self) -> Value {
+        json!({ "error_code": self.code, "error": self.message })
+    }
+}
+
+fn internal_error(error: impl std::fmt::Display) -> Value {
+    AppError::new("internal_error", error.to_string()).into_json()
+}
 
 // ── Query ──────────────────────────────────────────────────────────────
 
@@ -151,7 +175,7 @@ pub async fn query_service(
                 "retries": output.retry_count
             })
         }
-        Err(e) => json!({ "error": e.to_string() }),
+        Err(e) => internal_error(e),
     }
 }
 
@@ -180,7 +204,7 @@ pub async fn ingest_file_service(
             "file_path": file_path,
             "report": report
         }),
-        Err(e) => json!({ "error": e.to_string() }),
+        Err(e) => internal_error(e),
     }
 }
 
@@ -213,7 +237,7 @@ pub async fn ingest_data_service(
             "content_length": content.len(),
             "report": report
         }),
-        Err(e) => json!({ "error": e.to_string() }),
+        Err(e) => internal_error(e),
     }
 }
 
@@ -223,9 +247,11 @@ pub fn delete_service(source: &str) -> serde_json::Value {
     match source.parse::<i64>() {
         Ok(id) => match engine::delete_source(id) {
             Ok(()) => json!({ "status": "ok", "source_id": id }),
-            Err(e) => json!({ "error": e.to_string() }),
+            Err(e) => internal_error(e),
         },
-        Err(_) => json!({ "error": "source must be a numeric source_id" }),
+        Err(_) => {
+            AppError::new("invalid_source_id", "source must be a numeric source_id").into_json()
+        }
     }
 }
 
@@ -246,7 +272,7 @@ pub fn list_sources_service() -> serde_json::Value {
                 .collect();
             json!({ "files": out })
         }
-        Err(e) => json!({ "error": e.to_string() }),
+        Err(e) => internal_error(e),
     }
 }
 
@@ -258,7 +284,7 @@ pub fn status_service() -> serde_json::Value {
             "document_count": s.document_count,
             "version": env!("CARGO_PKG_VERSION")
         }),
-        Err(e) => json!({ "error": e.to_string() }),
+        Err(e) => internal_error(e),
     }
 }
 
@@ -292,7 +318,7 @@ pub fn neighbors_service(
                 "chunks": out
             })
         }
-        Err(e) => json!({ "error": e.to_string() }),
+        Err(e) => internal_error(e),
     }
 }
 
@@ -304,7 +330,7 @@ pub fn collection_heat_service() -> serde_json::Value {
             "collections": heat,
             "total": heat.len()
         }),
-        Err(e) => json!({ "error": e.to_string() }),
+        Err(e) => internal_error(e),
     }
 }
 
@@ -316,7 +342,7 @@ pub fn chunk_qa_service() -> serde_json::Value {
             "sources": report,
             "total_sources": report.len()
         }),
-        Err(e) => json!({ "error": e.to_string() }),
+        Err(e) => internal_error(e),
     }
 }
 
@@ -332,7 +358,7 @@ pub fn suggest_collection_service(query: &str) -> serde_json::Value {
                 json!({"collection": c, "score": s})
             }).collect::<Vec<_>>(),
         }),
-        Err(e) => json!({ "error": e.to_string() }),
+        Err(e) => internal_error(e),
     }
 }
 
@@ -344,7 +370,7 @@ pub fn tag_collection_map_service() -> serde_json::Value {
             }).collect::<Vec<_>>(),
             "total": entries.len()
         }),
-        Err(e) => json!({ "error": e.to_string() }),
+        Err(e) => internal_error(e),
     }
 }
 
@@ -353,7 +379,11 @@ pub fn tag_collection_map_service() -> serde_json::Value {
 pub fn reassign_collection_service(source_id: i64, new_collection: &str) -> serde_json::Value {
     match engine::reassign_source_collection(source_id, new_collection) {
         Ok(msg) => json!({ "success": true, "message": msg }),
-        Err(e) => json!({ "success": false, "error": e.to_string() }),
+        Err(e) => {
+            let mut value = internal_error(e);
+            value["success"] = json!(false);
+            value
+        }
     }
 }
 
@@ -398,8 +428,10 @@ pub fn reload_config_service() -> serde_json::Value {
                 "requires_restart": requires_restart,
             })
         }
-        Err(e) => json!({
-            "error": format!("Failed to reload config: {}", e)
-        }),
+        Err(e) => AppError::new(
+            "invalid_configuration",
+            format!("Failed to reload config: {}", e),
+        )
+        .into_json(),
     }
 }

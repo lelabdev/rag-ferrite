@@ -214,6 +214,8 @@ cargo audit
 
 GitHub Actions runs these quality gates on pull requests and `main`. The existing compatibility lint baseline is documented in the crate-level allowlist in `src/main.rs`; new warnings outside that list fail CI.
 
+REST/MCP application errors use structured `error_code` values and are mapped to accurate HTTP statuses by `api::json_response`.
+
 ## ⚠️ Mise à jour des docs — OBLIGATOIRE
 
 Après chaque changement de fonctionnalité, mettre à jour CES 3 FICHIERS :
