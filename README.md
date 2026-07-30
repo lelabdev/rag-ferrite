@@ -61,7 +61,7 @@ It is deliberately not a chatbot, note editor, hosted AI platform, or distribute
 - **Safe resumability:** parent groups are committed transactionally and interrupted ingestion resumes missing groups.
 - **Retrieval evaluation:** versioned golden datasets with Recall@k, precision@k, MRR, nDCG, empty-result rate, and latency percentiles.
 - **Interactive TUI:** dashboard, library, query, ingestion, and administration workspaces.
-- **Optional web console:** library inspection and ingestion through the shared REST authentication policy, without a bundled chatbot.
+- **Optional web console:** library inspection and ingestion through the shared REST authentication policy, with untrusted document metadata rendered as text and without a bundled chatbot.
 - **Single binary:** no Python runtime and no mandatory container stack.
 
 ---
@@ -450,7 +450,7 @@ The server then exposes a small console at `/`. It uses the same REST API and au
 - retrieval inspection;
 - tags and source relationships.
 
-The console is intentionally not a chatbot, model selector, or source editor. See [`docs/web-interface-plan.md`](docs/web-interface-plan.md) for its scope.
+The console renders document metadata through DOM text nodes; indexed source names and collection IDs are not interpreted as HTML. It is intentionally not a chatbot, model selector, or source editor. See [`docs/web-interface-plan.md`](docs/web-interface-plan.md) for its scope.
 
 ---
 
