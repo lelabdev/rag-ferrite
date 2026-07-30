@@ -634,7 +634,7 @@ Pull requests and `main` run the Rust quality gates: `cargo fmt --all -- --check
 
 REST errors use structured `error_code` values and accurate statuses: validation `400`, authentication `401/403`, missing resources `404`, conflicts `409`, queue backpressure `429`, and internal failures `500`.
 
-HTTP defaults to `127.0.0.1`. Remote binding requires API authentication unless `unsafe_bind_without_auth = true` is explicitly configured. Set `advanced.allowed_hosts` to the hostnames used by remote clients; host allowlisting is not authentication.
+HTTP defaults to `127.0.0.1`. Remote binding requires API authentication unless `unsafe_bind_without_auth = true` is explicitly configured. Set `advanced.allowed_hosts` to the hostnames used by remote clients; host allowlisting is not authentication. The same credentials and access tiers protect REST and `/mcp`; generated keys are atomically persisted with restrictive permissions and become active immediately.
 
 ## HTTP ingestion
 
