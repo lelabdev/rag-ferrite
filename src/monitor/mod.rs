@@ -23,13 +23,37 @@ use crossterm::{
 };
 use ratatui::{Terminal, backend::CrosstermBackend};
 
-use api::{BatchProgress, CurrentFile, FileResult, ProgressResponse, fetch_progress, post_action};
+use api::{
+    BatchProgress, CurrentFile, Document, FileResult, ProgressResponse, fetch_documents,
+    fetch_progress, post_action,
+};
 use ui::{build_folder_map, generate_pendulum_frames, parent_folder, ui};
 
 // ── Braille spinner (10 frames) ──
 const SPINNER: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
 // ── App state ──
+
+#[derive(Clone, Copy, PartialEq)]
+enum View {
+    Dashboard,
+    Library,
+    Query,
+    Ingest,
+    Admin,
+}
+
+impl View {
+    fn label(self) -> &'static str {
+        match self {
+            View::Dashboard => "Dashboard",
+            View::Library => "Library",
+            View::Query => "Query",
+            View::Ingest => "Ingest",
+            View::Admin => "Admin",
+        }
+    }
+}
 
 #[derive(Clone, Copy, PartialEq)]
 enum Panel {
@@ -57,7 +81,9 @@ enum ColorMode {
 
 struct App {
     data: Option<ProgressResponse>,
+    documents: Vec<Document>,
     error: Option<String>,
+    view: View,
     focus: Panel,
     scroll_completed: usize,
     scroll_pending: usize,
@@ -80,7 +106,9 @@ impl App {
     fn new() -> Self {
         Self {
             data: None,
+            documents: Vec::new(),
             error: None,
+            view: View::Dashboard,
             focus: Panel::Completed,
             scroll_completed: 0,
             scroll_pending: 0,
@@ -337,6 +365,12 @@ pub fn run(args: &[String]) {
                     app.error = Some(e);
                 }
             }
+            if app.view == View::Library {
+                match fetch_documents(url) {
+                    Ok(documents) => app.documents = documents,
+                    Err(e) => app.error = Some(e),
+                }
+            }
             last_fetch = Instant::now();
         }
 
@@ -360,6 +394,11 @@ pub fn run(args: &[String]) {
                     continue;
                 }
                 match key.code {
+                    KeyCode::Char('1') => app.view = View::Dashboard,
+                    KeyCode::Char('2') => app.view = View::Library,
+                    KeyCode::Char('3') => app.view = View::Query,
+                    KeyCode::Char('4') => app.view = View::Ingest,
+                    KeyCode::Char('5') => app.view = View::Admin,
                     KeyCode::Char('q') => break,
                     KeyCode::Esc => {
                         // Esc collapses folder if expanded, otherwise quits
