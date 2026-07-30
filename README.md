@@ -3,129 +3,184 @@
 
 # rag-ferrite
 
-**A lightweight personal knowledge base for AI assistants.**
+**A lightweight, self-hosted document memory for AI assistants.**
 
-Give Claude Code, Codex, Hermes, Claude Desktop, and other MCP-compatible clients fast access to your documents, notes, transcripts, and technical knowledge.
+Give Claude Code, Hermes, Claude Desktop, and other MCP clients fast access to your notes, documentation, books, transcripts, and research.
 
-**Collect first. Retrieve when needed. Organize only what matters.**
+[![Release](https://img.shields.io/github/v/release/lelabdev/rag-ferrite?label=release&color=cyan)](https://github.com/lelabdev/rag-ferrite/releases/latest)
+[![CI](https://github.com/lelabdev/rag-ferrite/actions/workflows/ci.yml/badge.svg)](https://github.com/lelabdev/rag-ferrite/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](https://opensource.org/license/mit)
 
-[![Release](https://img.shields.io/github/v/release/lelabdev/rag-ferrite?label=release\&color=cyan)](https://github.com/lelabdev/rag-ferrite/releases/latest)
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-
-Hybrid search · Local storage · Native MCP · Single Rust binary
+**Hybrid retrieval · SQLite storage · Native MCP · Single Rust binary**
 
 </div>
 
 ---
 
-## What is rag-ferrite?
+## Overview
 
-`rag-ferrite` is a self-hosted knowledge server for AI assistants.
-
-You already have an assistant. You already have documents. `rag-ferrite` gives the assistant a reliable way to search those documents whenever it needs context.
+`rag-ferrite` indexes your files and exposes them to the assistants you already use.
 
 ```text
-Your files
-Markdown · PDF · DOCX · TXT · transcripts · documentation
-                              │
-                              ▼
-                         rag-ferrite
-                keyword + semantic retrieval
-                              │ MCP
-                              ▼
-        Claude Code · Codex · Hermes · other AI clients
+Markdown · PDF · text · transcripts · documentation
+                         │
+                         ▼
+                    rag-ferrite
+          FTS5 + sqlite-vec + rank fusion
+                         │
+             MCP · REST · CLI · TUI
+                         │
+                         ▼
+       Claude Code · Hermes · Claude Desktop · agents
 ```
 
-`rag-ferrite` does not provide a chatbot, replace your assistant, or impose a note-taking application. Your existing AI client calls it through MCP and receives relevant passages from your own knowledge base.
+It is deliberately not a chatbot, note editor, hosted AI platform, or distributed vector database. Your files remain the source of truth; SQLite is a derived search index that can be rebuilt.
 
-Your original files remain the source of truth. They can be carefully organized notes, raw documents, books, project documentation, transcripts, research papers, or anything in between.
+### Why use it?
 
-### One knowledge base, two ways to use it
-
-A personal library can act as a second brain in two complementary ways:
-
-* **A living workspace for you:** notes remain readable, editable, and open to revision as your thinking evolves.
-* **A retrieval memory for your assistants:** `rag-ferrite` indexes collected material so they can search it by exact wording or meaning.
-
-The two roles are related, but they are not identical. `rag-ferrite` works best as a derived search layer over relatively stable reference material. It is not a sync-first editor for documents that change constantly; changed sources can be re-ingested when their indexed version needs to be refreshed.
-
-A typical workflow can move knowledge from one side to the other:
-
-```text
-collect source material
-→ ingest it into rag-ferrite
-→ retrieve and compare relevant passages
-→ create a focused note
-→ refine that note in your preferred writing tool
-```
-
-You keep a human workspace for active thinking and a machine-oriented memory for retrieval. Neither replaces the other.
+- Search by exact wording and semantic meaning.
+- Share one knowledge base between several assistants.
+- Ingest raw reference material before manually organizing it.
+- Keep the deployment small: one binary and one SQLite database.
+- Use local Ollama models or hosted OpenAI-compatible providers.
+- Access the same business logic through MCP, REST, CLI, and the terminal UI.
 
 ---
 
-## Quick start
+## Features
 
-### Install
+- **MCP-native:** stdio and Streamable HTTP transports.
+- **Hybrid retrieval:** SQLite FTS5 keyword search plus sqlite-vec semantic search.
+- **Reciprocal rank fusion:** combines lexical and vector rankings.
+- **Adaptive query pipeline:** query classification, expansion, quality gate, and corrective retry.
+- **Optional reranking:** disabled, LLM, or Cohere modes.
+- **Parent-child chunking:** precise child matches with broader parent context.
+- **Contextual ingestion:** optional LLM-generated context, relevance scoring, and automatic tags.
+- **Atomic tags and AND filtering:** narrow retrieval with one or more topic tags.
+- **Bounded ingestion queue:** asynchronous jobs with backpressure, cancellation, progress, and history.
+- **Safe resumability:** parent groups are committed transactionally and interrupted ingestion resumes missing groups.
+- **Retrieval evaluation:** versioned golden datasets with Recall@k, precision@k, MRR, nDCG, empty-result rate, and latency percentiles.
+- **Interactive TUI:** dashboard, library, query, ingestion, and administration workspaces.
+- **Optional web console:** library inspection and ingestion through the shared REST authentication policy, without a bundled chatbot.
+- **Single binary:** no Python runtime and no mandatory container stack.
+
+---
+
+## Requirements
+
+- Linux for the prebuilt release; building from source may work on other Rust-supported targets.
+- An embedding provider. Ollama and OpenAI-compatible APIs are supported.
+- Optional LLM access for contextual retrieval, relevance scoring, query expansion, and reranking.
+- Poppler's `pdftotext` command for PDF ingestion.
+
+Install PDF support:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/lelabdev/rag-ferrite/main/install.sh | bash
-```
-
-Or build from source:
-
-```bash
-git clone https://github.com/lelabdev/rag-ferrite.git
-cd rag-ferrite
-cargo build --release
-```
-
-The compiled binary is:
-
-```text
-target/release/ragfer
-```
-
-### PDF support
-
-PDF extraction requires Poppler.
-
-Debian or Ubuntu:
-
-```bash
+# Debian / Ubuntu
 sudo apt install poppler-utils
-```
 
-Fedora:
-
-```bash
+# Fedora
 sudo dnf install poppler-utils
-```
 
-Arch Linux:
-
-```bash
+# Arch Linux
 sudo pacman -S poppler
 ```
 
 ---
 
-## Configuration
+## Installation
 
-`rag-ferrite` uses:
-
-* an embedding model for semantic retrieval;
-* an LLM for contextual processing, tagging, query recovery, and optional reranking.
-
-Set the required API keys:
+### Download the latest release
 
 ```bash
-export LLM_API_KEY="your-llm-api-key"
-export EMBEDDING_API_KEY="your-embedding-api-key"
+mkdir -p ~/.local/bin
+curl -fL https://github.com/lelabdev/rag-ferrite/releases/latest/download/ragfer \
+  -o ~/.local/bin/ragfer
+chmod +x ~/.local/bin/ragfer
 ```
 
-On its first server run, `ragfer` creates a default configuration file when none exists.
+Ensure `~/.local/bin` is in your `PATH`.
 
-Minimal example:
+### Build from source
+
+```bash
+git clone https://github.com/lelabdev/rag-ferrite.git
+cd rag-ferrite
+cargo build --release --bin ragfer
+install -Dm755 target/release/ragfer ~/.local/bin/ragfer
+```
+
+---
+
+## Quick start
+
+This minimal configuration uses Ollama locally for embeddings and disables optional LLM processing.
+
+1. Pull an embedding model:
+
+```bash
+ollama pull qwen3-embedding:0.6b
+```
+
+2. Create `~/.config/rag-ferrite/config.toml`:
+
+```toml
+http_port = 4242
+
+[embedding]
+provider = "ollama"
+model = "qwen3-embedding:0.6b"
+dimensions = 512
+base_url = "http://localhost:11434"
+
+[llm]
+context_enabled = false
+
+[reranker]
+reranker_type = "disabled"
+
+[advanced]
+http_bind_address = "127.0.0.1"
+allowed_ingest_roots = ["/home/your-user/Documents", "/home/your-user/Notes"]
+move_after_ingest = false
+```
+
+3. Start the server:
+
+```bash
+ragfer serve
+```
+
+4. In another terminal, configure the CLI and ingest a file:
+
+```bash
+ragfer setup
+ragfer ingest-file ~/Documents/example.md
+ragfer query "What does this document explain?"
+```
+
+With `http_port = 4242`, the endpoints are:
+
+```text
+MCP:  http://localhost:4242/mcp
+REST: http://localhost:4242/api
+```
+
+Running `ragfer` without arguments opens the TUI monitor. To use MCP over stdio instead, set `http_port = 0` and configure the client to launch `ragfer serve`.
+
+---
+
+## Configuration
+
+The server searches for configuration in this order:
+
+1. `./config.toml`
+2. `~/.config/rag-ferrite/config.toml`
+3. built-in defaults
+
+Secrets can be set in the environment or in a `.env` file beside the executable.
+
+### Hosted provider example
 
 ```toml
 data_dir = "./data"
@@ -138,469 +193,377 @@ dimensions = 512
 base_url = "https://openrouter.ai/api/v1"
 
 [llm]
-provider = "ollama"
-model = "gemma4:31b"
-base_url = "https://api.ollama.com"
+provider = "openai"
+model = "your-model"
+base_url = "https://your-provider.example/v1"
+context_enabled = true
+relevance_scoring = true
+min_relevance_score = 5.0
+
+[reranker]
+reranker_type = "llm"
+top_k = 10
+
+[chunking]
+strategy = "auto"
+parent_max_chars = 2000
+child_max_chars = 200
+child_overlap = 20
+child_min_chars = 100
+auto_threshold = 5000
+
+[advanced]
+http_bind_address = "127.0.0.1"
+allowed_hosts = ["localhost", "127.0.0.1", "[::1]"]
+ingestion_queue_capacity = 32
+max_inline_content_bytes = 10485760
+http_body_limit_bytes = 12582912
+ingestion_timeout_secs = 900
+allowed_ingest_roots = ["/srv/library"]
+move_after_ingest = false
+web_ui_enabled = false
 ```
 
-Start the server:
+Set provider credentials without committing them:
 
 ```bash
-ragfer serve
+export EMBEDDING_API_KEY="..."
+export LLM_API_KEY="..."
 ```
 
-When HTTP is enabled:
+The embedding provider also accepts `OPENAI_API_KEY`. Named LLM profiles can use a custom `api_key_env` per profile; see [`llms.txt`](llms.txt) for the complete configuration reference.
 
-```text
-MCP Streamable HTTP: http://localhost:4242/mcp
-REST API:            http://localhost:4242/api
-```
+### Important advanced settings
 
-Running the binary without arguments opens the terminal monitor:
+| Setting | Default | Purpose |
+| --- | ---: | --- |
+| `http_bind_address` | `127.0.0.1` | HTTP listener address |
+| `allowed_hosts` | loopback hosts | Accepted Host headers for Streamable HTTP MCP |
+| `unsafe_bind_without_auth` | `false` | Explicitly permit an unauthenticated non-loopback bind |
+| `allowed_ingest_roots` | empty | Filesystem roots accepted by path-based ingestion |
+| `ingestion_queue_capacity` | `32` | Maximum queued ingestion jobs |
+| `max_inline_content_bytes` | 10 MiB | Maximum inline MCP/REST content |
+| `http_body_limit_bytes` | 12 MiB | Maximum HTTP request body |
+| `ingestion_timeout_secs` | `900` | Per-job timeout |
+| `web_ui_enabled` | `false` | Serve the optional console at `/` |
 
-```bash
-ragfer
-```
+Non-loopback HTTP binds are rejected unless authentication is configured or `unsafe_bind_without_auth = true` is explicitly set.
 
 ---
 
-## Connect MCP clients
+## Authentication
 
-### Hermes over Streamable HTTP
+REST and Streamable HTTP MCP use the same Bearer authentication middleware.
+
+```bash
+export RAG_API_KEY="admin-secret"
+export RAG_GUEST_API_KEY="read-only-secret" # optional
+ragfer serve
+```
+
+Access levels:
+
+- **Admin key (`RAG_API_KEY`):** read and write access.
+- **Guest key (`RAG_GUEST_API_KEY`):** GET endpoints and `POST /api/query` only.
+- **No keys:** open access, intended for loopback development.
+
+Generate and inspect keys through the CLI:
+
+```bash
+ragfer key generate
+ragfer key list
+ragfer key show
+```
+
+Remote deployments should use authentication, a restrictive `allowed_hosts` list, and a private network such as Tailscale. Host allowlisting protects against unwanted Host headers; it is not a substitute for authentication.
+
+---
+
+## Connect an MCP client
+
+### Streamable HTTP
+
+Start `ragfer serve` with `http_port > 0`, then connect to:
+
+```text
+http://localhost:4242/mcp
+```
+
+Example client configuration:
 
 ```yaml
 mcp_servers:
   rag-ferrite:
     url: "http://localhost:4242/mcp"
+    headers:
+      Authorization: "Bearer ${RAG_API_KEY}"
     timeout: 9999
 ```
 
-Streamable HTTP is useful when:
+### stdio
 
-* several assistants use the same knowledge base;
-* the service runs continuously;
-* the server is located on another machine;
-* ingestion should continue after a client closes;
-* one persistent index is shared by multiple clients.
-
-### Hermes over stdio
-
-```yaml
-mcp_servers:
-  rag-ferrite:
-    command: /path/to/ragfer
-    args: ["serve"]
-    timeout: 9999
-    env:
-      LLM_API_KEY: "..."
-      EMBEDDING_API_KEY: "..."
-```
-
-### Claude Desktop
+Set `http_port = 0` or omit it:
 
 ```json
 {
   "mcpServers": {
     "rag-ferrite": {
-      "command": "/path/to/ragfer",
+      "command": "/home/user/.local/bin/ragfer",
       "args": ["serve"],
       "env": {
-        "LLM_API_KEY": "...",
-        "EMBEDDING_API_KEY": "..."
+        "EMBEDDING_API_KEY": "...",
+        "LLM_API_KEY": "..."
       }
     }
   }
 }
 ```
 
-Claude Code and other MCP clients can connect through stdio or Streamable HTTP depending on their supported configuration.
-
----
-
-## Why I built it
-
-Personal knowledge rarely arrives in a clean and organized form.
-
-It may be:
-
-* a Markdown note;
-* a PDF;
-* a course;
-* a video transcript;
-* technical documentation;
-* a game guide;
-* an article;
-* a research paper;
-* a document that may become useful months later.
-
-Traditional knowledge management often expects you to process everything before it becomes useful:
-
-```text
-read
-→ summarize
-→ classify
-→ link
-→ remember where it was stored
-```
-
-That works well for carefully maintained notes, but it creates a large amount of work when you collect more information than you have time to organize.
-
-`rag-ferrite` enables a different workflow:
-
-```text
-collect
-→ ingest
-→ retrieve when needed
-→ organize only what matters
-```
-
-Your sources can be raw, structured, or somewhere in between.
-
-Once indexed, they become searchable by your AI assistants through MCP.
-
-You can:
-
-* ask a question immediately;
-* recover something you forgot;
-* compare information across several sources;
-* retrieve advice while working or playing;
-* generate a structured note later;
-* keep the source without manually summarizing it first.
-
-The goal is not to replace your files, editor, or note-taking system.
-
-The goal is to make everything you may need later easier to retrieve.
-
----
-
-## A practical example
-
-You may collect several video transcripts, guides, forum exports, and notes about a game such as Victoria 3.
-
-Instead of manually turning every source into a polished note, you can ingest them directly into `rag-ferrite`.
-
-Later, while playing, you can ask your assistant:
-
-```text
-What is the best way to increase construction capacity
-without destabilizing my economy?
-```
-
-The assistant can search the indexed guides and transcripts, retrieve the relevant passages, compare the advice, and help you make a decision.
-
-The same workflow applies to:
-
-* programming documentation;
-* courses;
-* research;
-* personal projects;
-* books;
-* hobbies;
-* technical references;
-* professional knowledge.
-
-The information becomes useful before it has been perfectly organized.
-
----
-
-## More than ordinary file search
-
-A folder of documents is already a useful personal knowledge base.
-
-It is:
-
-* portable;
-* readable;
-* easy to edit;
-* easy to back up;
-* independent from a particular application.
-
-However, traditional file search is mostly lexical.
-
-It works best when you already know:
-
-* the exact filename;
-* the exact term used in the document;
-* the folder containing the information;
-* the wording of the original note.
-
-It works less well when:
-
-* the query uses different vocabulary;
-* the relevant information is spread across several documents;
-* two sources express the same idea differently;
-* you want to compare several viewpoints;
-* you do not remember where something was written;
-* a relevant passage does not contain your exact keywords;
-* you want an AI assistant to explore the knowledge base autonomously.
-
-For example, a search for:
-
-```text
-database corruption during concurrent indexing
-```
-
-may fail to find a note containing:
-
-```text
-parallel index rebuilds can damage stored search data
-```
-
-The meaning is related, but the wording is different.
-
-`rag-ferrite` combines lexical and semantic retrieval so both kinds of matches can be found.
-
----
-
-## Why not use a complete RAG platform?
-
-Many RAG solutions are designed as full applications.
-
-They may require:
-
-```text
-Python
-+ a Web application
-+ a vector database
-+ background workers
-+ several containers
-+ an ingestion service
-+ an embedding service
-+ a chat interface
-+ user management
-```
-
-These platforms can be powerful, but they are often unnecessarily complex for a personal knowledge base.
-
-`rag-ferrite` takes a smaller and more focused approach:
-
-```text
-one binary
-+ one local database
-+ your preferred model providers
-+ an MCP connection
-```
-
-It does not impose another chat interface.
-
-Instead, it connects the assistants you already use to the documents you already have.
-
----
-
-## Core principles
-
-* **Your files remain the source of truth.**
-* **MCP is the primary interface.**
-* **One knowledge base can be shared by several assistants.**
-* **Exact terms and semantic meaning both matter.**
-* **Knowledge should be useful before it is perfectly organized.**
-* **The system should remain simple enough for personal use.**
-* **No external vector database should be required.**
-* **Local and hosted model providers should both be supported.**
-* **The service should remain understandable and maintainable by one person.**
-
----
-
-## Common use cases
-
-### Personal documentation
-
-Give your assistant access to procedures, references, project notes, and technical documentation.
-
-```text
-Search my documentation for the backup restoration procedure.
-```
-
-### Coding assistants
-
-Allow Claude Code or another coding agent to retrieve architecture decisions and project conventions.
-
-```text
-Before changing the storage layer, search for previous architecture decisions.
-```
-
-### Courses and learning material
-
-Index courses, books, notes, and transcripts without summarizing every source manually.
-
-```text
-Explain the differences between these approaches using my course material.
-```
-
-### Video transcripts
-
-Collect YouTube or podcast transcripts and search them later.
-
-```text
-Find the videos that discussed hybrid retrieval and summarize the key differences.
-```
-
-### Personal research
-
-Search papers, articles, and books by meaning rather than only by title or keywords.
-
-```text
-Find the sources discussing the limitations of semantic chunking.
-```
-
-### Hobbies and games
-
-Build a knowledge base from guides, transcripts, and reference documents.
-
-```text
-Based on my Victoria 3 guides, what should I prioritize in this economic situation?
-```
-
-### Cross-document comparison
-
-Retrieve several passages covering the same subject.
-
-```text
-Compare the recommendations about local vector databases.
-```
-
-### Notes and knowledge libraries
-
-Index notes from any editor or Markdown-based knowledge library.
-
-```text
-Find my previous notes about authentication, even if they use different terms.
-```
-
-### Note or document generation
-
-Use retrieved context to create a report, checklist, documentation page, or synthesis note.
-
-```text
-Use several relevant sources to create a structured reference note.
-```
-
-Generating a note is optional. The knowledge base remains useful even when no new note is created.
-
----
-
-## Supported sources
-
-`rag-ferrite` can ingest:
-
-* Markdown;
-* plain text;
-* PDF;
-* DOCX;
-* raw text supplied through the API;
-* HTML or Markdown content supplied directly.
-
-Possible source directories include:
-
-```text
-~/library/
-~/Documents/
-~/Projects/*/docs/
-~/Notes/
-```
-
-The system does not depend on a particular editor or note-taking application.
-
----
-
-## Ingest documents
-
-### One file
-
-```bash
-ragfer ingest-file "/path/to/document.md"
-```
-
-### Several files
-
-```bash
-ragfer ingest-batch \
-  "/path/to/book.pdf" \
-  "/path/to/documentation.md" \
-  "/path/to/transcript.txt"
-```
-
-### Raw content
-
-```bash
-cat note.md | ragfer ingest-data "manual-note"
-```
-
-### Select a collection
-
-```bash
-ragfer ingest-file "/path/to/rust-book.pdf" -c programming
-```
-
-### Force re-ingestion
-
-```bash
-ragfer ingest-file "/path/to/document.md" --force
-```
-
----
-
-## Search from the CLI
-
-Basic search:
-
-```bash
-ragfer query "How does hybrid retrieval work?"
-```
-
-Limit the number of results:
-
-```bash
-ragfer query "SQLite vector search" -n 5
-```
-
-Filter by tags:
-
-```bash
-ragfer query "MCP authentication" -t security,mcp
-```
-
-Select a collection:
-
-```bash
-ragfer query "async Rust runtime" -c programming
-```
-
-Return raw JSON:
-
-```bash
-ragfer query "embedding dimensions" --json
-```
+The exact configuration shape depends on the MCP client.
 
 ---
 
 ## MCP tools
 
-### Search and reading
+### Retrieval and inspection
 
-| Tool                                           | Description                                                                             |
-| ---------------------------------------------- | --------------------------------------------------------------------------------------- |
-| `query_documents(query, tags?, limit?)`        | Search indexed documents using hybrid retrieval, filters, query recovery, and reranking |
-| `read_chunk_neighbors(source_id, chunk_index)` | Retrieve passages surrounding a specific result                                         |
-| `list_files()`                                 | List indexed documents                                                                  |
-| `status()`                                     | Return server and index status                                                          |
-| `suggest_collection(query)`                    | Suggest the most relevant collection                                                    |
-| `tag_map()`                                    | Show tags, collections, and chunk counts                                                |
+| Tool | Purpose |
+| --- | --- |
+| `query_documents` | Hybrid retrieval with source, metadata, and AND-tag filters |
+| `read_chunk_neighbors` | Read surrounding chunks for a result |
+| `list_files` | List indexed sources |
+| `status` | Show engine status |
+| `suggest_collection` | Suggest a collection from query keywords |
+| `tag_map` | Return tags, collections, and chunk counts |
+| `collection_heat` | Show collection query activity |
+| `chunk_qa` | Find cold or unused chunks |
 
-### Ingestion and quality
+### Ingestion and administration
 
-| Tool                                                  | Description                                        |
-| ----------------------------------------------------- | -------------------------------------------------- |
-| `ingest_file(file_path, collection?)`                 | Ingest a PDF, DOCX, TXT, or Markdown file          |
-| `ingest_data(content, source, collection?, format?)`  | Ingest raw text, HTML, or Markdown                 |
-| `check_ingestion(file_path?, content?, source_name?)` | Inspect document quality before indexing           |
-| `benchmark(file_path, collection?, limit?)`           | Evaluate Recall@k, precision, MRR, nDCG, empty results, and latency against a versioned golden dataset |
-| `collection_heat()`                                   | Show frequently and recently queried collections   |
-| `chunk_qa()`                                          | Identify cold, unused, or potentially noisy chunks |
+| Tool | Purpose |
+| --- | --- |
+| `ingest_file` | Queue a local PDF, TXT, or Markdown file |
+| `ingest_data` | Queue inline text, HTML, or Markdown |
+| `check_ingestion` | Inspect quality and duplication before ingestion |
+| `delete_file` | Delete a source and its chunks |
+| `reassign_collection` | Move a source to another collection |
+| `rebuild_indexes` | Rebuild derived indexes |
+| `flush_indexes` | Refresh derived indexes and checkpoint SQLite |
+| `benchmark` | Evaluate retrieval against a golden dataset |
 
-### Retrieval benchmark format
+Path-based tools are restricted by `advanced.allowed_ingest_roots`. Inline ingestion is preferable when the MCP server cannot access a client's local filesystem.
 
-The `benchmark` tool accepts the legacy JSON array format and a versioned dataset object:
+---
+
+## CLI
+
+```text
+ragfer                         Open the terminal UI
+ragfer serve                   Start the server
+ragfer status                  Show engine status
+ragfer progress                Show active ingestion progress
+ragfer query "text"            Search documents
+ragfer list                    List indexed documents
+ragfer ingest-file <path>      Ingest one file
+ragfer ingest-batch <paths...> Ingest several files as one batch
+ragfer ingest-data <name>      Ingest standard input
+ragfer delete <source_id>      Delete a document
+ragfer history                 Show recent ingestion batches
+ragfer cancel                  Cancel the active batch
+ragfer flush                   Refresh derived indexes and checkpoint SQLite
+ragfer rebuild                 Rebuild all indexes
+ragfer reload                  Reload supported configuration
+ragfer stop                    Stop the server
+ragfer restart                 Stop and wait for service restart
+ragfer key generate|list|show  Manage API keys
+ragfer setup                   Configure the HTTP client
+ragfer update                  Run update.sh beside the binary
+```
+
+Common options:
+
+| Option | Purpose |
+| --- | --- |
+| `--json` | Print raw JSON |
+| `-c <collection>` | Select or filter a collection |
+| `-n <limit>` | Set query result count |
+| `-t <tag1,tag2>` | Apply AND-tag filtering |
+| `--force` | Replace an existing source during file ingestion |
+
+Examples:
+
+```bash
+ragfer ingest-batch book.pdf notes.md transcript.txt
+cat article.md | ragfer ingest-data "article-name"
+ragfer query "SQLite concurrency" -n 5
+ragfer query "MCP authentication" -t security,mcp --json
+```
+
+The CLI client stores its server URL and key separately from the server configuration:
+
+```text
+~/.config/ragfer/config.toml  # url = "http://localhost:4242"
+~/.config/ragfer/.env         # RAG_API_KEY=...
+```
+
+Run `ragfer setup` to create them interactively.
+
+---
+
+## Terminal UI
+
+Launch the built-in monitor with `ragfer` or `ragfer monitor`.
+
+| Key | Action |
+| --- | --- |
+| `1` | Dashboard |
+| `2` | Library |
+| `3` | Query workspace |
+| `4` | Ingestion workspace |
+| `5` | Administration |
+| `j` / `k` | Select a document in Library |
+| `d` | Delete the selected document after confirmation |
+| `Q` | Enter a query |
+| `i` | Submit a file for ingestion |
+| `e` | Edit configuration from Admin and request reload |
+| `?` | Show help |
+| `q` | Exit |
+
+The dashboard shows server state, active jobs, file and chunk progress, speed, ETA, errors, and recent activity.
+
+---
+
+## Optional web console
+
+Set:
+
+```toml
+[advanced]
+web_ui_enabled = true
+```
+
+The server then exposes a small console at `/`. It uses the same REST API and authentication policy for:
+
+- inline text and Markdown ingestion;
+- ingestion progress;
+- document listing and confirmed deletion;
+- retrieval inspection;
+- tags and source relationships.
+
+The console is intentionally not a chatbot, model selector, or source editor. See [`docs/web-interface-plan.md`](docs/web-interface-plan.md) for its scope.
+
+---
+
+## REST API
+
+All protected requests use:
+
+```http
+Authorization: Bearer <key>
+```
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/api/status` | Engine status |
+| `POST` | `/api/query` | Hybrid retrieval |
+| `GET` | `/api/documents` | List sources |
+| `GET` | `/api/documents/{id}` | Get one source |
+| `DELETE` | `/api/documents/{id}` | Delete one source |
+| `GET` | `/api/documents/{id}/chunks/{index}/neighbors` | Read surrounding chunks |
+| `POST` | `/api/ingest` | Queue one or several filesystem paths |
+| `POST` | `/api/ingest/data` | Queue inline content |
+| `GET` | `/api/ingest/progress` | Active batch progress |
+| `GET` | `/api/history` | Recent batches |
+| `GET` | `/api/tags` | Tag and collection map |
+| `GET` | `/api/graph` | Source relationship data |
+| `POST` | `/api/service/cancel-batch` | Cancel the active batch |
+| `POST` | `/api/reload` | Reload supported configuration |
+| `POST` | `/api/flush-indexes` | Refresh derived indexes |
+| `POST` | `/api/rebuild-indexes` | Rebuild indexes |
+| `POST` | `/api/service/stop` | Stop the server |
+| `POST` | `/api/keys/generate` | Rotate the admin key |
+| `GET` | `/api/keys` | List masked keys |
+| `GET` | `/api/keys/current` | Show the current admin key |
+
+Example query:
+
+```bash
+curl http://localhost:4242/api/query \
+  -H "Authorization: Bearer $RAG_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"query":"How does hybrid retrieval work?","limit":5,"tags":["rag"]}'
+```
+
+Example inline ingestion:
+
+```bash
+curl http://localhost:4242/api/ingest/data \
+  -H "Authorization: Bearer $RAG_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"source":"manual-note","content":"Text to index"}'
+```
+
+Errors include an `error_code` and use meaningful HTTP statuses, including `400` for invalid input, `401/403` for authentication and authorization, `404` for missing resources, `409` for conflicts, `413` for oversized content, `429` for queue backpressure, and `500` for internal failures.
+
+---
+
+## Ingestion model
+
+```text
+source
+  → extraction
+  → pre-ingestion checks and deduplication
+  → recursive or parent-child chunking
+  → optional relevance scoring and contextualization
+  → automatic tags
+  → batched embeddings
+  → transactional SQLite commit
+  → FTS5 and sqlite-vec indexes
+```
+
+Supported file extensions are `.pdf`, `.txt`, and `.md`. PDF extraction uses `pdftotext`. HTML and other textual formats can be submitted as inline content.
+
+REST, MCP, CLI, and TUI submissions all use the same bounded worker queue. A full queue returns backpressure instead of retaining unbounded payloads in memory. Each parent and its children are committed atomically; stable logical parent identifiers let an interrupted ingestion resume without duplicating completed groups.
+
+Automatic movement after successful ingestion is enabled by default. For a permanent library, set:
+
+```toml
+[advanced]
+move_after_ingest = false
+```
+
+---
+
+## Retrieval model
+
+```text
+query
+  → simple / standard / complex classification
+  → optional query expansion
+  → FTS5 candidates + sqlite-vec candidates
+  → reciprocal rank fusion
+  → optional LLM or Cohere reranking
+  → confidence gate
+  → optional corrective reformulation and retry
+  → ranked chunks with source metadata and tags
+```
+
+Keyword search preserves exact identifiers, commands, names, and errors. Vector search finds related concepts and paraphrases. Filters are applied before candidate limits, with adaptive over-fetching where necessary, so selective filters do not silently lose matches outside an initial candidate window.
+
+Tags are atomic and combined with AND logic:
+
+```text
+["security"]        → broad security matches
+["security", "mcp"] → chunks tagged with both terms
+```
+
+Query cache keys include source, metadata, tag, and chunk filters; mutations invalidate cached retrieval results.
+
+---
+
+## Retrieval benchmarks
+
+The `benchmark` MCP tool accepts a legacy array or a versioned dataset:
 
 ```json
 {
@@ -615,797 +578,57 @@ The `benchmark` tool accepts the legacy JSON array format and a versioned datase
 }
 ```
 
-Results include Recall@k, precision@k, MRR, nDCG, empty-result rate, p50/p95 latency, and per-query metrics. Retrieval filters are applied before candidate limits, with adaptive over-fetching for sqlite-vec and FTS5. The benchmark measures retrieval, not final assistant answer faithfulness. See `examples/benchmark-golden.json` for a complete template. The semantic chunking evaluation protocol is documented in `docs/semantic-chunking-evaluation.md`; semantic chunking is intentionally not enabled without repeatable quality gains. Persistent per-operation LLM caching is similarly deferred until instrumentation demonstrates meaningful repeated cost; see `docs/llm-cache-evaluation.md`. The optional web library console is enabled with `advanced.web_ui_enabled = true` and served at `/`. It supports authenticated text ingestion, progress, document listing/deletion, and retrieval inspection; the delivery constraints are documented in `docs/web-interface-plan.md`. It remains separate from chatbot/model functionality.
+Reported metrics include Recall@k, precision@k, MRR, nDCG, empty-result rate, p50/p95 latency, and per-query details. The benchmark evaluates retrieval, not final assistant answer faithfulness.
 
-### Administration
+See:
 
-| Tool                                         | Description                                        |
-| -------------------------------------------- | -------------------------------------------------- |
-| `delete_file(source)`                        | Remove a document and its chunks                   |
-| `reassign_collection(source_id, collection)` | Move a source to another collection                |
-| `rebuild_indexes()`                          | Rebuild search indexes and checkpoint the database |
-| `flush_indexes()`                            | Persist recently indexed vector data               |
+- [`examples/benchmark-golden.json`](examples/benchmark-golden.json)
+- [`docs/semantic-chunking-evaluation.md`](docs/semantic-chunking-evaluation.md)
+- [`docs/llm-cache-evaluation.md`](docs/llm-cache-evaluation.md)
 
 ---
 
-## Continuous integration
+## Storage and architecture
 
-Pull requests and `main` run the Rust quality gates: `cargo fmt --all -- --check`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test --all-targets`, and `cargo audit`. Cargo dependencies and build artifacts are cached; Dependabot checks Cargo dependencies weekly.
+```text
+┌────────────────────────────────────────────┐
+│ MCP stdio / MCP HTTP / REST / CLI / TUI   │
+├────────────────────────────────────────────┤
+│ Shared service and ingestion queue         │
+├────────────────────────────────────────────┤
+│ Query pipeline / chunking / LLM / reranker │
+├────────────────────────────────────────────┤
+│ SQLite metadata + FTS5 + sqlite-vec         │
+└────────────────────────────────────────────┘
+```
 
-REST errors use structured `error_code` values and accurate statuses: validation `400`, authentication `401/403`, missing resources `404`, conflicts `409`, queue backpressure `429`, and internal failures `500`.
+SQLite runs in WAL mode with a serialized shared connection. Blocking database work is dispatched through Tokio's blocking pool. There is no external vector database and no separate worker service.
 
-HTTP defaults to `127.0.0.1`. Remote binding requires API authentication unless `unsafe_bind_without_auth = true` is explicitly configured. Set `advanced.allowed_hosts` to the hostnames used by remote clients; host allowlisting is not authentication. The same credentials and access tiers protect REST and `/mcp`; generated keys are atomically persisted with restrictive permissions and become active immediately.
+The database and indexes live under `data_dir`. Back up the service while it is stopped or use an SQLite-safe backup procedure; do not treat copied WAL files as a consistent backup.
 
-## HTTP ingestion
+Architecture decisions are indexed in [`docs/DECISIONS.md`](docs/DECISIONS.md).
 
-### One file
+---
+
+## Development
 
 ```bash
-curl -X POST http://localhost:4242/api/ingest \
-  -H "Content-Type: application/json" \
-  -d '{
-    "file_path": "/path/to/document.md"
-  }'
+cargo fmt --all -- --check
+cargo check --all-targets
+cargo clippy --all-targets --all-features -- -D warnings
+cargo test --all-targets
+cargo audit
 ```
 
-### Several files
-
-```bash
-curl -X POST http://localhost:4242/api/ingest \
-  -H "Content-Type: application/json" \
-  -d '{
-    "paths": [
-      "/path/to/book.pdf",
-      "/path/to/article.md",
-      "/path/to/transcript.txt"
-    ]
-  }'
-```
-
-Batch ingestion returns immediately with a batch identifier. REST and MCP ingestion share the same bounded worker queue, so queue-full responses provide backpressure instead of retaining unlimited content in memory. Inline ingestion is limited by `advanced.max_inline_content_bytes`; HTTP requests are limited by `advanced.http_body_limit_bytes`.
-
-Index rebuild and flush jobs use the same queue and cannot race ingestion writes. Individual jobs are bounded by `advanced.ingestion_timeout_secs`. Long hybrid searches, status, and list operations run through Tokio's blocking pool so synchronous SQLite work does not occupy async core workers. SQLite uses WAL with a serialized shared connection; `db_pool_size` was removed because it was never a real pool.
-
-Monitor progress:
-
-```bash
-ragfer progress
-```
-
-Or:
-
-```bash
-curl http://localhost:4242/api/ingest/progress
-```
+CI runs formatting, linting, all tests, and the security audit on pull requests and `main`. Dependabot checks Cargo dependencies weekly.
 
 ---
 
-## Auto-move after ingestion
+## Scope
 
-By default, files can be moved after successful ingestion.
+`rag-ferrite` is designed for personal and trusted-team knowledge bases. It prioritizes retrieval quality, operational simplicity, local storage, provider independence, and MCP compatibility over multi-tenant enterprise features.
 
-This supports inbox-style workflows:
-
-```text
-inbox/
-└── article.md
-
-        ↓ ingestion
-
-ingested/
-└── article.md
-```
-
-Configuration:
-
-```toml
-[advanced]
-move_after_ingest = true
-ingested_dir = "ingested"
-ingestion_queue_capacity = 32
-max_inline_content_bytes = 10485760
-ingestion_timeout_secs = 900
-http_body_limit_bytes = 12582912
-allowed_ingest_roots = ["/srv/rag-ferrite/inbox", "/srv/rag-ferrite/library"]
-http_bind_address = "127.0.0.1"
-allowed_hosts = ["localhost", "127.0.0.1", "rag.example.internal"]
-web_ui_enabled = false
-```
-
-Disable it for a specific request:
-
-```json
-{
-  "paths": ["/path/to/article.md"],
-  "move_after_ingest": false
-}
-```
-
-For a permanent library directory, disabling automatic movement may be preferable.
-
----
-
-## Client configuration
-
-The CLI reads its configuration from:
-
-```text
-~/.config/ragfer/
-```
-
-| File          | Purpose    |
-| ------------- | ---------- |
-| `config.toml` | Server URL |
-| `.env`        | API key    |
-
-Interactive setup:
-
-```bash
-ragfer setup
-```
-
-The default server URL is:
-
-```text
-http://localhost:4242
-```
-
----
-
-## Terminal monitor
-
-Launch the built-in TUI:
-
-```bash
-ragfer
-```
-
-Or:
-
-```bash
-ragfer monitor
-```
-
-The monitor displays:
-
-* server status;
-* indexed document count;
-* active ingestion batch;
-* current document;
-* processed chunks;
-* ingestion speed;
-* estimated completion time;
-* recent errors;
-* activity events;
-* ingestion history.
-
-The monitor now has interactive workspaces: `1` dashboard, `2` library, `3` query, `4` ingestion, and `5` administration. In Library, `j/k` select and `d` deletes after confirmation; in Query, `Q` submits a query; in Ingest, `i` submits a file through the shared queue. The dashboard remains the live progress view. `?` shows keyboard help and `q` exits.
-
-Environment variables:
-
-```text
-RAGFER_URL       Server URL
-RAG_API_KEY      Server API key
-RAGFER_KEY       Alternative key variable
-RAGFER_REFRESH   Refresh interval
-```
-
----
-
-## Authentication and network use
-
-Generate an API key:
-
-```bash
-ragfer key generate
-```
-
-Provide it to clients:
-
-```bash
-export RAG_API_KEY="your-key"
-```
-
-Or store it in:
-
-```text
-~/.config/ragfer/.env
-```
-
-`rag-ferrite` is primarily designed for trusted personal environments.
-
-Recommended deployments:
-
-* localhost;
-* a private workstation;
-* a home server;
-* a trusted local network;
-* a private Tailscale network.
-
-Avoid exposing the service directly to the public Internet without reviewing the current authentication and security configuration.
-
-A dedicated operating-system user is recommended when the service can ingest local filesystem paths.
-
----
-
-## Features
-
-| Feature                      | Description                                                                        |
-| ---------------------------- | ---------------------------------------------------------------------------------- |
-| **MCP-native**               | Direct integration with Claude Code, Hermes, Claude Desktop, and other MCP clients |
-| **Hybrid retrieval**         | Combines full-text and vector search                                               |
-| **FTS5 keyword search**      | Preserves exact names, identifiers, commands, and error messages                   |
-| **Semantic search**          | Finds related concepts and paraphrases                                             |
-| **sqlite-vec**               | Local vector retrieval inside SQLite                                               |
-| **Reciprocal rank fusion**   | Combines lexical and semantic rankings                                             |
-| **Optional reranking**       | Improves final result precision                                                    |
-| **Parent-child chunking**    | Balances precise matching with broader context                                     |
-| **Context expansion**        | Retrieves neighboring passages around a result                                     |
-| **Query recovery**           | Reformulates weak queries and retries                                              |
-| **Noise filtering**          | Removes low-value and boilerplate chunks                                           |
-| **Automatic tagging**        | Adds fine-grained topic metadata                                                   |
-| **Collections**              | Organizes documents into broad knowledge domains                                   |
-| **Batch ingestion**          | Indexes multiple files asynchronously                                              |
-| **Ingestion quality checks** | Inspects documents before adding them                                              |
-| **Retrieval benchmarks**     | Evaluates search against golden datasets                                           |
-| **Collection heat tracking** | Shows frequently and recently queried collections                                  |
-| **Chunk-level QA**           | Identifies cold, unused, or potentially noisy chunks                               |
-| **REST API**                 | Allows integration outside MCP                                                     |
-| **CLI and TUI**              | Manages and monitors the service from a terminal                                   |
-| **Local database**           | Uses SQLite without a separate database server                                     |
-| **Provider flexibility**     | Supports local and hosted OpenAI-compatible APIs                                   |
-| **Single binary**            | No Python runtime or mandatory Docker stack                                        |
-
----
-
-## Architecture
-
-```text
-              ┌─────────────────────────────┐
-              │ Markdown · PDF · DOCX · TXT │
-              │ Notes · docs · transcripts  │
-              └──────────────┬──────────────┘
-                             │
-                             ▼
-              ┌─────────────────────────────┐
-              │ Extraction and cleaning     │
-              │ Noise filtering             │
-              └──────────────┬──────────────┘
-                             │
-                             ▼
-              ┌─────────────────────────────┐
-              │ Parent-child chunking       │
-              │ Context and auto-tagging    │
-              └──────────────┬──────────────┘
-                             │
-                             ▼
-              ┌─────────────────────────────┐
-              │ SQLite                      │
-              │ FTS5 + sqlite-vec           │
-              │ Metadata and tags           │
-              └──────────────┬──────────────┘
-                             │
-              ┌──────────────┴──────────────┐
-              │ Hybrid retrieval            │
-              │ Reciprocal rank fusion      │
-              │ Query recovery              │
-              │ Optional reranking          │
-              └──────────────┬──────────────┘
-                             │
-                             ▼
-          ┌─────────────────────────────────────┐
-          │ MCP · REST API · CLI · Terminal UI │
-          └─────────────────────────────────────┘
-```
-
----
-
-## How retrieval works
-
-```text
-Documents
-    │
-    ▼
-Extraction and cleaning
-    │
-    ▼
-Parent-child chunking
-    │
-    ▼
-Embeddings + full-text index
-    │
-    ├──▶ Keyword search
-    │
-    └──▶ Vector search
-             │
-             ▼
-      Reciprocal rank fusion
-             │
-             ▼
-       Optional reranking
-             │
-             ▼
-       Context expansion
-             │
-             ▼
-        MCP search result
-```
-
-Each stage solves a different retrieval problem.
-
----
-
-## Hybrid search
-
-Hybrid search combines lexical and semantic retrieval. Filtered searches use the same active SQLite connection for candidate filtering, avoiding recursive connection-lock deadlocks. Query-cache entries include the complete source, collection, metadata, and chunk filters, are canonicalized for unordered IDs, and are invalidated after data mutations.
-
-```text
-User query
-    │
-    ├──▶ Full-text search
-    │      Exact words, names, identifiers
-    │
-    └──▶ Vector search
-           Meaning, concepts, paraphrases
-                 │
-                 ▼
-          Rank fusion and reranking
-                 │
-                 ▼
-             Final results
-```
-
-### Full-text search
-
-Full-text search is effective for precise terms.
-
-Examples:
-
-```text
-RAG_API_KEY
-sqlite-vec
-ECONNREFUSED
-src/storage/sqlite.rs
-ADR-0015
-```
-
-A purely semantic system may treat these tokens as unimportant or confuse them with related concepts.
-
-Keyword retrieval preserves exact matching.
-
-### Vector search
-
-Vector search represents queries and passages as embeddings.
-
-This makes it possible to retrieve related content even when the wording differs.
-
-```text
-Query:
-How can agents access my documentation?
-
-Possible matching passage:
-The MCP server exposes indexed knowledge to external AI clients.
-```
-
-The exact words are different, but the meaning is related.
-
-### Why combine them?
-
-Neither approach works best for every query.
-
-| Query type                  | Keyword search | Vector search |
-| --------------------------- | -------------: | ------------: |
-| Exact command or identifier |      Excellent |      Variable |
-| Error message               |      Excellent |      Variable |
-| General concept             |        Limited |     Excellent |
-| Paraphrased question        |        Limited |     Excellent |
-| Proper name                 |      Excellent |          Good |
-| Related explanation         |        Limited |     Excellent |
-| Mixed technical query       |           Good |          Good |
-
-Hybrid retrieval improves the probability that the right passage reaches the candidate set.
-
----
-
-## Reciprocal rank fusion
-
-Keyword and vector searches return scores with different meanings.
-
-A lexical relevance score cannot be compared directly with a vector similarity score.
-
-`rag-ferrite` uses reciprocal rank fusion to combine the rankings instead of comparing their raw scores.
-
-```text
-Keyword ranking       Vector ranking
----------------       --------------
-1. Document A         1. Document B
-2. Document C         2. Document A
-3. Document B         3. Document D
-       │                     │
-       └─────────┬───────────┘
-                 ▼
-          Fused ranking
-          --------------
-          1. Document A
-          2. Document B
-          3. Document C
-          4. Document D
-```
-
-A passage that ranks well in both retrieval methods receives a stronger final position.
-
-This prevents the system from depending too heavily on either keywords or embeddings.
-
----
-
-## Reranking
-
-Initial retrieval is optimized for recall.
-
-Its job is to find a broad set of potentially relevant passages quickly.
-
-However, the initial ranking is not always perfect.
-
-A passage may contain many matching words without answering the actual question. Another passage may be semantically similar but not practically useful.
-
-Reranking adds a second relevance evaluation:
-
-```text
-Initial retrieval
-20 candidate passages
-        │
-        ▼
-Detailed relevance evaluation
-        │
-        ▼
-Best passages moved to the top
-```
-
-Without reranking, an assistant may receive:
-
-* repeated passages;
-* documents that mention the topic only briefly;
-* results matching the wording but not the intent;
-* semantically similar but irrelevant text.
-
-Reranking evaluates the candidates against the exact query and improves their final order.
-
-| Stage             | Objective                               |
-| ----------------- | --------------------------------------- |
-| Hybrid retrieval  | Avoid missing relevant information      |
-| Rank fusion       | Combine lexical and semantic candidates |
-| Reranking         | Improve precision and final ordering    |
-| Context expansion | Recover surrounding explanations        |
-
----
-
-## Parent-child chunking
-
-Large documents cannot be searched efficiently as a single block.
-
-They need to be split into passages.
-
-Very small chunks improve precision but may lose context.
-
-Very large chunks preserve context but reduce retrieval precision.
-
-`rag-ferrite` uses a parent-child approach:
-
-```text
-Parent section
-┌─────────────────────────────────────┐
-│ Broader topic and explanation       │
-│                                     │
-│  ┌──────────┐  ┌──────────┐         │
-│  │ Child 1  │  │ Child 2  │  ...    │
-│  └──────────┘  └──────────┘         │
-└─────────────────────────────────────┘
-```
-
-Small child chunks are used for precise matching.
-
-Broader parent context can then be returned so the assistant receives a coherent explanation rather than an isolated sentence. Each committed parent has a stable logical identifier, so an interrupted ingestion resumes exactly the missing parent groups instead of relying on commit order.
-
-This is especially useful for:
-
-* technical documentation;
-* books;
-* long articles;
-* research papers;
-* architecture documents;
-* courses;
-* transcripts.
-
----
-
-## Context expansion
-
-A search result may identify the correct passage without containing the full explanation.
-
-The MCP tool `read_chunk_neighbors` lets an assistant retrieve the surrounding chunks:
-
-```text
-Previous chunk
-      │
-Matched chunk
-      │
-Next chunk
-```
-
-This allows agents to search precisely first and expand the context only when necessary.
-
-It avoids returning large amounts of text for every query while still making the full explanation available.
-
----
-
-## Query recovery
-
-Users do not always use the same terminology as the indexed documents.
-
-Initial results may therefore be weak.
-
-`rag-ferrite` can detect weak retrieval, reformulate the query, and search again.
-
-```text
-Original query
-      │
-      ▼
-Weak results detected
-      │
-      ▼
-Query reformulation
-      │
-      ▼
-Second retrieval attempt
-```
-
-This is useful when:
-
-* the user uses informal vocabulary;
-* the sources use technical terminology;
-* a concept has several names;
-* the first query is too broad;
-* the wording is ambiguous.
-
----
-
-## Automatic tagging and collections
-
-Documents can be organized into broad collections, while individual chunks receive more specific tags.
-
-Example collections:
-
-```text
-programming
-research
-personal
-games
-projects
-documentation
-courses
-```
-
-Example tags:
-
-```text
-rust
-authentication
-economy
-victoria-3
-database
-mcp
-performance
-```
-
-Tags passed to `query_documents` use AND logic:
-
-```text
-1 tag  → broad topic filtering
-2 tags → precise intersection
-```
-
-For example:
-
-```text
-security
-```
-
-may return all security-related passages, while:
-
-```text
-security + mcp
-```
-
-focuses on passages related to both topics.
-
----
-
-## Comparing complementary and conflicting sources
-
-`rag-ferrite` does not decide by itself whether two sources contradict each other.
-
-Its role is retrieval.
-
-Semantic and hybrid search can surface passages that discuss the same topic using different vocabulary.
-
-An AI assistant can then compare the passages and identify:
-
-* agreements;
-* complementary explanations;
-* alternative approaches;
-* outdated decisions;
-* conflicting recommendations;
-* differences between sources.
-
-```text
-Source A:
-Use a full index rebuild after every ingestion.
-
-Source B:
-Incremental insertion avoids expensive rebuilds.
-
-                    │
-                    ▼
-       AI assistant compares both
-```
-
-A simple keyword search may fail to place these passages together when they use different terminology.
-
----
-
-## REST API reference
-
-| Method   | Path                        | Description                      |
-| -------- | --------------------------- | -------------------------------- |
-| `GET`    | `/api/status`               | Server status and document count |
-| `POST`   | `/api/query`                | Search indexed knowledge         |
-| `POST`   | `/api/ingest`               | Ingest one or several files      |
-| `POST`   | `/api/ingest/data`          | Ingest raw content               |
-| `GET`    | `/api/ingest/progress`      | Show ingestion progress          |
-| `GET`    | `/api/documents`            | List indexed documents           |
-| `GET`    | `/api/documents/{id}`       | Get document details             |
-| `DELETE` | `/api/documents/{id}`       | Delete a document                |
-| `GET`    | `/api/graph`                | Return source relationship data  |
-| `POST`   | `/api/flush-indexes`        | Persist pending index data       |
-| `POST`   | `/api/rebuild-indexes`      | Rebuild indexes                  |
-| `POST`   | `/api/service/cancel-batch` | Cancel the active batch          |
-| `POST`   | `/api/service/stop`         | Stop the server                  |
-
----
-
-## CLI reference
-
-```text
-ragfer                         Open the terminal monitor
-ragfer serve                   Start the server
-ragfer status                  Show server status
-ragfer progress                Show ingestion progress
-ragfer query "text"            Search documents
-ragfer list                    List indexed documents
-ragfer monitor                 Open the terminal monitor
-ragfer ingest-file <path>      Ingest one file
-ragfer ingest-batch <paths>    Ingest several files
-ragfer ingest-data <name>      Ingest standard input
-ragfer delete <source_id>      Delete a document
-ragfer flush                   Persist pending index data
-ragfer rebuild                 Rebuild indexes
-ragfer cancel                  Cancel the active batch
-ragfer stop                    Stop the server
-ragfer restart                 Restart the service
-ragfer reload                  Reload supported configuration
-ragfer history                 Show ingestion history
-ragfer setup                   Configure the CLI client
-ragfer key generate            Generate a server API key
-ragfer key show                Display the current API key
-ragfer key list                List configured keys
-ragfer update                  Install the latest release
-```
-
-Common options:
-
-| Option            | Description                       |
-| ----------------- | --------------------------------- |
-| `--json`          | Return raw JSON                   |
-| `-c <collection>` | Select a collection               |
-| `-n <limit>`      | Set the result limit              |
-| `-t <tags>`       | Filter with comma-separated tags  |
-| `--force`         | Replace an already indexed source |
-
----
-
-## What rag-ferrite is not
-
-`rag-ferrite` is not:
-
-* a replacement for Markdown;
-* a replacement for your editor or note-taking application;
-* a complete chat application;
-* a hosted AI platform;
-* an enterprise document-management system;
-* a regulated archive;
-* a public multi-tenant RAG service;
-* a framework requiring you to assemble the retrieval pipeline yourself.
-
-It is a focused personal knowledge service that gives AI assistants better access to your documents.
-
----
-
-## When a simple folder is enough
-
-You may not need `rag-ferrite` when:
-
-* you have only a small number of documents;
-* filenames and folders are sufficient;
-* exact keyword search finds everything you need;
-* you do not use AI assistants;
-* you already remember where information is stored;
-* you rarely search across several sources.
-
-A simple collection of Markdown files remains one of the best formats for personal knowledge.
-
-`rag-ferrite` becomes useful when your collection grows and you want assistants to retrieve information by meaning, not only by exact words.
-
----
-
-## When rag-ferrite is useful
-
-`rag-ferrite` is especially useful when:
-
-* your knowledge is spread across many files;
-* some sources are raw or poorly organized;
-* you collect more information than you can summarize;
-* you use several MCP-compatible assistants;
-* you want one shared knowledge base;
-* you frequently forget where information was written;
-* your query uses different wording from the documents;
-* you need exact technical search and semantic search;
-* you want to compare several sources;
-* you want a capable RAG without maintaining a large software stack.
-
----
-
-## Scope and scaling
-
-`rag-ferrite` is designed for personal knowledge bases ranging from a few documents to hundreds of thousands of searchable passages.
-
-Its recommended default of 512 embedding dimensions offers a practical balance between:
-
-* semantic quality;
-* storage usage;
-* memory usage;
-* retrieval speed.
-
-The project prioritizes personal-scale simplicity over enterprise-scale distributed infrastructure.
-
-For very large corpora, collection routing, filtering, chunk quality, and retrieval configuration become increasingly important.
-
----
-
-## Project status
-
-`rag-ferrite` is developed primarily for personal and trusted-network use.
-
-The project prioritizes:
-
-* retrieval quality;
-* operational simplicity;
-* MCP compatibility;
-* local storage;
-* provider independence;
-* maintainability;
-* low infrastructure requirements.
-
-Current improvement areas include:
-
-* stronger MCP authentication;
-* read-only access profiles;
-* more integration tests;
-* continuous integration;
-* improved source citations;
-* watched-folder synchronization;
-* additional retrieval benchmarks.
-
-See the GitHub issues for the latest implementation status.
+A normal folder and keyword search may be enough for a small collection. `rag-ferrite` becomes useful when the corpus grows, the wording of a question differs from the source, several assistants need shared retrieval, or relevant context is spread across many documents.
 
 ---
 
