@@ -215,7 +215,7 @@ cargo audit
 
 GitHub Actions runs these quality gates on pull requests and `main`. The existing compatibility lint baseline is documented in the crate-level allowlist in `src/main.rs`; new warnings outside that list fail CI.
 
-REST/MCP application errors use structured `error_code` values and are mapped to accurate HTTP statuses by `api::json_response`. One middleware protects both REST and MCP, reads the shared active credential state for immediate rotation, and persists generated keys atomically with restrictive permissions. HTTP defaults to loopback; remote binds require authentication unless the explicit unsafe override is configured, and MCP allowed hosts come from configuration rather than deployment-specific constants.
+REST/MCP application errors use structured `error_code` values and are mapped to accurate HTTP statuses by `api::json_response`. One middleware protects both REST and MCP even when startup has no credentials, reads the shared active credential state for immediate bootstrap and rotation without process-environment mutation, and persists generated keys atomically with restrictive permissions. HTTP defaults to loopback; remote binds require authentication unless the explicit unsafe override is configured, and MCP allowed hosts come from configuration rather than deployment-specific constants.
 
 ## ⚠️ Mise à jour des docs — OBLIGATOIRE
 
