@@ -206,8 +206,13 @@ Chaque machine cliente doit avoir `~/.config/ragfer/config.toml` + `.env` (cré�
 ## Tests
 
 ```bash
-cargo test    # tests unitaires (chunker, extractor, config, llm, tags, pipeline, tag_routing)
+cargo test    # unit tests (chunker, extractor, config, llm, tags, pipeline, tag_routing)
+cargo fmt --all -- --check
+cargo clippy --all-targets --all-features -- -D warnings
+cargo audit
 ```
+
+GitHub Actions runs these quality gates on pull requests and `main`. The existing compatibility lint baseline is documented in the crate-level allowlist in `src/main.rs`; new warnings outside that list fail CI.
 
 ## ⚠️ Mise à jour des docs — OBLIGATOIRE
 

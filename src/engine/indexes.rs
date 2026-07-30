@@ -29,15 +29,20 @@ pub fn reassign_source_collection(source_id: i64, new_collection: &str) -> Resul
     )?;
 
     if old_collection == new_collection {
-        return Ok(format!("Source {} already in collection '{}'", source_id, new_collection));
+        return Ok(format!(
+            "Source {} already in collection '{}'",
+            source_id, new_collection
+        ));
     }
 
     // Get source name for logging
-    let source_name: Option<String> = conn.query_row(
-        "SELECT name FROM sources WHERE id = ?1",
-        rusqlite::params![source_id],
-        |row| row.get(0),
-    ).ok();
+    let source_name: Option<String> = conn
+        .query_row(
+            "SELECT name FROM sources WHERE id = ?1",
+            rusqlite::params![source_id],
+            |row| row.get(0),
+        )
+        .ok();
 
     // Update sources
     let _updated = conn.execute(
@@ -53,7 +58,11 @@ pub fn reassign_source_collection(source_id: i64, new_collection: &str) -> Resul
 
     tracing::info!(
         "Reassigned source {} ({:?}): {} → {} ({} chunks moved)",
-        source_id, source_name, old_collection, new_collection, chunks_updated
+        source_id,
+        source_name,
+        old_collection,
+        new_collection,
+        chunks_updated
     );
     crate::pipeline::invalidate_cache();
 
@@ -66,12 +75,10 @@ pub fn reassign_source_collection(source_id: i64, new_collection: &str) -> Resul
 /// Run WAL checkpoint to free disk space and reduce memory pressure.
 pub fn wal_checkpoint() {
     match get_conn() {
-        Ok(conn) => {
-            match conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE)") {
-                Ok(_) => tracing::info!("WAL checkpoint completed"),
-                Err(e) => tracing::warn!("WAL checkpoint failed: {}", e),
-            }
-        }
+        Ok(conn) => match conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE)") {
+            Ok(_) => tracing::info!("WAL checkpoint completed"),
+            Err(e) => tracing::warn!("WAL checkpoint failed: {}", e),
+        },
         Err(e) => tracing::warn!("WAL checkpoint: cannot get DB connection: {}", e),
     }
 }

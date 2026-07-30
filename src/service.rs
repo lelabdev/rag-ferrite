@@ -1,11 +1,11 @@
 //! Shared service layer — business logic called by both MCP tools (main.rs) and HTTP handlers (api.rs).
 
 use crate::engine;
+use crate::engine::{ChunkHeatTracker, HeatTracker};
 use crate::llm;
 use crate::params::IngestConfig;
 use crate::pipeline::QueryPipeline;
 use crate::types::{ChunkResult, HybridResult, SourceInfo};
-use crate::engine::{HeatTracker, ChunkHeatTracker};
 use serde_json::json;
 
 // ── Query ──────────────────────────────────────────────────────────────
@@ -35,7 +35,10 @@ pub async fn query_service(
                 }
                 Ok(ids) if ids.len() > 2000 => {
                     // Too many chunk_ids for exact scan — use post-filter instead
-                    tracing::debug!("Tag pre-filter has {} chunks (>500), switching to post-filter", ids.len());
+                    tracing::debug!(
+                        "Tag pre-filter has {} chunks (>500), switching to post-filter",
+                        ids.len()
+                    );
                     (None, Some(filter_tags.clone()))
                 }
                 Ok(ids) => (Some(ids), None),
@@ -89,7 +92,8 @@ pub async fn query_service(
 
             // ── Collection heat tracking (#159 Phase 1): async, non-blocking ──
             if let Some(tracker) = heat_tracker {
-                let result_source_ids: Vec<i64> = output.results.iter().map(|r| r.source_id).collect();
+                let result_source_ids: Vec<i64> =
+                    output.results.iter().map(|r| r.source_id).collect();
                 match engine::collections_for_sources(&result_source_ids) {
                     Ok(collections) => {
                         tracker.record_collections(&collections);
@@ -105,7 +109,9 @@ pub async fn query_service(
             let source_ids: Vec<i64> = output.results.iter().map(|r| r.source_id).collect();
             let source_names = engine::query::get_source_names(&source_ids).unwrap_or_default();
 
-            let out: Vec<HybridResult> = output.results.into_iter()
+            let out: Vec<HybridResult> = output
+                .results
+                .into_iter()
                 .filter(|r| {
                     // Post-filter for large tag sets: keep only chunks with ALL requested tags
                     if let Some(ref pft) = post_filter_tags {
@@ -117,26 +123,27 @@ pub async fn query_service(
                 })
                 .take(limit)
                 .map(|r| {
-                let sp = section_map.get(&r.doc_id).cloned().flatten();
-                let tags = tags_map.get(&r.doc_id).cloned().unwrap_or_default();
-                let parent_info = parent_map.get(&r.doc_id);
+                    let sp = section_map.get(&r.doc_id).cloned().flatten();
+                    let tags = tags_map.get(&r.doc_id).cloned().unwrap_or_default();
+                    let parent_info = parent_map.get(&r.doc_id);
 
-                HybridResult {
-                    doc_id: r.doc_id,
-                    content: parent_info.map(|p| p.content.clone()).unwrap_or(r.content),
-                    score: r.score,
-                    source_id: r.source_id,
-                    source_name: source_names.get(&r.source_id).cloned(),
-                    chunk_index: r.chunk_index,
-                    metadata: r.metadata,
-                    vector_rank: r.vector_rank,
-                    bm25_rank: r.bm25_rank,
-                    section_path: parent_info.and_then(|p| p.section_path.clone()).or(sp),
-                    page: parent_info.and_then(|p| p.page),
-                    rerank_score: r.rerank_score,
-                    tags,
-                }
-            }).collect();
+                    HybridResult {
+                        doc_id: r.doc_id,
+                        content: parent_info.map(|p| p.content.clone()).unwrap_or(r.content),
+                        score: r.score,
+                        source_id: r.source_id,
+                        source_name: source_names.get(&r.source_id).cloned(),
+                        chunk_index: r.chunk_index,
+                        metadata: r.metadata,
+                        vector_rank: r.vector_rank,
+                        bm25_rank: r.bm25_rank,
+                        section_path: parent_info.and_then(|p| p.section_path.clone()).or(sp),
+                        page: parent_info.and_then(|p| p.page),
+                        rerank_score: r.rerank_score,
+                        tags,
+                    }
+                })
+                .collect();
 
             json!({
                 "results": out,
@@ -360,10 +367,19 @@ pub fn reload_config_service() -> serde_json::Value {
 
             // Report what CAN be hot-reloaded
             reloaded.push(format!("log_filter: {}", new_config.advanced.log_filter));
-            reloaded.push(format!("min_relevance_score: {}", new_config.llm.min_relevance_score));
-            reloaded.push(format!("reranker_type: {}", new_config.reranker.reranker_type));
+            reloaded.push(format!(
+                "min_relevance_score: {}",
+                new_config.llm.min_relevance_score
+            ));
+            reloaded.push(format!(
+                "reranker_type: {}",
+                new_config.reranker.reranker_type
+            ));
             reloaded.push(format!("rerank_top_k: {}", new_config.reranker.top_k));
-            reloaded.push(format!("rerank_preview_chars: {}", new_config.reranker.preview_chars));
+            reloaded.push(format!(
+                "rerank_preview_chars: {}",
+                new_config.reranker.preview_chars
+            ));
 
             // Report what CANNOT be hot-reloaded
             requires_restart.push("http_port".to_string());

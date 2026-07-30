@@ -50,9 +50,15 @@ pub struct TagRulesConfig {
     pub strip_chars: String,
 }
 
-fn default_min_length() -> usize { 3 }
-fn default_max_words() -> usize { 3 }
-fn default_strip_chars() -> String { "*$`\"<>|={}[]/".to_string() }
+fn default_min_length() -> usize {
+    3
+}
+fn default_max_words() -> usize {
+    3
+}
+fn default_strip_chars() -> String {
+    "*$`\"<>|={}[]/".to_string()
+}
 
 impl Default for TagRules {
     fn default() -> Self {
@@ -105,14 +111,19 @@ pub fn sanitize_tags(raw_tags: Vec<String>) -> Vec<String> {
     let rules = TAG_RULES.get().cloned().unwrap_or_default();
     let all_stops = rules.stop_words.all();
 
-    raw_tags.into_iter()
+    raw_tags
+        .into_iter()
         // Stage 1: Strip special chars
         .map(|t| {
             let mut cleaned = t;
             for c in rules.rules.strip_chars.chars() {
                 cleaned = cleaned.replace(c, "");
             }
-            cleaned.replace('_', " ").replace('/', " ").trim().to_lowercase()
+            cleaned
+                .replace('_', " ")
+                .replace('/', " ")
+                .trim()
+                .to_lowercase()
         })
         // Stage 2: Synonym normalization
         .map(|t| {
@@ -124,21 +135,36 @@ pub fn sanitize_tags(raw_tags: Vec<String>) -> Vec<String> {
         })
         // Stage 3: Filter
         .filter(|t| {
-            if t.is_empty() { return false; }
-            if t.len() < rules.rules.min_length { return false; }
-            if t.split(|c: char| c == ' ' || c == '-' || c == '_').count() > rules.rules.max_words { return false; }
-            if all_stops.contains(&t.as_str()) { return false; }
-            if t.chars().all(|c| c.is_numeric()) { return false; }
+            if t.is_empty() {
+                return false;
+            }
+            if t.len() < rules.rules.min_length {
+                return false;
+            }
+            if t.split(|c: char| c == ' ' || c == '-' || c == '_').count() > rules.rules.max_words {
+                return false;
+            }
+            if all_stops.contains(&t.as_str()) {
+                return false;
+            }
+            if t.chars().all(|c| c.is_numeric()) {
+                return false;
+            }
             true
         })
         // Stage 4: Simple singular normalization
         .map(|mut t| {
-            if !t.contains(' ') && !t.contains('-') && t.len() > 4
+            if !t.contains(' ')
+                && !t.contains('-')
+                && t.len() > 4
                 && t.ends_with('s')
-                && !t.ends_with("ss") && !t.ends_with("us") && !t.ends_with("is")
-                && !t.ends_with("as") && !t.ends_with("os")
+                && !t.ends_with("ss")
+                && !t.ends_with("us")
+                && !t.ends_with("is")
+                && !t.ends_with("as")
+                && !t.ends_with("os")
             {
-                t = t[..t.len()-1].to_string();
+                t = t[..t.len() - 1].to_string();
             }
             t
         })

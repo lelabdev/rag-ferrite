@@ -1,6 +1,5 @@
 /// In-memory ring buffer of completed batch history.
 /// Tracks the last N completed batches for monitoring via GET /api/history.
-
 use std::collections::VecDeque;
 use std::sync::Mutex;
 
@@ -24,7 +23,8 @@ pub struct BatchHistoryEntry {
     pub errors: usize,
 }
 
-static HISTORY: std::sync::OnceLock<Mutex<VecDeque<BatchHistoryEntry>>> = std::sync::OnceLock::new();
+static HISTORY: std::sync::OnceLock<Mutex<VecDeque<BatchHistoryEntry>>> =
+    std::sync::OnceLock::new();
 
 fn history_instance() -> &'static Mutex<VecDeque<BatchHistoryEntry>> {
     HISTORY.get_or_init(|| Mutex::new(VecDeque::with_capacity(MAX_HISTORY)))

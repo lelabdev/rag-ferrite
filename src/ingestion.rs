@@ -136,7 +136,6 @@ pub struct BatchError {
     pub error: String,
 }
 
-
 // ── Manager ────────────────────────────────────────────────────────────
 
 fn inline_content_allowed(content_len: usize, max_bytes: usize) -> bool {
@@ -179,7 +178,15 @@ impl IngestionManager {
         let max_inline_content_bytes = ingest_config.max_inline_content_bytes;
         let ingestion_timeout_secs = ingest_config.ingestion_timeout_secs;
         tokio::spawn(async move {
-            background_worker(receiver, pipeline, ingest_config, worker_progress, worker_llm, ingestion_timeout_secs).await;
+            background_worker(
+                receiver,
+                pipeline,
+                ingest_config,
+                worker_progress,
+                worker_llm,
+                ingestion_timeout_secs,
+            )
+            .await;
         });
 
         IngestionManager {
@@ -192,11 +199,16 @@ impl IngestionManager {
 
     /// Queue a file ingestion. Returns immediately.
     pub fn ingest_file(&self, file_path: String) -> serde_json::Value {
-        self.try_queue(IngestJob::File { file_path: file_path.clone() }, serde_json::json!({
-            "status": "queued",
-            "file_path": file_path,
-            "message": "Ingestion queued. Check GET /api/ingest/progress for status."
-        }))
+        self.try_queue(
+            IngestJob::File {
+                file_path: file_path.clone(),
+            },
+            serde_json::json!({
+                "status": "queued",
+                "file_path": file_path,
+                "message": "Ingestion queued. Check GET /api/ingest/progress for status."
+            }),
+        )
     }
 
     /// Queue a data ingestion. Returns immediately.
@@ -208,19 +220,28 @@ impl IngestionManager {
                 "max_bytes": self.max_inline_content_bytes,
             });
         }
-        self.try_queue(IngestJob::Data { content, source: source.clone() }, serde_json::json!({
-            "status": "queued",
-            "source": source,
-            "message": "Ingestion queued. Check GET /api/ingest/progress for status."
-        }))
+        self.try_queue(
+            IngestJob::Data {
+                content,
+                source: source.clone(),
+            },
+            serde_json::json!({
+                "status": "queued",
+                "source": source,
+                "message": "Ingestion queued. Check GET /api/ingest/progress for status."
+            }),
+        )
     }
 
     /// Queue a batch of files. Returns immediately with batch_id.
     pub fn ingest_batch(&self, files: Vec<String>, move_after_ingest: bool) -> serde_json::Value {
-        let batch_id = format!("batch-{}", std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis());
+        let batch_id = format!(
+            "batch-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
         let total = files.len();
         self.try_queue(IngestJob::Batch {
             batch_id: batch_id.clone(),
@@ -264,10 +285,12 @@ impl IngestionManager {
             batch.elapsed_seconds = now_secs.saturating_sub(batch.started_at);
             // Recalculate speed and ETA with live data
             if batch.elapsed_seconds > 0 {
-                batch.speed_chunks_per_min = (live_chunks as f64 / batch.elapsed_seconds as f64) * 60.0;
+                batch.speed_chunks_per_min =
+                    (live_chunks as f64 / batch.elapsed_seconds as f64) * 60.0;
                 if batch.speed_chunks_per_min > 0.0 && batch.total_estimated_chunks > 0 {
                     let remaining = batch.total_estimated_chunks.saturating_sub(live_chunks);
-                    batch.eta_seconds = (remaining as f64 / batch.speed_chunks_per_min * 60.0) as u64;
+                    batch.eta_seconds =
+                        (remaining as f64 / batch.speed_chunks_per_min * 60.0) as u64;
                 }
             }
             // Update current file progress
@@ -284,10 +307,13 @@ impl IngestionManager {
     /// Queue a flush: rebuild HNSW + BM25 indexes + WAL checkpoint.
     /// Call after a batch of ingestion jobs to finalize indexes.
     pub fn flush_indexes(&self) -> serde_json::Value {
-        self.try_queue(IngestJob::RebuildIndexes, serde_json::json!({
-            "status": "queued",
-            "message": "Index rebuild + WAL checkpoint queued."
-        }))
+        self.try_queue(
+            IngestJob::RebuildIndexes,
+            serde_json::json!({
+                "status": "queued",
+                "message": "Index rebuild + WAL checkpoint queued."
+            }),
+        )
     }
 
     pub fn rebuild_indexes(&self) -> serde_json::Value {
@@ -313,11 +339,8 @@ fn rebuild_indexes_serialized() {
     tracing::info!("RebuildIndexes complete.");
 }
 
-async fn run_with_timeout<F>(
-    progress: &Arc<Mutex<IngestProgress>>,
-    timeout_secs: u64,
-    job: F,
-) where
+async fn run_with_timeout<F>(progress: &Arc<Mutex<IngestProgress>>, timeout_secs: u64, job: F)
+where
     F: std::future::Future<Output = ()>,
 {
     if tokio::time::timeout(std::time::Duration::from_secs(timeout_secs.max(1)), job)
@@ -327,7 +350,10 @@ async fn run_with_timeout<F>(
         let mut p = progress.lock().unwrap();
         p.status = IngestStatus::Idle;
         p.current_source = None;
-        p.last_error = Some(format!("Ingestion timed out after {} seconds", timeout_secs));
+        p.last_error = Some(format!(
+            "Ingestion timed out after {} seconds",
+            timeout_secs
+        ));
         if let Some(ref mut batch) = p.batch {
             batch.status = BatchStatus::Failed;
         }
@@ -345,15 +371,55 @@ async fn background_worker(
     while let Some(job) = receiver.recv().await {
         match job {
             IngestJob::File { file_path } => {
-                run_with_timeout(&progress, ingestion_timeout_secs, process_file_job(&pipeline, &ingest_config, &progress, &ingestion_llm, &file_path)).await;
+                run_with_timeout(
+                    &progress,
+                    ingestion_timeout_secs,
+                    process_file_job(
+                        &pipeline,
+                        &ingest_config,
+                        &progress,
+                        &ingestion_llm,
+                        &file_path,
+                    ),
+                )
+                .await;
                 rebuild_indexes_serialized();
             }
             IngestJob::Data { content, source } => {
-                run_with_timeout(&progress, ingestion_timeout_secs, process_data_job(&pipeline, &ingest_config, &progress, &ingestion_llm, &content, &source)).await;
+                run_with_timeout(
+                    &progress,
+                    ingestion_timeout_secs,
+                    process_data_job(
+                        &pipeline,
+                        &ingest_config,
+                        &progress,
+                        &ingestion_llm,
+                        &content,
+                        &source,
+                    ),
+                )
+                .await;
                 rebuild_indexes_serialized();
             }
-            IngestJob::Batch { batch_id, files, move_after_ingest } => {
-                run_with_timeout(&progress, ingestion_timeout_secs, process_batch_job(&pipeline, &ingest_config, &progress, &ingestion_llm, &batch_id, &files, move_after_ingest)).await;
+            IngestJob::Batch {
+                batch_id,
+                files,
+                move_after_ingest,
+            } => {
+                run_with_timeout(
+                    &progress,
+                    ingestion_timeout_secs,
+                    process_batch_job(
+                        &pipeline,
+                        &ingest_config,
+                        &progress,
+                        &ingestion_llm,
+                        &batch_id,
+                        &files,
+                        move_after_ingest,
+                    ),
+                )
+                .await;
                 rebuild_indexes_serialized();
             }
             IngestJob::RebuildIndexes => rebuild_indexes_serialized(),
@@ -403,7 +469,11 @@ async fn process_file_job(
     let mut p = progress.lock().unwrap();
     match result {
         Ok((_id, report)) => {
-            tracing::info!("Ingestion complete: {} — {} chunks", file_path, report.total_chunks);
+            tracing::info!(
+                "Ingestion complete: {} — {} chunks",
+                file_path,
+                report.total_chunks
+            );
             p.parents_total = report.total_chunks;
             p.parents_done = report.total_chunks;
             p.last_completed = Some(file_path.to_string());
@@ -453,7 +523,11 @@ async fn process_data_job(
     let mut p = progress.lock().unwrap();
     match result {
         Ok((_id, report)) => {
-            tracing::info!("Ingestion complete: {} — {} chunks", source, report.total_chunks);
+            tracing::info!(
+                "Ingestion complete: {} — {} chunks",
+                source,
+                report.total_chunks
+            );
             p.parents_total = report.total_chunks;
             p.parents_done = report.total_chunks;
             p.last_completed = Some(source.to_string());
@@ -494,14 +568,28 @@ async fn process_batch_job(
     // This gives a realistic ETA instead of avg_time_per_file which is skewed
     // by mixing large books and small articles.
     const CHUNK_SIZE: usize = 800;
-    let total_estimated_chunks: usize = files.iter().map(|f| {
-        std::fs::metadata(f).map(|m| {
-            let bytes = m.len() as usize;
-            if bytes == 0 { 0 } else { (bytes / CHUNK_SIZE).max(1) }
-        }).unwrap_or(0)
-    }).sum();
+    let total_estimated_chunks: usize = files
+        .iter()
+        .map(|f| {
+            std::fs::metadata(f)
+                .map(|m| {
+                    let bytes = m.len() as usize;
+                    if bytes == 0 {
+                        0
+                    } else {
+                        (bytes / CHUNK_SIZE).max(1)
+                    }
+                })
+                .unwrap_or(0)
+        })
+        .sum();
 
-    tracing::info!("Batch {} started: {} files, ~{} estimated chunks", batch_id, total_files, total_estimated_chunks);
+    tracing::info!(
+        "Batch {} started: {} files, ~{} estimated chunks",
+        batch_id,
+        total_files,
+        total_estimated_chunks
+    );
 
     {
         let mut p = progress.lock().unwrap();
@@ -525,12 +613,15 @@ async fn process_batch_job(
             error_rate: 0.0,
             total_estimated_chunks,
             files: Vec::new(),
-            pending_files: files.iter().map(|f| {
-                std::path::Path::new(f)
-                    .file_name()
-                    .map(|n| n.to_string_lossy().to_string())
-                    .unwrap_or_else(|| f.clone())
-            }).collect(),
+            pending_files: files
+                .iter()
+                .map(|f| {
+                    std::path::Path::new(f)
+                        .file_name()
+                        .map(|n| n.to_string_lossy().to_string())
+                        .unwrap_or_else(|| f.clone())
+                })
+                .collect(),
         });
     }
 
@@ -539,7 +630,12 @@ async fn process_batch_job(
     for (i, file_path) in files.iter().enumerate() {
         // ── Check cancellation between files ──
         if engine::cancel::check_and_reset() {
-            tracing::info!("Batch {} cancelled by user after {}/{} files", batch_id, i, total_files);
+            tracing::info!(
+                "Batch {} cancelled by user after {}/{} files",
+                batch_id,
+                i,
+                total_files
+            );
             let mut p = progress.lock().unwrap();
             if let Some(ref mut b) = p.batch {
                 b.status = BatchStatus::Cancelled;
@@ -555,7 +651,13 @@ async fn process_batch_job(
 
         // ── Dedup: skip if already ingested ──
         if engine::check_duplicate_source(&file_name) {
-            tracing::info!("Batch {} file {}/{}: SKIP {} (already ingested)", batch_id, i + 1, total_files, file_name);
+            tracing::info!(
+                "Batch {} file {}/{}: SKIP {} (already ingested)",
+                batch_id,
+                i + 1,
+                total_files,
+                file_name
+            );
             let mut p = progress.lock().unwrap();
             if let Some(ref mut b) = p.batch {
                 b.completed_files += 1;
@@ -564,9 +666,14 @@ async fn process_batch_job(
                 if total_done > 0 {
                     b.avg_time_per_file_seconds = b.elapsed_seconds as f64 / total_done as f64;
                 }
-                if b.elapsed_seconds > 0 && b.speed_chunks_per_min > 0.0 && b.total_estimated_chunks > 0 {
-                    let remaining_chunks = b.total_estimated_chunks.saturating_sub(b.completed_chunks);
-                    b.eta_seconds = (remaining_chunks as f64 / b.speed_chunks_per_min * 60.0) as u64;
+                if b.elapsed_seconds > 0
+                    && b.speed_chunks_per_min > 0.0
+                    && b.total_estimated_chunks > 0
+                {
+                    let remaining_chunks =
+                        b.total_estimated_chunks.saturating_sub(b.completed_chunks);
+                    b.eta_seconds =
+                        (remaining_chunks as f64 / b.speed_chunks_per_min * 60.0) as u64;
                 }
             }
             continue;
@@ -593,7 +700,14 @@ async fn process_batch_job(
             p.last_error = None;
         }
 
-        tracing::info!("Batch {} file {}/{}: {} ({:.1} MB)", batch_id, i + 1, total_files, file_name, file_size_mb);
+        tracing::info!(
+            "Batch {} file {}/{}: {} ({:.1} MB)",
+            batch_id,
+            i + 1,
+            total_files,
+            file_name,
+            file_size_mb
+        );
 
         // Phase update: embedding
         {
@@ -630,7 +744,15 @@ async fn process_batch_job(
             }
             match result {
                 Ok((_id, report)) => {
-                    tracing::info!("Batch {} file {}/{} done: {} — {} chunks in {:.1}s", batch_id, i + 1, total_files, file_name, report.total_chunks, file_duration);
+                    tracing::info!(
+                        "Batch {} file {}/{} done: {} — {} chunks in {:.1}s",
+                        batch_id,
+                        i + 1,
+                        total_files,
+                        file_name,
+                        report.total_chunks,
+                        file_duration
+                    );
                     if let Some(ref mut b) = p.batch {
                         b.completed_files += 1;
                         b.completed_chunks += report.total_chunks;
@@ -645,21 +767,32 @@ async fn process_batch_job(
                         b.pending_files.retain(|f| f != &file_name);
                         let total_done = b.completed_files + b.failed_files;
                         if total_done > 0 {
-                            b.avg_time_per_file_seconds = b.elapsed_seconds as f64 / total_done as f64;
+                            b.avg_time_per_file_seconds =
+                                b.elapsed_seconds as f64 / total_done as f64;
                             b.error_rate = (b.failed_files as f64 / total_done as f64) * 100.0;
                         }
                         if b.elapsed_seconds > 0 {
-                            b.speed_chunks_per_min = (b.completed_chunks as f64 / b.elapsed_seconds as f64) * 60.0;
+                            b.speed_chunks_per_min =
+                                (b.completed_chunks as f64 / b.elapsed_seconds as f64) * 60.0;
                             if b.speed_chunks_per_min > 0.0 && b.total_estimated_chunks > 0 {
-                                let remaining_chunks = b.total_estimated_chunks.saturating_sub(b.completed_chunks);
-                                b.eta_seconds = (remaining_chunks as f64 / b.speed_chunks_per_min * 60.0) as u64;
+                                let remaining_chunks =
+                                    b.total_estimated_chunks.saturating_sub(b.completed_chunks);
+                                b.eta_seconds = (remaining_chunks as f64 / b.speed_chunks_per_min
+                                    * 60.0) as u64;
                             }
                         }
                     }
                     p.last_completed = Some(file_path.clone());
                 }
                 Err(e) => {
-                    tracing::error!("Batch {} file {}/{} FAILED: {} — {}", batch_id, i + 1, total_files, file_name, e);
+                    tracing::error!(
+                        "Batch {} file {}/{} FAILED: {} — {}",
+                        batch_id,
+                        i + 1,
+                        total_files,
+                        file_name,
+                        e
+                    );
                     if let Some(ref mut b) = p.batch {
                         b.failed_files += 1;
                         b.errors.push(BatchError {
@@ -676,7 +809,8 @@ async fn process_batch_job(
                         b.pending_files.retain(|f| f != &file_name);
                         let total_done = b.completed_files + b.failed_files;
                         if total_done > 0 {
-                            b.avg_time_per_file_seconds = b.elapsed_seconds as f64 / total_done as f64;
+                            b.avg_time_per_file_seconds =
+                                b.elapsed_seconds as f64 / total_done as f64;
                             b.error_rate = (b.failed_files as f64 / total_done as f64) * 100.0;
                         }
                     }
@@ -698,9 +832,17 @@ async fn process_batch_job(
             b.status = BatchStatus::Completed;
             b.current_file = None;
             b.elapsed_seconds = batch_start.elapsed().as_secs();
-            tracing::info!("Batch {} complete: {}/{} files, {} chunks, {:.1} MB, {} errors ({:.1}%), {}s",
-                batch_id, b.completed_files, b.total_files, b.completed_chunks,
-                b.total_size_mb, b.errors.len(), b.error_rate, b.elapsed_seconds);
+            tracing::info!(
+                "Batch {} complete: {}/{} files, {} chunks, {:.1} MB, {} errors ({:.1}%), {}s",
+                batch_id,
+                b.completed_files,
+                b.total_files,
+                b.completed_chunks,
+                b.total_size_mb,
+                b.errors.len(),
+                b.error_rate,
+                b.elapsed_seconds
+            );
 
             // Push to ingestion history ring buffer
             let now_secs = std::time::SystemTime::now()
@@ -733,7 +875,10 @@ mod tests {
 }
 
 /// Move a file from inbox/ to ingested/ after successful ingestion.
-fn move_file_after_ingest(file_path: &str, ingested_dir: &str) -> Result<(), Box<dyn std::error::Error>> {
+fn move_file_after_ingest(
+    file_path: &str,
+    ingested_dir: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
     let path = std::path::Path::new(file_path);
     if !path.exists() {
         return Err("File does not exist".into());
@@ -747,7 +892,11 @@ fn move_file_after_ingest(file_path: &str, ingested_dir: &str) -> Result<(), Box
         format!("{}/{}", parent_str, ingested_dir)
     };
     std::fs::create_dir_all(&dest_dir)?;
-    let dest = format!("{}/{}", dest_dir, path.file_name().unwrap().to_string_lossy());
+    let dest = format!(
+        "{}/{}",
+        dest_dir,
+        path.file_name().unwrap().to_string_lossy()
+    );
     std::fs::rename(file_path, &dest)?;
     tracing::info!("Moved {} to {}", file_path, dest);
     Ok(())

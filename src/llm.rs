@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Duration;
@@ -134,7 +134,10 @@ impl LlmProvider {
         base_url: Option<String>,
     ) -> Self {
         let base_url = base_url.unwrap_or_else(|| {
-            tracing::warn!("No base_url configured for LLM provider '{}', using http://localhost:11434", provider);
+            tracing::warn!(
+                "No base_url configured for LLM provider '{}', using http://localhost:11434",
+                provider
+            );
             "http://localhost:11434".into()
         });
 
@@ -143,7 +146,14 @@ impl LlmProvider {
             provider,
             model,
             base_url,
-            if api_key.is_some() { format!("{}***", &api_key.as_ref().unwrap()[..8.min(api_key.as_ref().unwrap().len())]) } else { "NONE".into() }
+            if api_key.is_some() {
+                format!(
+                    "{}***",
+                    &api_key.as_ref().unwrap()[..8.min(api_key.as_ref().unwrap().len())]
+                )
+            } else {
+                "NONE".into()
+            }
         );
 
         Self {
@@ -151,7 +161,10 @@ impl LlmProvider {
             model,
             api_key,
             base_url,
-            client: reqwest::Client::builder().timeout(Duration::from_secs(120)).build().unwrap(),
+            client: reqwest::Client::builder()
+                .timeout(Duration::from_secs(120))
+                .build()
+                .unwrap(),
             fallback: None,
             temperature: 0.3,
             max_tokens: 150,
@@ -202,8 +215,14 @@ impl LlmProvider {
             Ok(text) => text,
             Err(e) => {
                 if let Some(ref fb) = self.fallback {
-                    tracing::warn!("Primary LLM ({}/{}) failed: {}. Trying fallback ({}/{})",
-                        self.provider, self.model, e, fb.provider, fb.model);
+                    tracing::warn!(
+                        "Primary LLM ({}/{}) failed: {}. Trying fallback ({}/{})",
+                        self.provider,
+                        self.model,
+                        e,
+                        fb.provider,
+                        fb.model
+                    );
                     fb.chat(messages).await?
                 } else {
                     return Err(e);
@@ -232,7 +251,10 @@ impl LlmProvider {
         }
         if child_chunks.len() == 1 {
             // Single child — use the existing single-call method
-            return vec![self.generate_context(whole_document, &child_chunks[0]).await];
+            return vec![
+                self.generate_context(whole_document, &child_chunks[0])
+                    .await,
+            ];
         }
 
         // Build numbered chunks for the prompt
@@ -273,18 +295,30 @@ impl LlmProvider {
             Ok(text) => text,
             Err(e) => {
                 if let Some(ref fb) = self.fallback {
-                    tracing::warn!("Primary LLM ({}/{}) failed: {}. Trying fallback ({}/{})",
-                        self.provider, self.model, e, fb.provider, fb.model);
+                    tracing::warn!(
+                        "Primary LLM ({}/{}) failed: {}. Trying fallback ({}/{})",
+                        self.provider,
+                        self.model,
+                        e,
+                        fb.provider,
+                        fb.model
+                    );
                     match fb.chat(messages).await {
                         Ok(text) => text,
                         Err(e2) => {
                             let err = e2.to_string();
-                            return child_chunks.iter().map(|_| Err(anyhow!("{}", err))).collect();
+                            return child_chunks
+                                .iter()
+                                .map(|_| Err(anyhow!("{}", err)))
+                                .collect();
                         }
                     }
                 } else {
                     let err = e.to_string();
-                    return child_chunks.iter().map(|_| Err(anyhow!("{}", err))).collect();
+                    return child_chunks
+                        .iter()
+                        .map(|_| Err(anyhow!("{}", err)))
+                        .collect();
                 }
             }
         };
@@ -331,7 +365,8 @@ impl LlmProvider {
 
     /// Send a chat completion request with default temperature and max_tokens.
     pub async fn chat(&self, messages: Vec<ChatMessage>) -> Result<String> {
-        self.chat_with_options(messages, self.temperature, self.max_tokens).await
+        self.chat_with_options(messages, self.temperature, self.max_tokens)
+            .await
     }
 
     /// Expand a short or ambiguous query into 2-3 reformulations.
@@ -360,7 +395,14 @@ impl LlmProvider {
             content: prompt,
         }];
 
-        let response = match self.chat_with_options(messages, self.expansion_temperature, self.expansion_max_tokens).await {
+        let response = match self
+            .chat_with_options(
+                messages,
+                self.expansion_temperature,
+                self.expansion_max_tokens,
+            )
+            .await
+        {
             Ok(text) => text,
             Err(e) => {
                 tracing::warn!("Query expansion failed, using original query: {}", e);
@@ -398,7 +440,13 @@ impl LlmProvider {
             content: prompt,
         }];
 
-        let response = self.chat_with_options(messages, self.expansion_temperature, self.expansion_max_tokens).await?;
+        let response = self
+            .chat_with_options(
+                messages,
+                self.expansion_temperature,
+                self.expansion_max_tokens,
+            )
+            .await?;
         Ok(response.trim().to_string())
     }
 
@@ -458,8 +506,12 @@ impl LlmProvider {
                 Ok(data.message.content)
             }
             _ => {
-                let api_key = self.api_key.as_ref()
-                    .ok_or_else(|| anyhow!("API key required for {}. Set LLM_API_KEY or FALLBACK_API_KEY.", self.provider))?;
+                let api_key = self.api_key.as_ref().ok_or_else(|| {
+                    anyhow!(
+                        "API key required for {}. Set LLM_API_KEY or FALLBACK_API_KEY.",
+                        self.provider
+                    )
+                })?;
 
                 let url = format!("{}/chat/completions", self.base_url);
 
@@ -471,7 +523,8 @@ impl LlmProvider {
                     thinking: Some(serde_json::json!({"type": "disabled"})),
                 };
 
-                let resp = self.client
+                let resp = self
+                    .client
                     .post(&url)
                     .header("Authorization", format!("Bearer {}", api_key))
                     .json(&body)
@@ -493,8 +546,6 @@ impl LlmProvider {
             }
         }
     }
-
-
 }
 
 /// Truncate text to fit within token limits (rough: ~4 chars per token).
@@ -521,7 +572,10 @@ mod tests {
         let response = "SCORE: 8\nCONTEXT: This chunk describes Svelte runes and their usage in Svelte 5.\nMETADATA: {\"topic\": \"svelte\", \"version\": 5}";
         let (score, context, _tags) = parse_context_response(response);
         assert_eq!(score, Some(8.0));
-        assert_eq!(context, Some("This chunk describes Svelte runes and their usage in Svelte 5.".to_string()));
+        assert_eq!(
+            context,
+            Some("This chunk describes Svelte runes and their usage in Svelte 5.".to_string())
+        );
     }
 
     #[test]
@@ -592,13 +646,17 @@ mod tests {
         let response = "SCORE: 8\nCONTEXT: Rust programming language features.\nTAGS: rust, programming, systems";
         let (score, context, tags) = parse_context_response(response);
         assert_eq!(score, Some(8.0));
-        assert_eq!(context, Some("Rust programming language features.".to_string()));
+        assert_eq!(
+            context,
+            Some("Rust programming language features.".to_string())
+        );
         assert_eq!(tags, vec!["rust", "programming", "system"]);
     }
 
     #[test]
     fn test_parse_tags_with_extra_whitespace() {
-        let response = "SCORE: 7\nCONTEXT: Some context\nTAGS:  machine-learning ,  neural-networks , ai ";
+        let response =
+            "SCORE: 7\nCONTEXT: Some context\nTAGS:  machine-learning ,  neural-networks , ai ";
         let (_score, _context, tags) = parse_context_response(response);
         assert_eq!(tags, vec!["machine-learning", "neural-networks"]);
     }
@@ -658,12 +716,7 @@ mod tests {
     #[test]
     fn test_llm_provider_default_url() {
         // When no base_url is provided, it defaults to localhost:11434
-        let provider = LlmProvider::new(
-            "ollama".to_string(),
-            "test-model".to_string(),
-            None,
-            None,
-        );
+        let provider = LlmProvider::new("ollama".to_string(), "test-model".to_string(), None, None);
         let _ = &provider;
     }
 }
@@ -675,33 +728,34 @@ mod tests {
 /// Expected format: CHUNK N: / SCORE: / CONTEXT: / TAGS: blocks separated by blank lines.
 fn parse_multi_chunk_response(response: &str, expected_count: usize) -> Vec<Result<ContextResult>> {
     let mut results: Vec<Result<ContextResult>> = Vec::with_capacity(expected_count);
-    
+
     // Split response by "CHUNK N:" markers
     let chunk_pattern = regex::Regex::new(r"(?m)^CHUNK\s+\d+\s*:").unwrap_or_else(|_| {
         tracing::warn!("Failed to compile chunk pattern regex");
         regex::Regex::new(r"nevermatch").unwrap()
     });
-    
+
     let mut chunks: Vec<&str> = Vec::new();
     let mut last_end = 0;
-    
+
     for mat in chunk_pattern.find_iter(response) {
-        if (last_end > 0 || mat.start() > 0)
-            && last_end > 0 {
-                chunks.push(&response[last_end..mat.start()]);
-            }
+        if (last_end > 0 || mat.start() > 0) && last_end > 0 {
+            chunks.push(&response[last_end..mat.start()]);
+        }
         last_end = mat.start();
     }
     if last_end < response.len() {
         chunks.push(&response[last_end..]);
     }
-    
+
     if chunks.is_empty() {
         // Fallback: couldn't parse chunks, try parsing as single response
         tracing::warn!("Could not parse multi-chunk response, falling back to single parse");
         let (score, context, tags) = parse_context_response(response);
         results.push(Ok(ContextResult {
-            context, relevance_score: score, tags,
+            context,
+            relevance_score: score,
+            tags,
         }));
         // Fill rest with empty results
         while results.len() < expected_count {
@@ -711,28 +765,30 @@ fn parse_multi_chunk_response(response: &str, expected_count: usize) -> Vec<Resu
         }
         return results;
     }
-    
+
     for chunk_text in &chunks {
         let (score, context, tags) = parse_context_response(chunk_text);
         results.push(Ok(ContextResult {
-            context, relevance_score: score, tags,
+            context,
+            relevance_score: score,
+            tags,
         }));
     }
-    
+
     // Pad if we got fewer results than expected
     while results.len() < expected_count {
         results.push(Ok(ContextResult {
             ..ContextResult::default()
         }));
     }
-    
+
     results.truncate(expected_count);
     results
 }
 
 /// Global tag rules — DEPRECATED: moved to tag_rules.rs
 /// Kept as re-export for backward compat during migration.
-pub use crate::tag_rules::{init_tag_rules, get_tag_rules, sanitize_tags};
+pub use crate::tag_rules::{get_tag_rules, init_tag_rules, sanitize_tags};
 
 fn parse_context_response(response: &str) -> (Option<f32>, Option<String>, Vec<String>) {
     let mut score: Option<f32> = None;
@@ -778,10 +834,9 @@ fn parse_context_response(response: &str) -> (Option<f32>, Option<String>, Vec<S
             continue;
         }
         // After CONTEXT: line, collect remaining lines as part of context
-        if found_context
-            && !trimmed_line.is_empty() {
-                context_lines.push(trimmed_line);
-            }
+        if found_context && !trimmed_line.is_empty() {
+            context_lines.push(trimmed_line);
+        }
     }
 
     if found_score || found_context {

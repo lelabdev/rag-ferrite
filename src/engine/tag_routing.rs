@@ -51,8 +51,10 @@ pub fn route_query(query: &str) -> Result<RouteResult> {
         placeholders.join(",")
     );
 
-    let params: Vec<&dyn rusqlite::types::ToSql> =
-        keywords.iter().map(|k| k as &dyn rusqlite::types::ToSql).collect();
+    let params: Vec<&dyn rusqlite::types::ToSql> = keywords
+        .iter()
+        .map(|k| k as &dyn rusqlite::types::ToSql)
+        .collect();
 
     let mut stmt = conn.prepare(&sql)?;
     let matches: Vec<(String, i64)> = stmt
@@ -93,8 +95,7 @@ pub fn route_query(query: &str) -> Result<RouteResult> {
 fn extract_keywords(query: &str) -> Vec<String> {
     let rules = get_tag_rules();
 
-    let stop_words: std::collections::HashSet<&str> =
-        rules.stop_words.all().into_iter().collect();
+    let stop_words: std::collections::HashSet<&str> = rules.stop_words.all().into_iter().collect();
 
     let strip_chars: &str = rules.rules.strip_chars.as_str();
 
@@ -106,11 +107,7 @@ fn extract_keywords(query: &str) -> Vec<String> {
         .filter(|word| !stop_words.contains(word.as_str()))
         .map(|word| {
             // Apply synonyms
-            rules
-                .synonyms
-                .get(&word)
-                .cloned()
-                .unwrap_or(word)
+            rules.synonyms.get(&word).cloned().unwrap_or(word)
         })
         .collect()
 }
@@ -125,7 +122,11 @@ pub fn get_tag_collection_map() -> Result<Vec<(String, String, i64)>> {
          ORDER BY tag, chunk_count DESC",
     )?;
     let rows = stmt.query_map([], |row| {
-        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?))
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, i64>(2)?,
+        ))
     })?;
     let mut result = Vec::new();
     for row in rows {

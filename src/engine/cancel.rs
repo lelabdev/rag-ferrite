@@ -1,6 +1,5 @@
 /// Global cancel flag for batch ingestion.
 /// Set by the API handler, checked by the batch worker between files.
-
 use std::sync::atomic::{AtomicBool, Ordering};
 
 static CANCELLED: AtomicBool = AtomicBool::new(false);

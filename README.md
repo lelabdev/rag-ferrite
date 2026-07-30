@@ -628,6 +628,10 @@ Results include Recall@k, precision@k, MRR, nDCG, empty-result rate, p50/p95 lat
 
 ---
 
+## Continuous integration
+
+Pull requests and `main` run the Rust quality gates: `cargo fmt --all -- --check`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test --all-targets`, and `cargo audit`. Cargo dependencies and build artifacts are cached; Dependabot checks Cargo dependencies weekly.
+
 ## HTTP ingestion
 
 ### One file

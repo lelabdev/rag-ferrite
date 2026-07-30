@@ -11,10 +11,10 @@ static CACHE_VERSION: AtomicU64 = AtomicU64::new(0);
 pub fn invalidate_cache() {
     CACHE_VERSION.fetch_add(1, Ordering::Relaxed);
 }
+use crate::config::QueryClassificationConfig;
 use crate::embedding::EmbeddingProvider;
 use crate::llm::LlmProvider;
-use crate::reranker::{Reranker, RerankedResult};
-use crate::config::QueryClassificationConfig;
+use crate::reranker::{RerankedResult, Reranker};
 
 /// Simple in-memory query result cache with TTL expiry.
 #[derive(Debug)]
@@ -70,7 +70,11 @@ fn canonical_filter_key(filter: &crate::types::SearchFilter) -> String {
         let mut values = ids.clone().unwrap_or_default();
         values.sort_unstable();
         values.dedup();
-        values.iter().map(i64::to_string).collect::<Vec<_>>().join(",")
+        values
+            .iter()
+            .map(i64::to_string)
+            .collect::<Vec<_>>()
+            .join(",")
     }
 
     format!(
@@ -103,13 +107,16 @@ pub fn classify_query(query: &str, cfg: &QueryClassificationConfig) -> QueryComp
     let word_count = words.len();
 
     let has_question_marker = words.iter().any(|w| {
-        let trimmed = w.trim_end_matches(|c: char| c == '?' || c == ',' || c == '.' || c == '!' || c == ';');
-        cfg.question_markers.iter().any(|m| trimmed.eq_ignore_ascii_case(m))
+        let trimmed =
+            w.trim_end_matches(|c: char| c == '?' || c == ',' || c == '.' || c == '!' || c == ';');
+        cfg.question_markers
+            .iter()
+            .any(|m| trimmed.eq_ignore_ascii_case(m))
     });
 
-    let has_boolean_op = words.iter().any(|w| {
-        cfg.boolean_operators.iter().any(|op| w.eq(op))
-    });
+    let has_boolean_op = words
+        .iter()
+        .any(|w| cfg.boolean_operators.iter().any(|op| w.eq(op)));
 
     if word_count > cfg.complex_word_threshold || has_question_marker || has_boolean_op {
         return QueryComplexity::Complex;
@@ -218,8 +225,13 @@ impl QueryPipeline {
 
         let result = match complexity {
             QueryComplexity::Simple => self.query_simple(query, limit, filter, complexity).await?,
-            QueryComplexity::Standard => self.query_standard(query, limit, filter, complexity).await?,
-            QueryComplexity::Complex => self.query_complex(query, limit, filter, complexity).await?,
+            QueryComplexity::Standard => {
+                self.query_standard(query, limit, filter, complexity)
+                    .await?
+            }
+            QueryComplexity::Complex => {
+                self.query_complex(query, limit, filter, complexity).await?
+            }
         };
 
         // Store result in cache
@@ -238,20 +250,17 @@ impl QueryPipeline {
         filter: Option<crate::types::SearchFilter>,
         complexity: QueryComplexity,
     ) -> Result<QueryOutput> {
-        let results = crate::engine::search_hybrid(
-            &self.embedder,
-            query,
-            limit,
-            filter,
-        )
-        .await?;
+        let results = crate::engine::search_hybrid(&self.embedder, query, limit, filter).await?;
 
         let top_score = results.first().map(|r| r.score).unwrap_or(0.0);
-        let confidence = classify_confidence(top_score, self.quality_threshold, self.high_confidence_threshold);
+        let confidence = classify_confidence(
+            top_score,
+            self.quality_threshold,
+            self.high_confidence_threshold,
+        );
 
         // Convert HybridSearchResult → RerankedResult (passthrough, no reranking)
-        let reranked: Vec<RerankedResult> = results
-            .into_iter().map(|r| r.into()).collect();
+        let reranked: Vec<RerankedResult> = results.into_iter().map(|r| r.into()).collect();
 
         Ok(QueryOutput {
             results: reranked,
@@ -283,20 +292,18 @@ impl QueryPipeline {
             )
             .await?
         } else {
-            crate::engine::search_hybrid(
-                &self.embedder,
-                query,
-                limit,
-                filter,
-            )
-            .await?
+            crate::engine::search_hybrid(&self.embedder, query, limit, filter).await?
         };
 
         // Rerank if enabled, otherwise pass through results directly
         let reranked = self.reranker.rerank_hybrid(query, results).await;
 
         let top_score = reranked.first().map(|r| r.score).unwrap_or(0.0);
-        let confidence = classify_confidence(top_score, self.quality_threshold, self.high_confidence_threshold);
+        let confidence = classify_confidence(
+            top_score,
+            self.quality_threshold,
+            self.high_confidence_threshold,
+        );
 
         Ok(QueryOutput {
             results: reranked,
@@ -332,12 +339,13 @@ impl QueryPipeline {
             let reranked = self.reranker.rerank_hybrid(&current_query, results).await;
 
             // Step 3: Quality gate — check top score
-            let top_score = reranked
-                .first()
-                .map(|r| r.score)
-                .unwrap_or(0.0);
+            let top_score = reranked.first().map(|r| r.score).unwrap_or(0.0);
 
-            let confidence = classify_confidence(top_score, self.quality_threshold, self.high_confidence_threshold);
+            let confidence = classify_confidence(
+                top_score,
+                self.quality_threshold,
+                self.high_confidence_threshold,
+            );
             let should_retry = confidence == Confidence::Low && retry_count < self.max_retries;
 
             // Step 4: Corrective RAG — reformulate and retry
@@ -359,7 +367,10 @@ impl QueryPipeline {
                             continue;
                         }
                         Err(e) => {
-                            tracing::warn!("Query reformulation failed: {}, returning low-confidence results", e);
+                            tracing::warn!(
+                                "Query reformulation failed: {}, returning low-confidence results",
+                                e
+                            );
                         }
                     }
                 }
@@ -405,41 +416,92 @@ mod tests {
     #[test]
     fn test_standard_queries() {
         let cfg = default_cfg();
-        assert_eq!(classify_query("search my documents for rust", &cfg), QueryComplexity::Standard);
-        assert_eq!(classify_query("find relevant chunks about machine learning", &cfg), QueryComplexity::Standard);
-        assert_eq!(classify_query("three word query", &cfg), QueryComplexity::Standard);
+        assert_eq!(
+            classify_query("search my documents for rust", &cfg),
+            QueryComplexity::Standard
+        );
+        assert_eq!(
+            classify_query("find relevant chunks about machine learning", &cfg),
+            QueryComplexity::Standard
+        );
+        assert_eq!(
+            classify_query("three word query", &cfg),
+            QueryComplexity::Standard
+        );
     }
 
     #[test]
     fn test_complex_by_word_count() {
         let cfg = default_cfg();
-        assert_eq!(classify_query("this is a very long query with many words in it", &cfg), QueryComplexity::Complex);
-        assert_eq!(classify_query("one two three four five six seven eight nine", &cfg), QueryComplexity::Complex);
+        assert_eq!(
+            classify_query("this is a very long query with many words in it", &cfg),
+            QueryComplexity::Complex
+        );
+        assert_eq!(
+            classify_query("one two three four five six seven eight nine", &cfg),
+            QueryComplexity::Complex
+        );
     }
 
     #[test]
     fn test_complex_by_question_markers() {
         let cfg = default_cfg();
-        assert_eq!(classify_query("what is rust", &cfg), QueryComplexity::Complex);
-        assert_eq!(classify_query("how does this work", &cfg), QueryComplexity::Complex);
-        assert_eq!(classify_query("why is this happening", &cfg), QueryComplexity::Complex);
-        assert_eq!(classify_query("where are my documents", &cfg), QueryComplexity::Complex);
-        assert_eq!(classify_query("comment faire", &cfg), QueryComplexity::Complex);
-        assert_eq!(classify_query("pourquoi ça marche", &cfg), QueryComplexity::Complex);
-        assert_eq!(classify_query("quand partir", &cfg), QueryComplexity::Complex);
+        assert_eq!(
+            classify_query("what is rust", &cfg),
+            QueryComplexity::Complex
+        );
+        assert_eq!(
+            classify_query("how does this work", &cfg),
+            QueryComplexity::Complex
+        );
+        assert_eq!(
+            classify_query("why is this happening", &cfg),
+            QueryComplexity::Complex
+        );
+        assert_eq!(
+            classify_query("where are my documents", &cfg),
+            QueryComplexity::Complex
+        );
+        assert_eq!(
+            classify_query("comment faire", &cfg),
+            QueryComplexity::Complex
+        );
+        assert_eq!(
+            classify_query("pourquoi ça marche", &cfg),
+            QueryComplexity::Complex
+        );
+        assert_eq!(
+            classify_query("quand partir", &cfg),
+            QueryComplexity::Complex
+        );
         assert_eq!(classify_query("où suis-je", &cfg), QueryComplexity::Complex);
-        assert_eq!(classify_query("quel est le problème", &cfg), QueryComplexity::Complex);
-        assert_eq!(classify_query("quelle est la réponse", &cfg), QueryComplexity::Complex);
+        assert_eq!(
+            classify_query("quel est le problème", &cfg),
+            QueryComplexity::Complex
+        );
+        assert_eq!(
+            classify_query("quelle est la réponse", &cfg),
+            QueryComplexity::Complex
+        );
         assert_eq!(classify_query("qui est là", &cfg), QueryComplexity::Complex);
     }
 
     #[test]
     fn test_complex_by_boolean_operators() {
         let cfg = default_cfg();
-        assert_eq!(classify_query("rust AND python", &cfg), QueryComplexity::Complex);
+        assert_eq!(
+            classify_query("rust AND python", &cfg),
+            QueryComplexity::Complex
+        );
         assert_eq!(classify_query("cat OR dog", &cfg), QueryComplexity::Complex);
-        assert_eq!(classify_query("chat et chien", &cfg), QueryComplexity::Complex);
-        assert_eq!(classify_query("chat ou chien", &cfg), QueryComplexity::Complex);
+        assert_eq!(
+            classify_query("chat et chien", &cfg),
+            QueryComplexity::Complex
+        );
+        assert_eq!(
+            classify_query("chat ou chien", &cfg),
+            QueryComplexity::Complex
+        );
     }
 
     #[test]
@@ -447,7 +509,10 @@ mod tests {
         let cfg = default_cfg();
         // Question mark is stripped from markers
         assert_eq!(classify_query("what?", &cfg), QueryComplexity::Complex);
-        assert_eq!(classify_query("how does this work?", &cfg), QueryComplexity::Complex);
+        assert_eq!(
+            classify_query("how does this work?", &cfg),
+            QueryComplexity::Complex
+        );
         assert_eq!(classify_query("comment?", &cfg), QueryComplexity::Complex);
     }
 
@@ -461,11 +526,20 @@ mod tests {
         // Exactly 2 words → Simple
         assert_eq!(classify_query("two words", &cfg), QueryComplexity::Simple);
         // Exactly 3 words → Standard (no markers)
-        assert_eq!(classify_query("three word test", &cfg), QueryComplexity::Standard);
+        assert_eq!(
+            classify_query("three word test", &cfg),
+            QueryComplexity::Standard
+        );
         // Exactly 8 words → Standard (no markers)
-        assert_eq!(classify_query("one two three four five six seven eight", &cfg), QueryComplexity::Standard);
+        assert_eq!(
+            classify_query("one two three four five six seven eight", &cfg),
+            QueryComplexity::Standard
+        );
         // 9 words → Complex
-        assert_eq!(classify_query("one two three four five six seven eight nine", &cfg), QueryComplexity::Complex);
+        assert_eq!(
+            classify_query("one two three four five six seven eight nine", &cfg),
+            QueryComplexity::Complex
+        );
     }
 
     #[test]
@@ -539,5 +613,3 @@ mod tests {
         assert_ne!(before, after);
     }
 }
-
-

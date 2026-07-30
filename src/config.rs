@@ -79,8 +79,12 @@ pub struct HeatConfig {
     pub chunk_decay: f64,
 }
 
-fn default_collection_decay() -> f64 { 0.99 }
-fn default_chunk_decay() -> f64 { 0.999 }
+fn default_collection_decay() -> f64 {
+    0.99
+}
+fn default_chunk_decay() -> f64 {
+    0.999
+}
 
 impl Default for HeatConfig {
     fn default() -> Self {
@@ -125,11 +129,24 @@ impl Default for QueryClassificationConfig {
 
 fn default_question_markers() -> Vec<String> {
     vec![
-        "what".into(), "how".into(), "why".into(), "when".into(),
-        "where".into(), "which".into(), "who".into(), "whom".into(),
-        "whose".into(), "whether".into(),
-        "comment".into(), "pourquoi".into(), "quand".into(), "où".into(),
-        "quel".into(), "quelle".into(), "quels".into(), "quelles".into(),
+        "what".into(),
+        "how".into(),
+        "why".into(),
+        "when".into(),
+        "where".into(),
+        "which".into(),
+        "who".into(),
+        "whom".into(),
+        "whose".into(),
+        "whether".into(),
+        "comment".into(),
+        "pourquoi".into(),
+        "quand".into(),
+        "où".into(),
+        "quel".into(),
+        "quelle".into(),
+        "quels".into(),
+        "quelles".into(),
         "qui".into(),
     ]
 }
@@ -157,12 +174,18 @@ fn load_query_classification_dictionary(
     config_path: Option<&std::path::Path>,
 ) -> Option<QueryClassificationDictionary> {
     let mut candidates: Vec<PathBuf> = vec![
-        data_dir.join("dictionaries").join("query_classification.toml"),
+        data_dir
+            .join("dictionaries")
+            .join("query_classification.toml"),
     ];
 
     if let Some(cfg) = config_path {
         if let Some(parent) = cfg.parent() {
-            candidates.push(parent.join("dictionaries").join("query_classification.toml"));
+            candidates.push(
+                parent
+                    .join("dictionaries")
+                    .join("query_classification.toml"),
+            );
         }
     }
 
@@ -178,17 +201,11 @@ fn load_query_classification_dictionary(
                         return Some(dict);
                     }
                     Err(e) => {
-                        tracing::warn!(
-                            "Failed to parse dictionary {}: {e}",
-                            path.display()
-                        );
+                        tracing::warn!("Failed to parse dictionary {}: {e}", path.display());
                     }
                 },
                 Err(e) => {
-                    tracing::warn!(
-                        "Failed to read dictionary {}: {e}",
-                        path.display()
-                    );
+                    tracing::warn!("Failed to read dictionary {}: {e}", path.display());
                 }
             }
         }
@@ -197,8 +214,12 @@ fn load_query_classification_dictionary(
     None
 }
 
-fn default_complex_word_threshold() -> usize { 8 }
-fn default_simple_word_threshold() -> usize { 2 }
+fn default_complex_word_threshold() -> usize {
+    8
+}
+fn default_simple_word_threshold() -> usize {
+    2
+}
 
 /// A named LLM profile with its own provider, model, base_url, and optional API key env var.
 #[derive(Debug, Deserialize, Clone)]
@@ -354,7 +375,6 @@ pub struct LlmConfig {
     // ── Profile-based action assignment ──
     // When [[llm_profile]] entries exist, these reference profile names.
     // When no profiles are defined, the legacy single-provider fields above are used.
-
     /// Profile name for ingestion (contextualisation during ingestion).
     /// If set and the profile exists, overrides provider/model/base_url/api_key.
     #[serde(default)]
@@ -485,9 +505,15 @@ pub struct RerankerConfig {
     pub preview_chars: usize,
 }
 
-fn default_reranker_type() -> String { "disabled".into() }
-fn default_rerank_top_k() -> usize { 10 }
-fn default_rerank_preview_chars() -> usize { 300 }
+fn default_reranker_type() -> String {
+    "disabled".into()
+}
+fn default_rerank_top_k() -> usize {
+    10
+}
+fn default_rerank_preview_chars() -> usize {
+    300
+}
 
 impl Default for RerankerConfig {
     fn default() -> Self {
@@ -529,12 +555,24 @@ pub struct ChunkingConfig {
     pub child_min_chars: usize,
 }
 
-fn default_chunking_strategy() -> String { "auto".into() }
-fn default_parent_max_chars() -> usize { 2000 }
-fn default_child_max_chars() -> usize { 200 }
-fn default_child_overlap() -> usize { 20 }
-fn default_child_min_chars() -> usize { 100 }
-fn default_auto_threshold() -> usize { 5000 }
+fn default_chunking_strategy() -> String {
+    "auto".into()
+}
+fn default_parent_max_chars() -> usize {
+    2000
+}
+fn default_child_max_chars() -> usize {
+    200
+}
+fn default_child_overlap() -> usize {
+    20
+}
+fn default_child_min_chars() -> usize {
+    100
+}
+fn default_auto_threshold() -> usize {
+    5000
+}
 
 impl Default for ChunkingConfig {
     fn default() -> Self {
@@ -652,31 +690,81 @@ pub struct AdvancedConfig {
     pub http_body_limit_bytes: usize,
 }
 
-fn default_chunk_size() -> usize { 800 }
-fn default_chunk_overlap_ratio() -> f64 { 0.1 }
-fn default_merge_last_chunk_threshold() -> usize { 200 }
-fn default_cache_ttl_secs() -> u64 { 300 }
-fn default_cache_max_entries() -> usize { 1000 }
-fn default_query_limit() -> usize { 10 }
-fn default_max_query_limit() -> usize { 100 }
-fn default_quality_threshold() -> f64 { 0.3 }
-fn default_max_retries() -> usize { 1 }
-fn default_high_confidence_threshold() -> f64 { 0.7 }
-fn default_embedding_batch_size() -> usize { 20 }
-fn default_db_pool_size() -> usize { 4 }
-fn default_db_cache_size_mb() -> usize { 256 }
-fn default_db_busy_timeout_ms() -> usize { 5000 }
-fn default_log_file() -> String { "rag-ferrite.log".into() }
-fn default_log_filter() -> String { "rag_ferrite=debug".into() }
-fn default_http_bind_address() -> String { "0.0.0.0".into() }
-fn default_defer_index_rebuild() -> bool { true }
-fn default_wal_checkpoint_interval() -> usize { 50 }
-fn default_move_after_ingest() -> bool { true }
-fn default_ingested_dir() -> String { "ingested".into() }
-fn default_ingestion_queue_capacity() -> usize { 32 }
-fn default_max_inline_content_bytes() -> usize { 10 * 1024 * 1024 }
-fn default_ingestion_timeout_secs() -> u64 { 900 }
-fn default_http_body_limit_bytes() -> usize { 12 * 1024 * 1024 }
+fn default_chunk_size() -> usize {
+    800
+}
+fn default_chunk_overlap_ratio() -> f64 {
+    0.1
+}
+fn default_merge_last_chunk_threshold() -> usize {
+    200
+}
+fn default_cache_ttl_secs() -> u64 {
+    300
+}
+fn default_cache_max_entries() -> usize {
+    1000
+}
+fn default_query_limit() -> usize {
+    10
+}
+fn default_max_query_limit() -> usize {
+    100
+}
+fn default_quality_threshold() -> f64 {
+    0.3
+}
+fn default_max_retries() -> usize {
+    1
+}
+fn default_high_confidence_threshold() -> f64 {
+    0.7
+}
+fn default_embedding_batch_size() -> usize {
+    20
+}
+fn default_db_pool_size() -> usize {
+    4
+}
+fn default_db_cache_size_mb() -> usize {
+    256
+}
+fn default_db_busy_timeout_ms() -> usize {
+    5000
+}
+fn default_log_file() -> String {
+    "rag-ferrite.log".into()
+}
+fn default_log_filter() -> String {
+    "rag_ferrite=debug".into()
+}
+fn default_http_bind_address() -> String {
+    "0.0.0.0".into()
+}
+fn default_defer_index_rebuild() -> bool {
+    true
+}
+fn default_wal_checkpoint_interval() -> usize {
+    50
+}
+fn default_move_after_ingest() -> bool {
+    true
+}
+fn default_ingested_dir() -> String {
+    "ingested".into()
+}
+fn default_ingestion_queue_capacity() -> usize {
+    32
+}
+fn default_max_inline_content_bytes() -> usize {
+    10 * 1024 * 1024
+}
+fn default_ingestion_timeout_secs() -> u64 {
+    900
+}
+fn default_http_body_limit_bytes() -> usize {
+    12 * 1024 * 1024
+}
 
 impl Default for AdvancedConfig {
     fn default() -> Self {
@@ -757,9 +845,7 @@ impl Config {
         let mut config = Config::default();
 
         // Even without a config file, try loading dictionaries from data_dir
-        if let Some(dict) =
-            load_query_classification_dictionary(&config.data_dir, None)
-        {
+        if let Some(dict) = load_query_classification_dictionary(&config.data_dir, None) {
             config.query_classification.question_markers = dict.question_markers;
             config.query_classification.boolean_operators = dict.boolean_operators;
         }
@@ -853,7 +939,10 @@ top_k = 10
         assert_eq!(config.embedding.dimensions, Some(1536));
         assert_eq!(config.llm.provider, "ollama");
         assert_eq!(config.llm.model, "gemma4:31b");
-        assert_eq!(config.llm.base_url.as_deref(), Some("https://api.ollama.com"));
+        assert_eq!(
+            config.llm.base_url.as_deref(),
+            Some("https://api.ollama.com")
+        );
         assert!(config.llm.context_enabled);
         assert!(config.llm.relevance_scoring);
         assert_eq!(config.llm.min_relevance_score, 5.0);

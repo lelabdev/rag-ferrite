@@ -3,7 +3,12 @@
 /// chunk_size: ~1000 chars (~250 tokens, optimal per RAG Cookbook)
 /// overlap: 10% for context preservation
 /// Also tracks: markdown headers (section_path), page breaks (page), content type (chunk_type)
-pub fn chunk_text(text: &str, chunk_size: usize, overlap_ratio: f64, merge_threshold: usize) -> Vec<Chunk> {
+pub fn chunk_text(
+    text: &str,
+    chunk_size: usize,
+    overlap_ratio: f64,
+    merge_threshold: usize,
+) -> Vec<Chunk> {
     let separators = ["\n\n", "\n", ". ", " "];
     let overlap = (chunk_size as f64 * overlap_ratio) as usize;
 
@@ -66,8 +71,14 @@ pub fn chunk_text(text: &str, chunk_size: usize, overlap_ratio: f64, merge_thres
         }
 
         // Advance with overlap
-        let next = if char_end > overlap { char_end - overlap } else { char_end };
-        if next <= char_pos { break; }
+        let next = if char_end > overlap {
+            char_end - overlap
+        } else {
+            char_end
+        };
+        if next <= char_pos {
+            break;
+        }
         char_pos = next;
     }
 
@@ -99,9 +110,10 @@ pub fn chunk_text(text: &str, chunk_size: usize, overlap_ratio: f64, merge_thres
 fn find_best_split_char(text: &str, separators: &[&str]) -> usize {
     for sep in separators {
         if let Some(p) = text.rfind(sep)
-            && p > text.len() * 3 / 10 {
-                return text[..p].chars().count();
-            }
+            && p > text.len() * 3 / 10
+        {
+            return text[..p].chars().count();
+        }
     }
     text.chars().count().saturating_sub(1)
 }
@@ -136,9 +148,10 @@ pub fn detect_chunk_type(text: &str, is_first_chunk: bool) -> ChunkType {
 
     // 3. Heading: first non-empty line starts with #
     if let Some(first) = lines.iter().find(|l| !l.is_empty())
-        && first.starts_with('#') {
-            return ChunkType::Heading;
-        }
+        && first.starts_with('#')
+    {
+        return ChunkType::Heading;
+    }
 
     // 4. List: majority of non-empty lines start with list markers
     if detect_list(&lines) {
@@ -167,7 +180,10 @@ fn detect_code(lines: &[&str]) -> bool {
 
     let non_empty: Vec<&&str> = lines.iter().filter(|l| !l.is_empty()).collect();
     if non_empty.len() >= 3 {
-        let indented = non_empty.iter().filter(|l| l.starts_with("    ") || l.starts_with("\t")).count();
+        let indented = non_empty
+            .iter()
+            .filter(|l| l.starts_with("    ") || l.starts_with("\t"))
+            .count();
         if indented * 2 >= non_empty.len() {
             return true;
         }
@@ -185,7 +201,11 @@ fn detect_table(lines: &[&str]) -> bool {
     let pipe_lines = non_empty.iter().filter(|l| l.contains('|')).count();
     let has_separator = non_empty.iter().any(|l| {
         let trimmed = l.trim();
-        trimmed.contains('|') && trimmed.contains('-') && trimmed.chars().all(|c| c == '|' || c == '-' || c == ' ' || c == ':')
+        trimmed.contains('|')
+            && trimmed.contains('-')
+            && trimmed
+                .chars()
+                .all(|c| c == '|' || c == '-' || c == ' ' || c == ':')
     });
 
     pipe_lines >= 2 && has_separator
@@ -197,11 +217,16 @@ fn detect_list(lines: &[&str]) -> bool {
         return false;
     }
 
-    let list_lines = non_empty.iter().filter(|l| {
-        let trimmed = l.trim();
-        (trimmed.starts_with("- ") || trimmed.starts_with("* "))
-        || trimmed.starts_with(|c: char| c.is_ascii_digit()) && trimmed.contains('.') && trimmed.find('.').is_some_and(|pos| pos <= 3)
-    }).count();
+    let list_lines = non_empty
+        .iter()
+        .filter(|l| {
+            let trimmed = l.trim();
+            (trimmed.starts_with("- ") || trimmed.starts_with("* "))
+                || trimmed.starts_with(|c: char| c.is_ascii_digit())
+                    && trimmed.contains('.')
+                    && trimmed.find('.').is_some_and(|pos| pos <= 3)
+        })
+        .count();
 
     list_lines * 2 > non_empty.len()
 }
@@ -255,11 +280,7 @@ pub fn count_hash_prefix(s: &str) -> usize {
             return 0;
         }
     }
-    if (1..=6).contains(&count) {
-        count
-    } else {
-        0
-    }
+    if (1..=6).contains(&count) { count } else { 0 }
 }
 
 pub fn find_section_for_position(sections: &[(usize, String)], byte_pos: usize) -> Option<String> {
@@ -400,7 +421,9 @@ fn merge_small_children(children: Vec<Chunk>, min_chars: usize, max_chars: usize
 
         if is_small {
             // Check if adding this child would exceed max_chars
-            let potential_size = buffer_content.len() + if buffer_content.is_empty() { 0 } else { 1 } + child.content.len();
+            let potential_size = buffer_content.len()
+                + if buffer_content.is_empty() { 0 } else { 1 }
+                + child.content.len();
             if !buffer_content.is_empty() && potential_size > max_chars {
                 // Flush buffer before accumulating more
                 merged.push(Chunk {
@@ -570,7 +593,11 @@ fn split_into_parents(
             let is_first = chunks.is_empty();
             let chunk_type = detect_chunk_type(&trimmed, is_first);
             let section_path = find_section_for_position(sections, byte_start);
-            let chunk_page = if page_breaks.is_empty() { None } else { Some(current_page) };
+            let chunk_page = if page_breaks.is_empty() {
+                None
+            } else {
+                Some(current_page)
+            };
 
             chunks.push(Chunk {
                 content: trimmed,
@@ -584,7 +611,9 @@ fn split_into_parents(
         }
 
         // No overlap for parents — they should cover the text exactly
-        if char_end <= char_pos { break; }
+        if char_end <= char_pos {
+            break;
+        }
         char_pos = char_end;
     }
 
@@ -654,8 +683,14 @@ fn split_parent_into_children(
         }
 
         // Advance with overlap
-        let next = if char_end > child_overlap { char_end - child_overlap } else { char_end };
-        if next <= char_pos { break; }
+        let next = if char_end > child_overlap {
+            char_end - child_overlap
+        } else {
+            char_end
+        };
+        if next <= char_pos {
+            break;
+        }
         char_pos = next;
     }
 
@@ -663,7 +698,11 @@ fn split_parent_into_children(
 }
 
 /// Merge last child with previous if too short.
-fn merge_last_child(mut children: Vec<Chunk>, merge_threshold: usize, _global_idx: &mut i32) -> Vec<Chunk> {
+fn merge_last_child(
+    mut children: Vec<Chunk>,
+    merge_threshold: usize,
+    _global_idx: &mut i32,
+) -> Vec<Chunk> {
     if children.len() > 1 {
         let last_idx = children.len() - 1;
         if children[last_idx].content.len() < merge_threshold {
@@ -677,7 +716,11 @@ fn merge_last_child(mut children: Vec<Chunk>, merge_threshold: usize, _global_id
 }
 
 /// Determine which chunking strategy to use based on config and content size.
-pub fn resolve_chunking_strategy(strategy: &str, content_len: usize, auto_threshold: usize) -> &'static str {
+pub fn resolve_chunking_strategy(
+    strategy: &str,
+    content_len: usize,
+    auto_threshold: usize,
+) -> &'static str {
     match strategy {
         "recursive" => "recursive",
         "parent_child" => "parent_child",
@@ -712,7 +755,11 @@ mod tests {
         let paragraph = "This is a paragraph with some meaningful content. ".repeat(40);
         let text = paragraph.repeat(3);
         let chunks = chunk_text(&text, 1000, 0.1, 200);
-        assert!(chunks.len() > 1, "Expected multiple chunks, got {}", chunks.len());
+        assert!(
+            chunks.len() > 1,
+            "Expected multiple chunks, got {}",
+            chunks.len()
+        );
         // All chunks should have non-empty content
         for chunk in &chunks {
             assert!(!chunk.content.is_empty());
@@ -740,8 +787,10 @@ mod tests {
 
         // Verify no chunk panics on re-encoding — all content strings are valid
         for chunk in &chunks {
-            assert!(chunk.content.chars().all(|c| !c.is_control() || c == '\n'),
-                "Unexpected control char in chunk");
+            assert!(
+                chunk.content.chars().all(|c| !c.is_control() || c == '\n'),
+                "Unexpected control char in chunk"
+            );
         }
 
         // Verify start_pos and end_pos point to valid UTF-8 boundaries
@@ -751,8 +800,12 @@ mod tests {
             let end = chunk.end_pos as usize;
             assert!(start < full_bytes.len());
             assert!(end <= full_bytes.len());
-            assert!(std::str::from_utf8(&full_bytes[start..end]).is_ok(),
-                "Chunk byte range {}..{} is not valid UTF-8", start, end);
+            assert!(
+                std::str::from_utf8(&full_bytes[start..end]).is_ok(),
+                "Chunk byte range {}..{} is not valid UTF-8",
+                start,
+                end
+            );
         }
     }
 
@@ -763,7 +816,11 @@ mod tests {
         let text = format!("{}\n\n{}\n\n{}", paragraph, paragraph, paragraph);
         let chunks = chunk_text(&text, 1000, 0.1, 200);
 
-        assert!(chunks.len() > 1, "Expected multiple chunks, got {}", chunks.len());
+        assert!(
+            chunks.len() > 1,
+            "Expected multiple chunks, got {}",
+            chunks.len()
+        );
 
         // Verify overlap: the end of one chunk should share content with the start of the next
         if chunks.len() >= 2 {
@@ -779,13 +836,18 @@ mod tests {
 
             // At minimum, chunks should not have a gap — the second chunk
             // should start at or before the first chunk's end position
-            assert!(chunks[1].start_pos <= chunks[0].end_pos,
+            assert!(
+                chunks[1].start_pos <= chunks[0].end_pos,
                 "Chunks should overlap: second starts at {} but first ends at {}",
-                chunks[1].start_pos, chunks[0].end_pos);
+                chunks[1].start_pos,
+                chunks[0].end_pos
+            );
 
             // Overlap or adjacency is acceptable
-            assert!(overlap_found || chunks[1].start_pos < chunks[0].end_pos,
-                "Expected overlap between consecutive chunks");
+            assert!(
+                overlap_found || chunks[1].start_pos < chunks[0].end_pos,
+                "Expected overlap between consecutive chunks"
+            );
         }
     }
 
@@ -794,17 +856,32 @@ mod tests {
     #[test]
     fn test_parent_child_basic() {
         // Generate text long enough for multiple parents
-        let paragraph = "This is a paragraph with some meaningful content about technology and science. ".repeat(20);
-        let text = format!("{}\n\n{}\n\n{}\n\n{}", paragraph, paragraph, paragraph, paragraph);
+        let paragraph =
+            "This is a paragraph with some meaningful content about technology and science. "
+                .repeat(20);
+        let text = format!(
+            "{}\n\n{}\n\n{}\n\n{}",
+            paragraph, paragraph, paragraph, paragraph
+        );
 
         let groups = chunk_text_parent_child(&text, 500, 100, 10, 50, 100);
 
         assert!(!groups.is_empty(), "Expected at least one parent group");
         for group in &groups {
-            assert!(!group.parent.content.is_empty(), "Parent should have content");
-            assert!(!group.children.is_empty(), "Parent should have at least one child");
+            assert!(
+                !group.parent.content.is_empty(),
+                "Parent should have content"
+            );
+            assert!(
+                !group.children.is_empty(),
+                "Parent should have at least one child"
+            );
             for child in &group.children {
-                assert!(child.content.len() <= 150, "Child should be <= child_max_chars + overlap, got {}", child.content.len());
+                assert!(
+                    child.content.len() <= 150,
+                    "Child should be <= child_max_chars + overlap, got {}",
+                    child.content.len()
+                );
             }
         }
     }
@@ -815,7 +892,11 @@ mod tests {
         let groups = chunk_text_parent_child(text, 2000, 200, 20, 50, 100);
 
         assert_eq!(groups.len(), 1, "Expected exactly 1 parent for short text");
-        assert_eq!(groups[0].children.len(), 1, "Short text should have 1 child");
+        assert_eq!(
+            groups[0].children.len(),
+            1,
+            "Short text should have 1 child"
+        );
     }
 
     #[test]
@@ -827,11 +908,26 @@ mod tests {
     #[test]
     fn test_resolve_chunking_strategy() {
         assert_eq!(resolve_chunking_strategy("auto", 100, 5000), "recursive");
-        assert_eq!(resolve_chunking_strategy("auto", 5000, 5000), "parent_child");
-        assert_eq!(resolve_chunking_strategy("auto", 10000, 5000), "parent_child");
-        assert_eq!(resolve_chunking_strategy("recursive", 10000, 5000), "recursive");
-        assert_eq!(resolve_chunking_strategy("parent_child", 100, 5000), "parent_child");
+        assert_eq!(
+            resolve_chunking_strategy("auto", 5000, 5000),
+            "parent_child"
+        );
+        assert_eq!(
+            resolve_chunking_strategy("auto", 10000, 5000),
+            "parent_child"
+        );
+        assert_eq!(
+            resolve_chunking_strategy("recursive", 10000, 5000),
+            "recursive"
+        );
+        assert_eq!(
+            resolve_chunking_strategy("parent_child", 100, 5000),
+            "parent_child"
+        );
         assert_eq!(resolve_chunking_strategy("unknown", 100, 5000), "recursive");
-        assert_eq!(resolve_chunking_strategy("unknown", 10000, 5000), "parent_child");
+        assert_eq!(
+            resolve_chunking_strategy("unknown", 10000, 5000),
+            "parent_child"
+        );
     }
 }

@@ -84,6 +84,10 @@ Before ingesting, use `check_ingestion()` to preview:
 - Duplicate detection against existing documents
 - Warnings for very large or very small documents
 
+## CI quality gates
+
+GitHub Actions runs formatting, Clippy with `-D warnings`, all-target tests, and `cargo audit` on pull requests and `main`. The repository uses a documented compatibility allowlist for the existing lint baseline; new warnings outside that list fail CI. Cargo dependencies and build artifacts are cached, and Dependabot checks Cargo dependencies weekly.
+
 ## Query pipeline
 
 ```
