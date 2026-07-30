@@ -704,6 +704,7 @@ ingestion_queue_capacity = 32
 max_inline_content_bytes = 10485760
 ingestion_timeout_secs = 900
 http_body_limit_bytes = 12582912
+allowed_ingest_roots = ["/srv/rag-ferrite/inbox", "/srv/rag-ferrite/library"]
 ```
 
 Disable it for a specific request:
