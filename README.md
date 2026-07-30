@@ -634,6 +634,8 @@ Pull requests and `main` run the Rust quality gates: `cargo fmt --all -- --check
 
 REST errors use structured `error_code` values and accurate statuses: validation `400`, authentication `401/403`, missing resources `404`, conflicts `409`, queue backpressure `429`, and internal failures `500`.
 
+HTTP defaults to `127.0.0.1`. Remote binding requires API authentication unless `unsafe_bind_without_auth = true` is explicitly configured. Set `advanced.allowed_hosts` to the hostnames used by remote clients; host allowlisting is not authentication.
+
 ## HTTP ingestion
 
 ### One file
@@ -705,6 +707,8 @@ max_inline_content_bytes = 10485760
 ingestion_timeout_secs = 900
 http_body_limit_bytes = 12582912
 allowed_ingest_roots = ["/srv/rag-ferrite/inbox", "/srv/rag-ferrite/library"]
+http_bind_address = "127.0.0.1"
+allowed_hosts = ["localhost", "127.0.0.1", "rag.example.internal"]
 ```
 
 Disable it for a specific request:

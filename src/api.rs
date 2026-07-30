@@ -456,6 +456,11 @@ async fn keys_current() -> impl IntoResponse {
 
 // --- Server startup ---
 
+fn allows_bind_without_auth(bind_address: &str, has_auth: bool, unsafe_override: bool) -> bool {
+    let is_loopback = matches!(bind_address, "127.0.0.1" | "localhost" | "::1");
+    is_loopback || has_auth || unsafe_override
+}
+
 pub async fn serve(
     server: Arc<RagFerriteServer>,
     port: u16,
@@ -463,26 +468,43 @@ pub async fn serve(
     admin_key: Option<String>,
     guest_key: Option<String>,
     body_limit: usize,
+    allowed_hosts: Vec<String>,
+    unsafe_bind_without_auth: bool,
 ) -> anyhow::Result<()> {
     use rmcp::transport::streamable_http_server::{
         StreamableHttpService, session::local::LocalSessionManager,
     };
 
-    // Create MCP Streamable HTTP service
+    if !allows_bind_without_auth(
+        &bind_address,
+        admin_key.is_some() || guest_key.is_some(),
+        unsafe_bind_without_auth,
+    ) {
+        anyhow::bail!(
+            "Refusing non-loopback bind without authentication; configure an API key or set unsafe_bind_without_auth = true"
+        );
+    }
+
+    let mut hosts = allowed_hosts;
+    if hosts.is_empty() {
+        hosts = vec!["localhost".into(), "127.0.0.1".into(), "[::1]".into()];
+    }
+    if !hosts.iter().any(|host| host == &bind_address) {
+        hosts.push(bind_address.clone());
+    }
+    tracing::info!(
+        "HTTP bind={} auth={} allowed_hosts={:?}",
+        bind_address,
+        if admin_key.is_some() || guest_key.is_some() {
+            "enabled"
+        } else {
+            "disabled"
+        },
+        hosts
+    );
+
     let mcp_config = rmcp::transport::streamable_http_server::StreamableHttpServerConfig::default()
-        .with_allowed_hosts(vec![
-            "localhost",
-            "127.0.0.1",
-            "0.0.0.0",
-            &bind_address,
-            // Tailscale IPs for remote MCP access
-            "100.90.185.42", // aether
-            "100.97.67.73",  // nova
-            "100.88.8.1",    // tuftux
-            // Docker bridge IPs for LobeChat MCP access
-            "10.0.1.1",       // host on lobe-network bridge
-            "lobe-rag-proxy", // socat proxy in lobe-network
-        ]);
+        .with_allowed_hosts(hosts);
 
     let mcp_service = StreamableHttpService::new(
         {
@@ -681,5 +703,13 @@ mod tests {
             json_response(serde_json::json!({ "error_code": "internal_error" })).0,
             StatusCode::INTERNAL_SERVER_ERROR
         );
+    }
+
+    #[test]
+    fn non_loopback_bind_requires_auth_or_explicit_override() {
+        assert!(allows_bind_without_auth("127.0.0.1", false, false));
+        assert!(!allows_bind_without_auth("0.0.0.0", false, false));
+        assert!(allows_bind_without_auth("0.0.0.0", true, false));
+        assert!(allows_bind_without_auth("0.0.0.0", false, true));
     }
 }

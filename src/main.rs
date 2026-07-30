@@ -477,6 +477,8 @@ async fn main() -> Result<()> {
             admin_key,
             guest_key,
             config.advanced.http_body_limit_bytes,
+            config.advanced.allowed_hosts.clone(),
+            config.advanced.unsafe_bind_without_auth,
         )
         .await?;
     } else {

@@ -657,6 +657,14 @@ pub struct AdvancedConfig {
     #[serde(default = "default_http_bind_address")]
     pub http_bind_address: String,
 
+    /// Host headers accepted by the MCP transport.
+    #[serde(default = "default_allowed_hosts")]
+    pub allowed_hosts: Vec<String>,
+
+    /// Explicitly allow unauthenticated non-loopback binding.
+    #[serde(default)]
+    pub unsafe_bind_without_auth: bool,
+
     /// Defer HNSW + BM25 index rebuild to explicit flush (saves RAM during batch ingestion)
     #[serde(default = "default_defer_index_rebuild")]
     pub defer_index_rebuild: bool,
@@ -743,7 +751,10 @@ fn default_log_filter() -> String {
     "rag_ferrite=debug".into()
 }
 fn default_http_bind_address() -> String {
-    "0.0.0.0".into()
+    "127.0.0.1".into()
+}
+fn default_allowed_hosts() -> Vec<String> {
+    vec!["localhost".into(), "127.0.0.1".into(), "[::1]".into()]
 }
 fn default_defer_index_rebuild() -> bool {
     true
@@ -790,6 +801,8 @@ impl Default for AdvancedConfig {
             log_file: default_log_file(),
             log_filter: default_log_filter(),
             http_bind_address: default_http_bind_address(),
+            allowed_hosts: default_allowed_hosts(),
+            unsafe_bind_without_auth: false,
             defer_index_rebuild: default_defer_index_rebuild(),
             wal_checkpoint_interval: default_wal_checkpoint_interval(),
             move_after_ingest: default_move_after_ingest(),
