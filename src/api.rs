@@ -127,7 +127,10 @@ async fn get_graph(
 }
 
 async fn status(State(_server): State<Arc<RagFerriteServer>>) -> impl IntoResponse {
-    json_response(crate::service::status_service())
+    let result = tokio::task::spawn_blocking(crate::service::status_service).await;
+    json_response(result.unwrap_or_else(|e| {
+        crate::service::AppError::new("internal_error", e.to_string()).into_json()
+    }))
 }
 
 async fn ingest_progress(State(server): State<Arc<RagFerriteServer>>) -> impl IntoResponse {
@@ -136,7 +139,10 @@ async fn ingest_progress(State(server): State<Arc<RagFerriteServer>>) -> impl In
 }
 
 async fn list_documents(State(_server): State<Arc<RagFerriteServer>>) -> impl IntoResponse {
-    json_response(crate::service::list_sources_service())
+    let result = tokio::task::spawn_blocking(crate::service::list_sources_service).await;
+    json_response(result.unwrap_or_else(|e| {
+        crate::service::AppError::new("internal_error", e.to_string()).into_json()
+    }))
 }
 
 async fn get_document(

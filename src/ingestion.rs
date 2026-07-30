@@ -392,10 +392,13 @@ impl IngestionManager {
 
 // ── Background worker ──────────────────────────────────────────────────
 
-fn rebuild_indexes_serialized() {
+async fn rebuild_indexes_serialized() {
     tracing::info!("RebuildIndexes: rebuilding indexes + WAL checkpoint...");
-    engine::rebuild_and_save_indexes("general");
-    engine::wal_checkpoint();
+    let _ = tokio::task::spawn_blocking(|| {
+        engine::rebuild_and_save_indexes("general");
+        engine::wal_checkpoint();
+    })
+    .await;
     tracing::info!("RebuildIndexes complete.");
 }
 
@@ -443,7 +446,7 @@ async fn background_worker(
                     ),
                 )
                 .await;
-                rebuild_indexes_serialized();
+                rebuild_indexes_serialized().await;
             }
             IngestJob::Data { content, source } => {
                 run_with_timeout(
@@ -459,7 +462,7 @@ async fn background_worker(
                     ),
                 )
                 .await;
-                rebuild_indexes_serialized();
+                rebuild_indexes_serialized().await;
             }
             IngestJob::Batch {
                 batch_id,
@@ -480,9 +483,9 @@ async fn background_worker(
                     ),
                 )
                 .await;
-                rebuild_indexes_serialized();
+                rebuild_indexes_serialized().await;
             }
-            IngestJob::RebuildIndexes => rebuild_indexes_serialized(),
+            IngestJob::RebuildIndexes => rebuild_indexes_serialized().await,
         }
     }
 

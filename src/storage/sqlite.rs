@@ -230,8 +230,7 @@ pub fn list_sources() -> Result<Vec<SourceEntry>> {
                 collection_id: row.get(5)?,
             })
         })?
-        .filter_map(|r| r.ok())
-        .collect();
+        .collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(sources)
 }
 
@@ -260,8 +259,7 @@ pub fn get_adjacent_chunks(
                 metadata: row.get(5)?,
             })
         })?
-        .filter_map(|r| r.ok())
-        .collect();
+        .collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(chunks)
 }
 
@@ -482,7 +480,7 @@ fn search_vector_brute_force(
 
     // Compute cosine similarity for each
     let mut scored: Vec<(i64, f64)> = Vec::new();
-    for row in rows.filter_map(|r| r.ok()) {
+    for row in rows.collect::<rusqlite::Result<Vec<_>>>()? {
         let embedding: Vec<f32> = row
             .1
             .chunks_exact(4)
@@ -668,7 +666,7 @@ pub fn search_hybrid(
             row.get::<_, u32>(4)?,
         ))
     })?;
-    for row in rows.filter_map(|r| r.ok()) {
+    for row in rows.collect::<rusqlite::Result<Vec<_>>>()? {
         content_map.insert(row.0, (row.1, row.2, row.3, row.4));
     }
 
@@ -777,7 +775,10 @@ fn get_filtered_chunk_ids_with_conn(
     let rows = stmt.query_map(rusqlite::params_from_iter(params.iter()), |row| {
         row.get::<_, i64>(0)
     })?;
-    let ids: std::collections::HashSet<i64> = rows.filter_map(|r| r.ok()).collect();
+    let ids: std::collections::HashSet<i64> = rows
+        .collect::<rusqlite::Result<Vec<_>>>()?
+        .into_iter()
+        .collect();
     Ok(ids)
 }
 

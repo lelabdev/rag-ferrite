@@ -40,6 +40,7 @@ Décisions clés :
 - Parents parallèles (JoinSet) + enfants en batch pour la vitesse d'ingestion
 - LLM profiles modulaires : modèles différents pour ingestion, query, reranker (`[[llm_profile]]` dans config)
 - Bounded ingestion queue (mpsc channel + single background worker): REST and MCP share the queue; rebuild/flush operations are serialized with writes, with inline-size, HTTP-body, per-job timeout, and canonical allowed-root path limits.
+- SQLite concurrency: WAL remains enabled with one serialized shared connection; long search/status/list operations are dispatched to Tokio's blocking pool, and the unused `db_pool_size` setting has been removed.
 - Merge des children consécutifs trop petits (<100 chars) pour les docs techniques
 - Skip des petits chunks avant l'appel LLM (économise les tokens, stats précises)
 - Endpoint de progression pour monitorer les ingestions actives
