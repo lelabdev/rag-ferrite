@@ -63,9 +63,9 @@ pub struct HybridResult {
     pub tags: Vec<String>,
 }
 
-// --- Local types replacing rag_engine ---
+// --- Local application types ---
 
-/// Result of a hybrid search (replaces rag_engine::api::hybrid_search::HybridSearchResult).
+/// Result of a hybrid search.
 #[derive(Debug, Clone)]
 pub struct SearchResult {
     pub doc_id: i64,
@@ -78,7 +78,7 @@ pub struct SearchResult {
     pub chunk_index: u32,
 }
 
-/// Filter for hybrid search (replaces rag_engine::api::hybrid_search::SearchFilter).
+/// Filter for hybrid search.
 #[derive(Debug, Clone, Default)]
 pub struct SearchFilter {
     pub source_ids: Option<Vec<i64>>,
@@ -87,7 +87,7 @@ pub struct SearchFilter {
     pub chunk_ids: Option<Vec<i64>>,
 }
 
-/// Source entry (replaces rag_engine::api::source_rag::SourceEntry).
+/// Source entry.
 #[derive(Debug, Clone)]
 pub struct SourceEntry {
     pub id: i64,
@@ -98,7 +98,7 @@ pub struct SourceEntry {
     pub collection_id: String,
 }
 
-/// Chunk data for ingestion (replaces rag_engine::api::source_rag::ChunkData).
+/// Chunk data for ingestion.
 #[derive(Debug, Clone)]
 pub struct ChunkData {
     pub content: String,
@@ -109,7 +109,7 @@ pub struct ChunkData {
     pub embedding: Vec<f32>,
 }
 
-/// Chunk search result for neighbor expansion (replaces rag_engine::api::source_rag::ChunkSearchResult).
+/// Chunk search result for neighbor expansion.
 #[derive(Debug, Clone)]
 pub struct ChunkSearchResult {
     pub chunk_id: i64,

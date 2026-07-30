@@ -2,10 +2,10 @@ use crate::engine::get_conn;
 use crate::types::{ChunkData, SearchFilter, SearchResult, SourceEntry};
 use anyhow::Result;
 
-/// Default collection ID (replaces rag_engine constant)
+/// Default collection ID used by the local SQLite storage layer.
 pub const DEFAULT_COLLECTION_ID: &str = "__default__";
 
-/// Result of adding a source (replaces rag_engine::AddSourceResult)
+/// Result of adding a source.
 #[derive(Debug, Clone)]
 pub struct AddSourceResult {
     pub source_id: i64,
@@ -31,7 +31,7 @@ fn legacy_hash_content(input: &str) -> String {
     format!("{:016x}", hasher.finish())
 }
 
-/// Add a source to a collection (replaces rag_engine::add_source_in_collection)
+/// Add a source to a collection.
 pub fn add_source_in_collection(
     collection_id: String,
     content: String,
@@ -125,7 +125,7 @@ where
     Ok(())
 }
 
-/// Add chunks for a source (replaces rag_engine::add_chunks)
+/// Add chunks for a source.
 pub fn add_chunks(source_id: i64, chunks: Vec<ChunkData>) -> Result<i32> {
     let mut conn = get_conn()?;
     let tx = conn.transaction()?;
@@ -164,7 +164,7 @@ pub fn add_chunks(source_id: i64, chunks: Vec<ChunkData>) -> Result<i32> {
     Ok(count)
 }
 
-/// Update source status (replaces rag_engine::update_source_status)
+/// Update source status.
 pub fn update_source_status(source_id: i64, status: String) -> Result<()> {
     let conn = get_conn()?;
     conn.execute(
@@ -174,7 +174,7 @@ pub fn update_source_status(source_id: i64, status: String) -> Result<()> {
     Ok(())
 }
 
-/// Delete a source and its chunks (replaces rag_engine::delete_source)
+/// Delete a source and its chunks.
 pub fn delete_source(source_id: i64) -> Result<()> {
     let mut conn = get_conn()?;
     let tx = conn.transaction()?;
@@ -212,7 +212,7 @@ pub fn delete_source(source_id: i64) -> Result<()> {
     Ok(())
 }
 
-/// List all sources across all collections (replaces rag_engine::list_sources)
+/// List all sources across all collections.
 pub fn list_sources() -> Result<Vec<SourceEntry>> {
     let conn = get_conn()?;
     let mut stmt = conn.prepare(
@@ -234,7 +234,7 @@ pub fn list_sources() -> Result<Vec<SourceEntry>> {
     Ok(sources)
 }
 
-/// Get adjacent chunks for neighbor expansion (replaces rag_engine::get_adjacent_chunks)
+/// Get adjacent chunks for neighbor expansion.
 pub fn get_adjacent_chunks(
     source_id: i64,
     min_index: i32,

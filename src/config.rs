@@ -661,7 +661,7 @@ pub struct AdvancedConfig {
     #[serde(default)]
     pub unsafe_bind_without_auth: bool,
 
-    /// Defer HNSW + BM25 index rebuild to explicit flush (saves RAM during batch ingestion)
+    /// Defer derived FTS5/index refresh to explicit flush (saves work during batch ingestion)
     #[serde(default = "default_defer_index_rebuild")]
     pub defer_index_rebuild: bool,
 

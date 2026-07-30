@@ -34,7 +34,7 @@ enum IngestJob {
         files: Vec<String>,
         move_after_ingest: bool,
     },
-    /// Rebuild HNSW + BM25 + WAL checkpoint, serialized with ingestion writes.
+    /// Refresh derived SQLite indexes + WAL checkpoint, serialized with ingestion writes.
     RebuildIndexes,
 }
 
@@ -364,7 +364,7 @@ impl IngestionManager {
         p
     }
 
-    /// Queue a flush: rebuild HNSW + BM25 indexes + WAL checkpoint.
+    /// Queue a flush: refresh derived SQLite indexes + WAL checkpoint.
     /// Call after a batch of ingestion jobs to finalize indexes.
     pub fn flush_indexes(&self) -> serde_json::Value {
         self.try_queue(

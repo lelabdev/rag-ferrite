@@ -275,7 +275,7 @@ pub async fn ingest_text(
         source_name
     );
 
-    // Store section_path for each chunk (separate UPDATE since rag_engine doesn't know about it)
+    // Store section_path separately because it is application metadata.
     update_chunk_section_paths(source_id, &section_paths)?;
     update_chunk_pages(source_id, &pages)?;
 
@@ -330,7 +330,7 @@ pub async fn ingest_file(
     collection: Option<&str>,
     options: IngestConfig,
 ) -> Result<(i64, IngestionReport)> {
-    // Use our custom extractor instead of rag_engine's document_parser
+    // Use the local extractor for supported document formats.
     let text = extractor::extract_text(file_path)?;
 
     let name = std::path::Path::new(file_path)

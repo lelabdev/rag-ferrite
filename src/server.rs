@@ -259,7 +259,7 @@ impl RagFerriteServer {
 
     #[tool(
         name = "reassign_collection",
-        description = "Move a source (document) and all its chunks to a different collection. Rebuilds HNSW + BM25 indexes for both old and new collections. Use this to organize documents into thematic collections."
+        description = "Move a source (document) and all its chunks to a different collection. Refreshes derived SQLite indexes for both old and new collections. Use this to organize documents into thematic collections."
     )]
     async fn reassign_collection(&self, params: Parameters<ReassignCollectionParams>) -> String {
         service::reassign_collection_service(params.0.source_id, &params.0.collection).to_string()
@@ -267,7 +267,7 @@ impl RagFerriteServer {
 
     #[tool(
         name = "rebuild_indexes",
-        description = "Rebuild HNSW + BM25 indexes for the general collection and run a WAL checkpoint. Use after bulk deletes or if search quality seems degraded."
+        description = "Rebuild derived SQLite indexes for the general collection and run a WAL checkpoint. Use after bulk deletes or if search quality seems degraded."
     )]
     async fn rebuild_indexes(&self, _params: Parameters<NoParams>) -> String {
         self.ingestion_manager.rebuild_indexes().to_string()
@@ -275,7 +275,7 @@ impl RagFerriteServer {
 
     #[tool(
         name = "flush_indexes",
-        description = "Flush the incremental HNSW buffer to disk. Makes recently ingested chunks fully persistent and searchable."
+        description = "Refresh derived SQLite indexes and checkpoint WAL. Makes recently ingested chunks fully persistent and searchable."
     )]
     async fn flush_indexes(&self, _params: Parameters<NoParams>) -> String {
         let val = self.ingestion_manager.flush_indexes();

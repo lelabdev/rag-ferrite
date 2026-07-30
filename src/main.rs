@@ -146,7 +146,7 @@ async fn main() -> Result<()> {
         config.data_dir.display()
     );
 
-    // Init storage (replaces rag_engine)
+    // Initialize the SQLite storage layer.
     engine::init(&config.data_dir, &config)?;
 
     // Init embedding provider
