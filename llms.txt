@@ -107,7 +107,7 @@ Query → Classify (simple / standard / complex)
 | `status()` | Engine status and document count |
 | `read_chunk_neighbors(source_id, chunk_index)` | Expand context around a chunk |
 | `check_ingestion(file_path?, content?, source_name?)` | Preview document quality before ingestion |
-| `benchmark(file_path, collection?, limit?)` | Evaluate retrieval quality against a golden dataset |
+| `benchmark(file_path, collection?, limit?)` | Evaluate versioned golden-dataset retrieval metrics: Recall@k, precision, MRR, nDCG, empty-result rate, and latency percentiles |
 | `collection_heat()` | Collection heat tracking |
 | `chunk_qa()` | Chunk-level QA: dead/cold chunks grouped by source |
 | `suggest_collection(query)` | Tag routing: suggest best collection for a query |
@@ -115,6 +115,21 @@ Query → Classify (simple / standard / complex)
 | `reassign_collection(source_id, collection)` | Move a source and its chunks to a different collection |
 | `rebuild_indexes()` | Rebuild HNSW + BM25 indexes + WAL checkpoint |
 | `flush_indexes()` | Flush incremental HNSW buffer to disk |
+
+### Retrieval evaluation
+
+The `benchmark` MCP tool accepts either the legacy JSON array of golden entries or a versioned object:
+
+```json
+{
+  "version": 1,
+  "entries": [
+    {"question": "...", "relevant_source_ids": [1, 2], "expected_keywords": []}
+  ]
+}
+```
+
+It reports Recall@k, precision@k, MRR, nDCG, empty-result rate, p50/p95 latency, and per-query details. It evaluates retrieval only; answer-level faithfulness is outside the server's scope.
 
 ## HTTP API Endpoints
 

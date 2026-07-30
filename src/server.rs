@@ -115,22 +115,33 @@ impl RagFerriteServer {
         serde_json::json!({ "pre_check": report }).to_string()
     }
 
-    #[tool(name = "benchmark", description = "Evaluate retrieval quality against a golden dataset JSON file (array of {question, expected_keywords, relevant_source_ids}). Returns hit rate and per-query details.")]
+    #[tool(name = "benchmark", description = "Evaluate retrieval quality against a versioned golden dataset JSON file. Supports the legacy array format and {version, entries}; returns Recall@k, precision, MRR, nDCG, empty-result rate, latency percentiles, and per-query details.")]
     async fn benchmark(&self, params: Parameters<BenchmarkParams>) -> String {
         let p = params.0;
         let content = match std::fs::read_to_string(&p.file_path) {
             Ok(c) => c,
             Err(e) => return serde_json::json!({ "error": format!("Failed to read golden dataset: {}", e) }).to_string(),
         };
-        let entries: Vec<types::GoldenEntry> = match serde_json::from_str(&content) {
-            Ok(e) => e,
+        let dataset_value: serde_json::Value = match serde_json::from_str(&content) {
+            Ok(value) => value,
             Err(e) => return serde_json::json!({ "error": format!("Invalid JSON: {}", e) }).to_string(),
+        };
+        let (dataset_version, entries): (u32, Vec<types::GoldenEntry>) = if dataset_value.is_array() {
+            match serde_json::from_value(dataset_value) {
+                Ok(entries) => (1, entries),
+                Err(e) => return serde_json::json!({ "error": format!("Invalid golden dataset: {}", e) }).to_string(),
+            }
+        } else {
+            match serde_json::from_value::<types::GoldenDataset>(dataset_value) {
+                Ok(dataset) => (dataset.version, dataset.entries),
+                Err(e) => return serde_json::json!({ "error": format!("Invalid golden dataset: {}", e) }).to_string(),
+            }
         };
         if entries.is_empty() {
             return serde_json::json!({ "error": "Golden dataset is empty" }).to_string();
         }
         let limit = p.limit.unwrap_or(self.default_query_limit).clamp(1, self.max_query_limit);
-        match engine::run_benchmark(&self.pipeline.embedder, entries, None, limit).await {
+        match engine::run_benchmark(&self.pipeline.embedder, dataset_version, entries, None, limit).await {
             Ok(result) => serde_json::to_string(&result).unwrap_or_else(|e| serde_json::json!({ "error": e.to_string() }).to_string()),
             Err(e) => serde_json::json!({ "error": e.to_string() }).to_string(),
         }
