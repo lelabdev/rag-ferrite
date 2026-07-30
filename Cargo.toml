@@ -47,7 +47,7 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 # Web framework (REST API)
 axum = "0.8"
 tower = "0.5"
-tower-http = { version = "0.6", features = ["cors"] }
+tower-http = { version = "0.7", features = ["cors"] }
 
 # Utility
 regex = "1"
