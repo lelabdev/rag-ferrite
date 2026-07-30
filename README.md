@@ -615,7 +615,7 @@ The `benchmark` tool accepts the legacy JSON array format and a versioned datase
 }
 ```
 
-Results include Recall@k, precision@k, MRR, nDCG, empty-result rate, p50/p95 latency, and per-query metrics. The benchmark measures retrieval, not final assistant answer faithfulness. See `examples/benchmark-golden.json` for a complete template.
+Results include Recall@k, precision@k, MRR, nDCG, empty-result rate, p50/p95 latency, and per-query metrics. Retrieval filters are applied before candidate limits, with adaptive over-fetching for sqlite-vec and FTS5. The benchmark measures retrieval, not final assistant answer faithfulness. See `examples/benchmark-golden.json` for a complete template.
 
 ### Administration
 
