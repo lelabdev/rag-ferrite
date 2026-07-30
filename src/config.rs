@@ -633,10 +633,6 @@ pub struct AdvancedConfig {
     #[serde(default = "default_embedding_batch_size")]
     pub embedding_batch_size: usize,
 
-    /// Database connection pool size
-    #[serde(default = "default_db_pool_size")]
-    pub db_pool_size: usize,
-
     /// SQLite page cache size in MB
     #[serde(default = "default_db_cache_size_mb")]
     pub db_cache_size_mb: usize,
@@ -735,9 +731,6 @@ fn default_high_confidence_threshold() -> f64 {
 fn default_embedding_batch_size() -> usize {
     20
 }
-fn default_db_pool_size() -> usize {
-    4
-}
 fn default_db_cache_size_mb() -> usize {
     256
 }
@@ -795,7 +788,6 @@ impl Default for AdvancedConfig {
             max_retries: default_max_retries(),
             high_confidence_threshold: default_high_confidence_threshold(),
             embedding_batch_size: default_embedding_batch_size(),
-            db_pool_size: default_db_pool_size(),
             db_cache_size_mb: default_db_cache_size_mb(),
             db_busy_timeout_ms: default_db_busy_timeout_ms(),
             log_file: default_log_file(),

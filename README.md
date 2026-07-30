@@ -664,7 +664,7 @@ curl -X POST http://localhost:4242/api/ingest \
 
 Batch ingestion returns immediately with a batch identifier. REST and MCP ingestion share the same bounded worker queue, so queue-full responses provide backpressure instead of retaining unlimited content in memory. Inline ingestion is limited by `advanced.max_inline_content_bytes`; HTTP requests are limited by `advanced.http_body_limit_bytes`.
 
-Index rebuild and flush jobs use the same queue and cannot race ingestion writes. Individual jobs are bounded by `advanced.ingestion_timeout_secs`.
+Index rebuild and flush jobs use the same queue and cannot race ingestion writes. Individual jobs are bounded by `advanced.ingestion_timeout_secs`. Long hybrid searches, status, and list operations run through Tokio's blocking pool so synchronous SQLite work does not occupy async core workers. SQLite uses WAL with a serialized shared connection; `db_pool_size` was removed because it was never a real pool.
 
 Monitor progress:
 

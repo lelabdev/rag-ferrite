@@ -54,23 +54,7 @@ pub async fn search_hybrid_with_expansion(
         filter.as_ref().and_then(|f| f.collection_id.clone())
     };
 
-    // ── 2. Determine which collection to search ──
-    let collection = routed_collection.clone().unwrap_or_else(|| {
-        // Fallback: first collection in DB
-        if let Ok(conn) = crate::engine::get_conn() {
-            if let Ok(mut stmt) = conn.prepare("SELECT DISTINCT collection_id FROM sources LIMIT 1")
-            {
-                if let Ok(rows) = stmt.query_map([], |row| row.get::<_, String>(0)) {
-                    for row in rows.flatten() {
-                        return row;
-                    }
-                }
-            }
-        }
-        "general".to_string()
-    });
-
-    // ── 3. Build filter ──
+    // ── 2. Build filter ──
     let filter = if let Some(coll) = routed_collection {
         let mut f = filter.unwrap_or(SearchFilter::default());
         f.collection_id = Some(coll);
@@ -79,7 +63,7 @@ pub async fn search_hybrid_with_expansion(
         filter
     };
 
-    // ── 4. Expand short queries ──
+    // ── 3. Expand short queries ──
     let queries = if let Some(llm_provider) = llm {
         let word_count = query.split_whitespace().count();
         if word_count <= crate::pipeline::EXPANSION_WORD_THRESHOLD {
@@ -100,21 +84,22 @@ pub async fn search_hybrid_with_expansion(
         vec![query.to_string()]
     };
 
-    // ── 5. Search ──
+    // ── 4. Search ──
     let mut all_results: Vec<SearchResult> = Vec::new();
     let mut seen_doc_ids = std::collections::HashSet::new();
 
     for q in &queries {
         let query_embedding = embedder.embed(q).await?;
         let filter_clone = filter.clone();
+        let query_text = q.clone();
 
-        if let Ok(results) =
-            crate::storage::search_hybrid(q.to_string(), query_embedding, limit, filter_clone)
-        {
-            for result in results {
-                if seen_doc_ids.insert(result.doc_id) {
-                    all_results.push(result);
-                }
+        let results = tokio::task::spawn_blocking(move || {
+            crate::storage::search_hybrid(query_text, query_embedding, limit, filter_clone)
+        })
+        .await??;
+        for result in results {
+            if seen_doc_ids.insert(result.doc_id) {
+                all_results.push(result);
             }
         }
     }

@@ -143,8 +143,7 @@ pub fn list_sources() -> Result<Vec<crate::types::SourceEntry>> {
                 collection_id: row.get(5)?,
             })
         })?
-        .filter_map(|e| e.ok())
-        .collect();
+        .collect::<rusqlite::Result<Vec<_>>>()?;
 
     Ok(entries)
 }
@@ -156,7 +155,8 @@ pub fn count_chunks_per_source() -> Result<std::collections::HashMap<i64, i64>> 
         conn.prepare("SELECT source_id, COUNT(*) as cnt FROM chunks GROUP BY source_id")?;
     let counts: std::collections::HashMap<i64, i64> = stmt
         .query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)))?
-        .filter_map(|r| r.ok())
+        .collect::<rusqlite::Result<Vec<_>>>()?
+        .into_iter()
         .collect();
     Ok(counts)
 }
@@ -188,8 +188,7 @@ pub fn resolve_parents(chunk_ids: &[i64]) -> Result<std::collections::HashMap<i6
         .query_map(rusqlite::params_from_iter(params.iter().copied()), |row| {
             Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?))
         })?
-        .filter_map(|r| r.ok())
-        .collect();
+        .collect::<rusqlite::Result<Vec<_>>>()?;
 
     if child_rows.is_empty() {
         return Ok(std::collections::HashMap::new());

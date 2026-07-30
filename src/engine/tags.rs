@@ -135,8 +135,7 @@ pub fn get_chunk_ids_for_tags(tags: &[String]) -> anyhow::Result<Vec<i64>> {
         let mut stmt = conn.prepare(sql)?;
         let ids: Vec<i64> = stmt
             .query_map(rusqlite::params![tags[0]], |row| row.get(0))?
-            .filter_map(|r| r.ok())
-            .collect();
+            .collect::<rusqlite::Result<Vec<_>>>()?;
         tracing::debug!("Found {} chunk_ids for 1 tag", ids.len());
         return Ok(ids);
     }
@@ -155,8 +154,7 @@ pub fn get_chunk_ids_for_tags(tags: &[String]) -> anyhow::Result<Vec<i64>> {
     let mut stmt = conn.prepare(&sql)?;
     let ids: Vec<i64> = stmt
         .query_map(params.as_slice(), |row| row.get(0))?
-        .filter_map(|r| r.ok())
-        .collect();
+        .collect::<rusqlite::Result<Vec<_>>>()?;
     tracing::debug!(
         "Found {} chunk_ids for {} tags (AND intersection)",
         ids.len(),
