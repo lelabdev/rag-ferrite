@@ -928,7 +928,7 @@ async fn process_batch_job(
 
 #[cfg(test)]
 mod tests {
-    use super::{inline_content_allowed, validate_allowed_path};
+    use super::{inline_content_allowed, move_file_after_ingest, validate_allowed_path};
 
     #[test]
     fn inline_content_limit_rejects_oversized_payloads() {
@@ -965,6 +965,58 @@ mod tests {
         let _ = std::fs::remove_dir_all(root);
     }
 
+    #[test]
+    fn moves_files_directly_under_inbox_to_a_sibling_ingested_directory() {
+        let root = std::env::temp_dir().join(format!("ragfer-move-test-{}", std::process::id()));
+        let inbox = root.join("inbox");
+        std::fs::create_dir_all(&inbox).unwrap();
+        let source = inbox.join("document.txt");
+        std::fs::write(&source, "source").unwrap();
+
+        move_file_after_ingest(source.to_str().unwrap(), "ingested").unwrap();
+
+        assert!(!source.exists());
+        assert_eq!(
+            std::fs::read_to_string(root.join("ingested/document.txt")).unwrap(),
+            "source"
+        );
+
+        let nested = inbox.join("nested");
+        std::fs::create_dir_all(&nested).unwrap();
+        let nested_source = nested.join("nested-document.txt");
+        std::fs::write(&nested_source, "nested source").unwrap();
+        move_file_after_ingest(nested_source.to_str().unwrap(), "ingested").unwrap();
+        assert_eq!(
+            std::fs::read_to_string(root.join("ingested/nested/nested-document.txt")).unwrap(),
+            "nested source"
+        );
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn refuses_to_overwrite_an_existing_ingested_file() {
+        let root =
+            std::env::temp_dir().join(format!("ragfer-move-collision-{}", std::process::id()));
+        let inbox = root.join("inbox");
+        let ingested = root.join("ingested");
+        std::fs::create_dir_all(&inbox).unwrap();
+        std::fs::create_dir_all(&ingested).unwrap();
+        let source = inbox.join("document.txt");
+        let destination = ingested.join("document.txt");
+        std::fs::write(&source, "new source").unwrap();
+        std::fs::write(&destination, "existing destination").unwrap();
+
+        assert!(move_file_after_ingest(source.to_str().unwrap(), "ingested").is_err());
+        assert_eq!(std::fs::read_to_string(&source).unwrap(), "new source");
+        assert_eq!(
+            std::fs::read_to_string(&destination).unwrap(),
+            "existing destination"
+        );
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
     #[cfg(unix)]
     #[test]
     fn path_validation_rejects_symlink_escape() {
@@ -996,20 +1048,29 @@ fn move_file_after_ingest(
         return Err("File does not exist".into());
     }
     let parent = path.parent().ok_or("No parent dir")?;
-    let parent_str = parent.to_string_lossy();
-    // Try to replace the last segment matching "inbox" with the configured ingested_dir
-    let dest_dir = if parent_str.contains("/inbox/") {
-        parent_str.replace("/inbox/", &format!("/{}/", ingested_dir))
-    } else {
-        format!("{}/{}", parent_str, ingested_dir)
+    let inbox_dir = path
+        .ancestors()
+        .skip(1)
+        .find(|ancestor| ancestor.file_name().is_some_and(|name| name == "inbox"));
+    let dest_dir = match inbox_dir {
+        Some(inbox_dir) => {
+            let inbox_parent = inbox_dir.parent().ok_or("Inbox has no parent dir")?;
+            let relative_parent = path
+                .strip_prefix(inbox_dir)?
+                .parent()
+                .unwrap_or(std::path::Path::new(""));
+            inbox_parent.join(ingested_dir).join(relative_parent)
+        }
+        None => parent.join(ingested_dir),
     };
     std::fs::create_dir_all(&dest_dir)?;
-    let dest = format!(
-        "{}/{}",
-        dest_dir,
-        path.file_name().unwrap().to_string_lossy()
-    );
-    std::fs::rename(file_path, &dest)?;
-    tracing::info!("Moved {} to {}", file_path, dest);
+    let dest = dest_dir.join(path.file_name().ok_or("No file name")?);
+    if dest.exists() {
+        return Err(format!("Destination already exists: {}", dest.display()).into());
+    }
+    // Creating the hard link is atomic and fails if another worker won the destination race.
+    std::fs::hard_link(path, &dest)?;
+    std::fs::remove_file(path)?;
+    tracing::info!("Moved {} to {}", file_path, dest.display());
     Ok(())
 }
