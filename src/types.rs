@@ -237,6 +237,16 @@ impl From<(ChunkSearchResult, Option<String>, Option<u32>)> for ChunkResult {
 
 // --- Benchmark types ---
 
+/// Versioned golden dataset consumed by the benchmark tool.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct GoldenDataset {
+    #[serde(default = "default_golden_dataset_version")]
+    pub version: u32,
+    pub entries: Vec<GoldenEntry>,
+}
+
+fn default_golden_dataset_version() -> u32 { 1 }
+
 /// A single entry in the golden dataset JSON file.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct GoldenEntry {
@@ -255,15 +265,28 @@ pub struct BenchmarkDetail {
     pub found_source_ids: Vec<i64>,
     pub score: f64,
     pub is_hit: bool,
+    pub recall_at_k: f64,
+    pub precision_at_k: f64,
+    pub reciprocal_rank: f64,
+    pub ndcg: f64,
+    pub latency_ms: u64,
 }
 
 /// Aggregate result of running a benchmark.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BenchmarkResult {
+    pub dataset_version: u32,
     pub total_queries: usize,
     pub hits: usize,
     pub misses: usize,
     pub avg_score: f64,
+    pub recall_at_k: f64,
+    pub precision_at_k: f64,
+    pub mrr: f64,
+    pub ndcg: f64,
+    pub empty_result_rate: f64,
+    pub latency_ms_p50: u64,
+    pub latency_ms_p95: u64,
     pub details: Vec<BenchmarkDetail>,
 }
 

@@ -1,21 +1,62 @@
 use anyhow::Result;
-
+use std::time::Instant;
 
 use crate::embedding::EmbeddingProvider;
 use crate::types::{BenchmarkDetail, BenchmarkResult, GoldenEntry};
 
 use super::search::search_hybrid;
 
+/// Calculate ranked retrieval metrics for one query.
+pub fn calculate_rank_metrics(expected: &[i64], ranked: &[i64], k: usize) -> (f64, f64, f64, f64) {
+    let ranked = &ranked[..ranked.len().min(k)];
+    let expected_set: std::collections::HashSet<i64> = expected.iter().copied().collect();
+    let relevant = ranked.iter().filter(|id| expected_set.contains(id)).count();
+    let recall = if expected_set.is_empty() { 0.0 } else { relevant as f64 / expected_set.len() as f64 };
+    let precision = if ranked.is_empty() { 0.0 } else { relevant as f64 / ranked.len() as f64 };
+    let reciprocal_rank = ranked.iter().position(|id| expected_set.contains(id)).map(|i| 1.0 / (i + 1) as f64).unwrap_or(0.0);
+    let dcg: f64 = ranked.iter().enumerate().filter(|(_, id)| expected_set.contains(id)).map(|(i, _)| 1.0 / ((i + 2) as f64).log2()).sum();
+    let ideal_len = expected_set.len().min(k);
+    let ideal_dcg: f64 = (0..ideal_len).map(|i| 1.0 / ((i + 2) as f64).log2()).sum();
+    let ndcg = if ideal_dcg == 0.0 { 0.0 } else { dcg / ideal_dcg };
+    (recall, precision, reciprocal_rank, ndcg)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::calculate_rank_metrics;
+
+    #[test]
+    fn rank_metrics_score_recall_precision_mrr_and_ndcg() {
+        let (recall, precision, mrr, ndcg) = calculate_rank_metrics(&[1, 2], &[3, 2, 4, 1], 4);
+        assert_eq!(recall, 1.0);
+        assert_eq!(precision, 0.5);
+        assert_eq!(mrr, 0.5);
+        assert!((ndcg - 0.6509).abs() < 0.001);
+    }
+
+    #[test]
+    fn rank_metrics_handle_empty_results() {
+        assert_eq!(calculate_rank_metrics(&[1], &[], 5), (0.0, 0.0, 0.0, 0.0));
+    }
+}
+
 /// Run a benchmark against a golden dataset.
 /// For each entry, queries the engine and checks if expected source_ids appear in top results.
 pub async fn run_benchmark(
     embedder: &EmbeddingProvider,
+    dataset_version: u32,
     entries: Vec<GoldenEntry>,
     collection: Option<String>,
     limit: usize,
 ) -> Result<BenchmarkResult> {
     let mut details = Vec::with_capacity(entries.len());
     let mut total_score = 0.0;
+    let mut total_recall = 0.0;
+    let mut total_precision = 0.0;
+    let mut total_mrr = 0.0;
+    let mut total_ndcg = 0.0;
+    let mut empty_results = 0usize;
+    let mut latencies = Vec::with_capacity(entries.len());
     let mut hits = 0usize;
 
     let filter = collection.map(|c| crate::types::SearchFilter {
@@ -26,6 +67,7 @@ pub async fn run_benchmark(
     });
 
     for entry in &entries {
+        let started = Instant::now();
         let results = match search_hybrid(embedder, &entry.question, limit, filter.clone()).await {
             Ok(r) => r,
             Err(e) => {
@@ -33,51 +75,65 @@ pub async fn run_benchmark(
                 vec![]
             }
         };
+        let latency_ms = started.elapsed().as_millis() as u64;
+        latencies.push(latency_ms);
 
-        // Collect unique source_ids from results
-        let found_ids: Vec<i64> = results
-            .iter()
-            .map(|r| r.source_id)
-            .collect::<std::collections::HashSet<_>>()
-            .into_iter()
-            .collect();
-
-        // Score: fraction of expected source_ids that appear in found_ids
-        let matched = entry.relevant_source_ids.iter().filter(|id| found_ids.contains(id)).count();
-        let score = if entry.relevant_source_ids.is_empty() {
-            0.0
-        } else {
-            matched as f64 / entry.relevant_source_ids.len() as f64
-        };
-        let is_hit = matched > 0;
-
-        if is_hit {
-            hits += 1;
+        let mut found_ids = Vec::new();
+        for result in &results {
+            if !found_ids.contains(&result.source_id) {
+                found_ids.push(result.source_id);
+            }
         }
-        total_score += score;
+        let (recall_at_k, precision_at_k, reciprocal_rank, ndcg) =
+            calculate_rank_metrics(&entry.relevant_source_ids, &found_ids, limit);
+        let matched = entry.relevant_source_ids.iter().filter(|id| found_ids.contains(id)).count();
+        let is_hit = matched > 0;
+        if is_hit { hits += 1; }
+        if results.is_empty() { empty_results += 1; }
+        total_score += recall_at_k;
+        total_recall += recall_at_k;
+        total_precision += precision_at_k;
+        total_mrr += reciprocal_rank;
+        total_ndcg += ndcg;
 
         details.push(BenchmarkDetail {
             query: entry.question.clone(),
             expected_source_ids: entry.relevant_source_ids.clone(),
             found_source_ids: found_ids,
-            score,
+            score: recall_at_k,
             is_hit,
+            recall_at_k,
+            precision_at_k,
+            reciprocal_rank,
+            ndcg,
+            latency_ms,
         });
     }
 
     let total_queries = entries.len();
     let misses = total_queries - hits;
-    let avg_score = if total_queries > 0 {
-        total_score / total_queries as f64
-    } else {
-        0.0
+    let divisor = total_queries.max(1) as f64;
+    let avg_score = total_score / divisor;
+    latencies.sort_unstable();
+    let percentile = |p: usize| -> u64 {
+        if latencies.is_empty() { return 0; }
+        let index = ((latencies.len() - 1) * p).div_ceil(100);
+        latencies[index]
     };
 
     Ok(BenchmarkResult {
+        dataset_version,
         total_queries,
         hits,
         misses,
         avg_score,
+        recall_at_k: total_recall / divisor,
+        precision_at_k: total_precision / divisor,
+        mrr: total_mrr / divisor,
+        ndcg: total_ndcg / divisor,
+        empty_result_rate: empty_results as f64 / divisor,
+        latency_ms_p50: percentile(50),
+        latency_ms_p95: percentile(95),
         details,
     })
 }

@@ -594,9 +594,28 @@ ragfer query "embedding dimensions" --json
 | `ingest_file(file_path, collection?)`                 | Ingest a PDF, DOCX, TXT, or Markdown file          |
 | `ingest_data(content, source, collection?, format?)`  | Ingest raw text, HTML, or Markdown                 |
 | `check_ingestion(file_path?, content?, source_name?)` | Inspect document quality before indexing           |
-| `benchmark(file_path, collection?, limit?)`           | Evaluate retrieval against a golden dataset        |
+| `benchmark(file_path, collection?, limit?)`           | Evaluate Recall@k, precision, MRR, nDCG, empty results, and latency against a versioned golden dataset |
 | `collection_heat()`                                   | Show frequently and recently queried collections   |
 | `chunk_qa()`                                          | Identify cold, unused, or potentially noisy chunks |
+
+### Retrieval benchmark format
+
+The `benchmark` tool accepts the legacy JSON array format and a versioned dataset object:
+
+```json
+{
+  "version": 1,
+  "entries": [
+    {
+      "question": "How does hybrid retrieval work?",
+      "expected_keywords": ["BM25", "vector", "RRF"],
+      "relevant_source_ids": [7, 19]
+    }
+  ]
+}
+```
+
+Results include Recall@k, precision@k, MRR, nDCG, empty-result rate, p50/p95 latency, and per-query metrics. The benchmark measures retrieval, not final assistant answer faithfulness. See `examples/benchmark-golden.json` for a complete template.
 
 ### Administration
 

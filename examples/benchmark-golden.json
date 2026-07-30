@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "question": "Where is the backup restoration procedure documented?",
+      "expected_keywords": ["backup", "restore"],
+      "relevant_source_ids": [12]
+    },
+    {
+      "question": "How does hybrid retrieval combine exact terms and semantic matches?",
+      "expected_keywords": ["BM25", "vector", "RRF"],
+      "relevant_source_ids": [7, 19]
+    }
+  ]
+}
