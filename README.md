@@ -525,7 +525,7 @@ Supported file extensions are `.pdf`, `.txt`, and `.md`. PDF extraction uses `pd
 
 REST, MCP, CLI, and TUI submissions all use the same bounded worker queue. A full queue returns backpressure instead of retaining unbounded payloads in memory. Each parent and its children are committed atomically; stable logical parent identifiers let an interrupted ingestion resume without duplicating completed groups.
 
-Automatic movement after successful ingestion is enabled by default. For a permanent library, set:
+Automatic movement after successful ingestion is enabled by default. Files under an `inbox` directory retain their nested layout under its sibling `ingested` directory. Existing destinations are never overwritten. For a permanent library, set:
 
 ```toml
 [advanced]
