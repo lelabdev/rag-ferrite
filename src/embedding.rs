@@ -86,6 +86,37 @@ impl EmbeddingProvider {
         Ok(vecs)
     }
 
+    pub fn validate_batch(&self, expected_count: usize, embeddings: &[Vec<f32>]) -> Result<()> {
+        if embeddings.len() != expected_count {
+            return Err(anyhow!(
+                "Embedding provider returned {} vectors for {} texts",
+                embeddings.len(),
+                expected_count
+            ));
+        }
+
+        let expected_dimensions = self
+            .dimensions
+            .or_else(|| embeddings.first().map(Vec::len))
+            .ok_or_else(|| anyhow!("Embedding provider returned no vectors"))?;
+
+        for (index, embedding) in embeddings.iter().enumerate() {
+            if embedding.len() != expected_dimensions {
+                return Err(anyhow!(
+                    "Embedding {} has dimension {}, expected {}",
+                    index,
+                    embedding.len(),
+                    expected_dimensions
+                ));
+            }
+            if embedding.iter().any(|value| !value.is_finite()) {
+                return Err(anyhow!("Embedding {} contains non-finite values", index));
+            }
+        }
+
+        Ok(())
+    }
+
     async fn embed_openai(&self, texts: &[String]) -> Result<Vec<Vec<f32>>> {
         let api_key = self.api_key.as_ref().ok_or_else(|| {
             anyhow!("API key required for OpenAI. Set EMBEDDING_API_KEY env or config.")
@@ -266,5 +297,44 @@ impl EmbeddingProvider {
         }
 
         Ok(results)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::EmbeddingProvider;
+
+    fn provider(dimensions: Option<usize>) -> EmbeddingProvider {
+        EmbeddingProvider::new(
+            "test".into(),
+            "test-model".into(),
+            dimensions,
+            None,
+            None,
+            1,
+        )
+    }
+
+    #[test]
+    fn rejects_incomplete_batches() {
+        let result = provider(Some(2)).validate_batch(2, &[vec![0.0, 1.0]]);
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("returned 1 vectors")
+        );
+    }
+
+    #[test]
+    fn rejects_wrong_dimensions() {
+        let result = provider(Some(2)).validate_batch(1, &[vec![0.0, 1.0, 2.0]]);
+        assert!(result.unwrap_err().to_string().contains("expected 2"));
+    }
+
+    #[test]
+    fn rejects_non_finite_values() {
+        let result = provider(None).validate_batch(1, &[vec![f32::NAN]]);
+        assert!(result.unwrap_err().to_string().contains("non-finite"));
     }
 }

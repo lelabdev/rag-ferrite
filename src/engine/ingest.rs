@@ -226,6 +226,7 @@ pub async fn ingest_text(
         format!("Embedding {} texts...", final_texts.len()),
     );
     let embeddings = embedder.embed_batch(&final_texts).await?;
+    embedder.validate_batch(final_texts.len(), &embeddings)?;
     let embedding_duration_ms = embed_start.elapsed().as_millis() as u64;
     activity_log::push(
         "embedding",
@@ -660,6 +661,7 @@ async fn process_parent(
     );
     let t = Instant::now();
     let embeddings = embedder.embed_batch(&final_texts).await?;
+    embedder.validate_batch(final_texts.len(), &embeddings)?;
     let embed_ms = t.elapsed().as_millis() as u64;
     activity_log::push(
         "embedding",
