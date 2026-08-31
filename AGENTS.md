@@ -149,6 +149,25 @@ Query → MCP tool call
       → Top-k chunks avec tags
 ```
 
+## Graphify
+
+This repository uses Graphify for a local architecture graph. Generated files live in `graphify-out/` and are ignored by Git.
+
+Activate the versioned post-commit hook once per clone:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+The hook runs `graphify update .` after each commit, refreshing code relationships incrementally. Run the full `/graphify .` workflow when documentation or images change and the semantic layer needs regeneration.
+
+Manual commands:
+
+```bash
+graphify update .
+graphify query "How does ingestion connect to retrieval?"
+```
+
 ## Build & Deploy
 
 ```bash

@@ -14,3 +14,6 @@ config.toml
 # Embedded repos
 svelteforge/
 rag-ferrite.log
+
+# Local Graphify outputs
+graphify-out/
