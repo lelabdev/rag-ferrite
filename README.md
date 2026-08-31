@@ -114,22 +114,21 @@ install -Dm755 target/release/ragfer ~/.local/bin/ragfer
 
 ## Local code graph with Graphify
 
-The repository can maintain a local architecture graph with [Graphify](https://github.com/safishamsi/graphifyy).
-Generated files stay local in `graphify-out/` and are not committed.
+The repository maintains a shared, machine-readable architecture graph with [Graphify](https://github.com/safishamsi/graphifyy). `graphify-out/graph.json` is committed so AI agents and contributors use the same graph. Human-oriented reports and visualizations remain local.
 
 ```bash
-# Install Graphify, then activate the repository hook once
+# Optional: install Graphify, then activate the repository hook once
 # (hooks are local to each clone)
 git config core.hooksPath .githooks
 
 # Refresh manually at any time
 graphify update .
 
-# Query the graph
+# Query the shared graph
 graphify query "How does ingestion connect to retrieval?"
 ```
 
-The `post-commit` hook runs `graphify update .` after each commit. This incrementally refreshes the code graph; rerun the full `/graphify .` workflow when documentation or images change and their semantic layer must be regenerated.
+The optional `pre-commit` hook runs `graphify update .` and stages `graphify-out/graph.json` before each commit when Graphify is installed. Without Graphify, commits continue normally. This incrementally refreshes the code graph; rerun the full `/graphify .` workflow when documentation or images change and their semantic layer must be regenerated.
 
 ---
 

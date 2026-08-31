@@ -18,5 +18,7 @@ config.toml
 svelteforge/
 rag-ferrite.log
 
-# Local Graphify outputs
-graphify-out/
+# Local Graphify outputs (keep the machine-readable graph shared)
+graphify-out/*
+!graphify-out/
+!graphify-out/graph.json

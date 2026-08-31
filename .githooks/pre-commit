@@ -1,0 +1,5 @@
+#!/bin/sh
+# Optional: refresh and stage the machine-readable Graphify graph before each commit.
+command -v graphify >/dev/null 2>&1 || exit 0
+graphify update .
+git add graphify-out/graph.json

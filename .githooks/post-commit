@@ -1,3 +1,0 @@
-#!/bin/sh
-# Refresh the local Graphify graph after each commit.
-graphify update .
