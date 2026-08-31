@@ -17,7 +17,7 @@ categories = ["command-line-utilities", "text-processing"]
 # RAG core
 
 # MCP server
-rmcp = { version = "1.6", features = ["server", "transport-io", "transport-streamable-http-server"] }
+rmcp = { version = "3.0", features = ["server", "transport-io", "transport-streamable-http-server"] }
 dotenvy = "0.15"
 
 # Async runtime
