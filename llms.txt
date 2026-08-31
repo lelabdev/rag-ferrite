@@ -281,7 +281,7 @@ mcp_servers:
 Graphify maintains a shared, machine-readable architecture graph for the repository. `graphify-out/graph.json` is committed so AI agents and contributors use the same graph; human-oriented reports and visualizations remain local.
 
 ```bash
-# Activate the versioned pre-commit hook once per clone
+# Optional: activate the versioned pre-commit hook once per clone
 git config core.hooksPath .githooks
 
 # Incrementally refresh code relationships
@@ -291,7 +291,7 @@ graphify update .
 graphify query "How does ingestion connect to retrieval?"
 ```
 
-The `.githooks/pre-commit` hook runs `graphify update .` and stages `graphify-out/graph.json` before commits. It covers code changes incrementally; documentation or image changes require the full `/graphify .` workflow for semantic re-extraction.
+The optional `.githooks/pre-commit` hook runs `graphify update .` and stages `graphify-out/graph.json` when Graphify is installed. Contributors without Graphify can commit normally. It covers code changes incrementally; documentation or image changes require the full `/graphify .` workflow for semantic re-extraction.
 
 ## Links
 

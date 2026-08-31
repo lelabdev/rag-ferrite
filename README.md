@@ -117,7 +117,7 @@ install -Dm755 target/release/ragfer ~/.local/bin/ragfer
 The repository maintains a shared, machine-readable architecture graph with [Graphify](https://github.com/safishamsi/graphifyy). `graphify-out/graph.json` is committed so AI agents and contributors use the same graph. Human-oriented reports and visualizations remain local.
 
 ```bash
-# Install Graphify, then activate the repository hook once
+# Optional: install Graphify, then activate the repository hook once
 # (hooks are local to each clone)
 git config core.hooksPath .githooks
 
@@ -128,7 +128,7 @@ graphify update .
 graphify query "How does ingestion connect to retrieval?"
 ```
 
-The `pre-commit` hook runs `graphify update .` and stages `graphify-out/graph.json` before each commit. This incrementally refreshes the code graph; rerun the full `/graphify .` workflow when documentation or images change and their semantic layer must be regenerated.
+The optional `pre-commit` hook runs `graphify update .` and stages `graphify-out/graph.json` before each commit when Graphify is installed. Without Graphify, commits continue normally. This incrementally refreshes the code graph; rerun the full `/graphify .` workflow when documentation or images change and their semantic layer must be regenerated.
 
 ---
 

@@ -157,13 +157,13 @@ Query → MCP tool call
 
 This repository uses Graphify for a shared machine-readable architecture graph. `graphify-out/graph.json` is committed so AI agents and contributors use the same graph; human-oriented reports and visualizations remain local.
 
-Activate the versioned pre-commit hook once per clone:
+Optionally activate the versioned pre-commit hook once per clone:
 
 ```bash
 git config core.hooksPath .githooks
 ```
 
-The hook runs `graphify update .`, refreshes code relationships incrementally, and stages `graphify-out/graph.json` before each commit. Run the full `/graphify .` workflow when documentation or images change and the semantic layer needs regeneration.
+When activated and Graphify is installed, the hook runs `graphify update .`, refreshes code relationships incrementally, and stages `graphify-out/graph.json` before each commit. Contributors without Graphify can commit normally. Run the full `/graphify .` workflow when documentation or images change and the semantic layer needs regeneration.
 
 Manual commands:
 
