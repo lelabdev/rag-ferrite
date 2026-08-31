@@ -28,6 +28,7 @@ struct EmbeddingResponse {
 
 #[derive(Debug, Deserialize)]
 struct EmbeddingData {
+    index: usize,
     embedding: Vec<f32>,
 }
 
@@ -75,18 +76,14 @@ impl EmbeddingProvider {
             _ => Err(anyhow!("Unknown embedding provider: {}", self.provider)),
         }?;
 
-        // Auto-detect dimensions from first response
-        if let Some(first) = vecs.first() {
-            let detected = first.len();
-            if self.detected_dimensions.set(detected).is_ok() {
-                tracing::info!("Auto-detected embedding dimensions: {}", detected);
-            }
-        }
-
         Ok(vecs)
     }
 
     pub fn validate_batch(&self, expected_count: usize, embeddings: &[Vec<f32>]) -> Result<()> {
+        self.validate_vectors(expected_count, embeddings)
+    }
+
+    fn validate_vectors(&self, expected_count: usize, embeddings: &[Vec<f32>]) -> Result<()> {
         if embeddings.len() != expected_count {
             return Err(anyhow!(
                 "Embedding provider returned {} vectors for {} texts",
@@ -95,10 +92,18 @@ impl EmbeddingProvider {
             ));
         }
 
+        if embeddings.is_empty() {
+            return Ok(());
+        }
+
         let expected_dimensions = self
             .dimensions
-            .or_else(|| embeddings.first().map(Vec::len))
-            .ok_or_else(|| anyhow!("Embedding provider returned no vectors"))?;
+            .or_else(|| self.detected_dimensions.get().copied());
+        let observed_dimensions = embeddings[0].len();
+        if observed_dimensions == 0 {
+            return Err(anyhow!("Embedding vectors must have a non-zero dimension"));
+        }
+        let expected_dimensions = expected_dimensions.unwrap_or(observed_dimensions);
 
         for (index, embedding) in embeddings.iter().enumerate() {
             if embedding.len() != expected_dimensions {
@@ -112,6 +117,25 @@ impl EmbeddingProvider {
             if embedding.iter().any(|value| !value.is_finite()) {
                 return Err(anyhow!("Embedding {} contains non-finite values", index));
             }
+        }
+
+        if self.dimensions.is_none() && self.detected_dimensions.get().is_none() {
+            if self.detected_dimensions.set(observed_dimensions).is_ok() {
+                tracing::info!(
+                    "Auto-detected embedding dimensions: {}",
+                    observed_dimensions
+                );
+            }
+        }
+
+        if let Some(detected) = self.detected_dimensions.get()
+            && *detected != observed_dimensions
+        {
+            return Err(anyhow!(
+                "Embedding batch dimension {}, expected detected dimension {}",
+                observed_dimensions,
+                detected
+            ));
         }
 
         Ok(())
@@ -187,7 +211,41 @@ impl EmbeddingProvider {
             }
 
             let data: EmbeddingResponse = resp.json().await?;
-            all_embeddings.extend(data.data.into_iter().map(|d| d.embedding));
+            if data.data.len() != chunk.len() {
+                return Err(anyhow!(
+                    "OpenAI returned {} vectors for {} texts in sub-batch {}",
+                    data.data.len(),
+                    chunk.len(),
+                    i + 1
+                ));
+            }
+            let mut indexed = Vec::with_capacity(data.data.len());
+            for item in data.data {
+                if item.index >= chunk.len() {
+                    return Err(anyhow!(
+                        "OpenAI embedding index {} is out of range for {} texts",
+                        item.index,
+                        chunk.len()
+                    ));
+                }
+                indexed.push((item.index, item.embedding));
+            }
+            indexed.sort_unstable_by_key(|(index, _)| *index);
+            if indexed
+                .iter()
+                .enumerate()
+                .any(|(expected, (actual, _))| *actual != expected)
+            {
+                return Err(anyhow!(
+                    "OpenAI embedding indexes must map each sub-batch text exactly once"
+                ));
+            }
+            let batch_embeddings: Vec<Vec<f32>> = indexed
+                .into_iter()
+                .map(|(_, embedding)| embedding)
+                .collect();
+            self.validate_vectors(chunk.len(), &batch_embeddings)?;
+            all_embeddings.extend(batch_embeddings);
         }
 
         Ok(all_embeddings)
@@ -253,9 +311,12 @@ impl EmbeddingProvider {
         }
 
         let data: CohereResponse = resp.json().await?;
-        data.embeddings
+        let embeddings = data
+            .embeddings
             .float
-            .ok_or_else(|| anyhow!("No float embeddings in Cohere response"))
+            .ok_or_else(|| anyhow!("No float embeddings in Cohere response"))?;
+        self.validate_vectors(texts.len(), &embeddings)?;
+        Ok(embeddings)
     }
 
     async fn embed_ollama(&self, texts: &[String]) -> Result<Vec<Vec<f32>>> {
@@ -275,8 +336,13 @@ impl EmbeddingProvider {
         // Ollama batch can be large, so we limit to 20 texts per request
         // to avoid timeout and memory issues
         let mut results = Vec::with_capacity(texts.len());
+        let batch_size = if self.batch_size > 0 {
+            self.batch_size
+        } else {
+            20
+        };
 
-        for batch in texts.chunks(self.batch_size) {
+        for batch in texts.chunks(batch_size) {
             let url = format!("{}/api/embed", base);
 
             let body = OllamaRequest {
@@ -293,6 +359,7 @@ impl EmbeddingProvider {
             }
 
             let data: OllamaResponse = resp.json().await?;
+            self.validate_vectors(batch.len(), &data.embeddings)?;
             results.extend(data.embeddings);
         }
 
@@ -336,5 +403,27 @@ mod tests {
     fn rejects_non_finite_values() {
         let result = provider(None).validate_batch(1, &[vec![f32::NAN]]);
         assert!(result.unwrap_err().to_string().contains("non-finite"));
+    }
+
+    #[test]
+    fn rejects_zero_length_vectors() {
+        let result = provider(None).validate_batch(1, &[vec![]]);
+        assert!(result.unwrap_err().to_string().contains("non-zero"));
+    }
+
+    #[test]
+    fn keeps_detected_dimension_consistent_across_batches() {
+        let provider = provider(None);
+        provider.validate_batch(1, &[vec![0.0, 1.0]]).unwrap();
+        let result = provider.validate_batch(1, &[vec![0.0, 1.0, 2.0]]);
+        assert!(result.unwrap_err().to_string().contains("expected 2"));
+    }
+
+    #[test]
+    fn invalid_first_batch_does_not_poison_dimension_detection() {
+        let provider = provider(None);
+        assert!(provider.validate_batch(1, &[vec![]]).is_err());
+        provider.validate_batch(1, &[vec![0.0, 1.0]]).unwrap();
+        assert!(provider.validate_batch(1, &[vec![0.0, 1.0, 2.0]]).is_err());
     }
 }
