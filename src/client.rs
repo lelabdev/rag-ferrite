@@ -144,22 +144,22 @@ fn api_call(method: &str, path: &str, body: Option<Value>) -> Result<Value> {
     let resp = match (method, body) {
         ("GET", None) => agent
             .get(&full)
-            .header("Authorization", &auth)
+            .header("Authorization", auth.as_str())
             .header("Content-Type", "application/json")
             .call()?,
         ("DELETE", None) => agent
             .delete(&full)
-            .header("Authorization", &auth)
+            .header("Authorization", auth.as_str())
             .header("Content-Type", "application/json")
             .call()?,
         ("POST", Some(data)) => agent
             .post(&full)
-            .header("Authorization", &auth)
+            .header("Authorization", auth.as_str())
             .header("Content-Type", "application/json")
             .send_json(data)?,
         ("POST", None) => agent
             .post(&full)
-            .header("Authorization", &auth)
+            .header("Authorization", auth.as_str())
             .header("Content-Type", "application/json")
             .send_empty()?,
         _ => bail!("Unsupported API request: {} {}", method, path),

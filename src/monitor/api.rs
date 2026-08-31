@@ -91,7 +91,8 @@ pub(crate) fn fetch_documents(url: &str) -> Result<Vec<Document>, String> {
         .timeout_global(Some(Duration::from_secs(5)))
         .build();
     let req = if let Some(key) = crate::client::resolve_api_key() {
-        req.header("Authorization", &format!("Bearer {}", key))
+        let auth = format!("Bearer {}", key);
+        req.header("Authorization", auth.as_str())
     } else {
         req
     };
@@ -112,7 +113,8 @@ pub(crate) fn fetch_progress(url: &str) -> Result<ProgressResponse, String> {
         .build();
     // Use client config for API key
     let req = if let Some(key) = crate::client::resolve_api_key() {
-        req.header("Authorization", &format!("Bearer {}", key))
+        let auth = format!("Bearer {}", key);
+        req.header("Authorization", auth.as_str())
     } else {
         req
     };
@@ -136,7 +138,8 @@ pub(crate) fn post_json(url: &str, path: &str, body: &serde_json::Value) -> Resu
         .timeout_global(Some(Duration::from_secs(30)))
         .build();
     let req = if let Some(key) = crate::client::resolve_api_key() {
-        req.header("Authorization", &format!("Bearer {}", key))
+        let auth = format!("Bearer {}", key);
+        req.header("Authorization", auth.as_str())
     } else {
         req
     };
@@ -155,7 +158,8 @@ pub(crate) fn delete_document(url: &str, source_id: i64) -> Result<String, Strin
         .timeout_global(Some(Duration::from_secs(10)))
         .build();
     let req = if let Some(key) = crate::client::resolve_api_key() {
-        req.header("Authorization", &format!("Bearer {}", key))
+        let auth = format!("Bearer {}", key);
+        req.header("Authorization", auth.as_str())
     } else {
         req
     };
@@ -174,7 +178,8 @@ pub(crate) fn post_action(url: &str, path: &str) -> Result<String, String> {
         .timeout_global(Some(Duration::from_secs(5)))
         .build();
     let req = if let Some(key) = crate::client::resolve_api_key() {
-        req.header("Authorization", &format!("Bearer {}", key))
+        let auth = format!("Bearer {}", key);
+        req.header("Authorization", auth.as_str())
     } else {
         req
     };
