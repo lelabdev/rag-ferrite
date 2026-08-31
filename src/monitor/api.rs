@@ -86,15 +86,20 @@ struct DocumentsResponse {
 
 pub(crate) fn fetch_documents(url: &str) -> Result<Vec<Document>, String> {
     let endpoint = format!("{}/api/documents", url.trim_end_matches('/'));
-    let req = ureq::get(&endpoint).timeout(Duration::from_secs(5));
+    let req = ureq::get(&endpoint)
+        .config()
+        .timeout_global(Some(Duration::from_secs(5)))
+        .build();
     let req = if let Some(key) = crate::client::resolve_api_key() {
-        req.set("Authorization", &format!("Bearer {}", key))
+        let auth = format!("Bearer {}", key);
+        req.header("Authorization", auth.as_str())
     } else {
         req
     };
     req.call()
         .map_err(|e| format!("{}: {}", endpoint, e))?
-        .into_json::<DocumentsResponse>()
+        .into_body()
+        .read_json::<DocumentsResponse>()
         .map(|response| response.files)
         .map_err(|e| e.to_string())
 }
@@ -102,16 +107,21 @@ pub(crate) fn fetch_documents(url: &str) -> Result<Vec<Document>, String> {
 /// Fetch batch progress from the rag-ferrite server.
 pub(crate) fn fetch_progress(url: &str) -> Result<ProgressResponse, String> {
     let endpoint = format!("{}/api/ingest/progress", url.trim_end_matches('/'));
-    let req = ureq::get(&endpoint).timeout(Duration::from_secs(5));
+    let req = ureq::get(&endpoint)
+        .config()
+        .timeout_global(Some(Duration::from_secs(5)))
+        .build();
     // Use client config for API key
     let req = if let Some(key) = crate::client::resolve_api_key() {
-        req.set("Authorization", &format!("Bearer {}", key))
+        let auth = format!("Bearer {}", key);
+        req.header("Authorization", auth.as_str())
     } else {
         req
     };
     match req.call() {
         Ok(resp) => resp
-            .into_json::<ProgressResponse>()
+            .into_body()
+            .read_json::<ProgressResponse>()
             .map_err(|e| e.to_string()),
         Err(_) => Err(format!(
             "Cannot connect to {} — is ragfer serve running?",
@@ -123,45 +133,60 @@ pub(crate) fn fetch_progress(url: &str) -> Result<ProgressResponse, String> {
 /// POST an action to the rag-ferrite server (cancel, stop, rebuild, flush).
 pub(crate) fn post_json(url: &str, path: &str, body: &serde_json::Value) -> Result<String, String> {
     let full_url = format!("{}{}", url.trim_end_matches('/'), path);
-    let req = ureq::post(&full_url).timeout(Duration::from_secs(30));
+    let req = ureq::post(&full_url)
+        .config()
+        .timeout_global(Some(Duration::from_secs(30)))
+        .build();
     let req = if let Some(key) = crate::client::resolve_api_key() {
-        req.set("Authorization", &format!("Bearer {}", key))
+        let auth = format!("Bearer {}", key);
+        req.header("Authorization", auth.as_str())
     } else {
         req
     };
-    req.set("Content-Type", "application/json")
+    req.header("Content-Type", "application/json")
         .send_json(body)
         .map_err(|e| format!("{}: {}", full_url, e))?
-        .into_string()
+        .into_body()
+        .read_to_string()
         .map_err(|e| e.to_string())
 }
 
 pub(crate) fn delete_document(url: &str, source_id: i64) -> Result<String, String> {
     let full_url = format!("{}/api/documents/{}", url.trim_end_matches('/'), source_id);
-    let req = ureq::delete(&full_url).timeout(Duration::from_secs(10));
+    let req = ureq::delete(&full_url)
+        .config()
+        .timeout_global(Some(Duration::from_secs(10)))
+        .build();
     let req = if let Some(key) = crate::client::resolve_api_key() {
-        req.set("Authorization", &format!("Bearer {}", key))
+        let auth = format!("Bearer {}", key);
+        req.header("Authorization", auth.as_str())
     } else {
         req
     };
     req.call()
         .map_err(|e| format!("{}: {}", full_url, e))?
-        .into_string()
+        .into_body()
+        .read_to_string()
         .map_err(|e| e.to_string())
 }
 
 /// POST an action to the rag-ferrite server (cancel, stop, rebuild, flush).
 pub(crate) fn post_action(url: &str, path: &str) -> Result<String, String> {
     let full_url = format!("{}{}", url.trim_end_matches('/'), path);
-    let req = ureq::post(&full_url).timeout(Duration::from_secs(5));
+    let req = ureq::post(&full_url)
+        .config()
+        .timeout_global(Some(Duration::from_secs(5)))
+        .build();
     let req = if let Some(key) = crate::client::resolve_api_key() {
-        req.set("Authorization", &format!("Bearer {}", key))
+        let auth = format!("Bearer {}", key);
+        req.header("Authorization", auth.as_str())
     } else {
         req
     };
-    req.call()
+    req.send_empty()
         .map_err(|e| format!("{}: {}", full_url, e))?
-        .into_string()
+        .into_body()
+        .read_to_string()
         .map_err(|e| e.to_string())
 }
 

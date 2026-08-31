@@ -136,18 +136,35 @@ fn api_call(method: &str, path: &str, body: Option<Value>) -> Result<Value> {
     let url = get_url()?;
     let key = get_api_key()?;
     let full = format!("{}{}", url.trim_end_matches('/'), path);
-    let req = ureq::AgentBuilder::new()
-        .timeout_read(std::time::Duration::from_secs(30))
-        .timeout_write(std::time::Duration::from_secs(30))
+    let agent = ureq::Agent::config_builder()
+        .timeout_global(Some(std::time::Duration::from_secs(30)))
         .build()
-        .request(method, &full)
-        .set("Authorization", &format!("Bearer {}", key))
-        .set("Content-Type", "application/json");
-    let resp = match body {
-        Some(data) => req.send_json(data)?,
-        None => req.call()?,
+        .new_agent();
+    let auth = format!("Bearer {}", key);
+    let resp = match (method, body) {
+        ("GET", None) => agent
+            .get(&full)
+            .header("Authorization", auth.as_str())
+            .header("Content-Type", "application/json")
+            .call()?,
+        ("DELETE", None) => agent
+            .delete(&full)
+            .header("Authorization", auth.as_str())
+            .header("Content-Type", "application/json")
+            .call()?,
+        ("POST", Some(data)) => agent
+            .post(&full)
+            .header("Authorization", auth.as_str())
+            .header("Content-Type", "application/json")
+            .send_json(data)?,
+        ("POST", None) => agent
+            .post(&full)
+            .header("Authorization", auth.as_str())
+            .header("Content-Type", "application/json")
+            .send_empty()?,
+        _ => bail!("Unsupported API request: {} {}", method, path),
     };
-    Ok(resp.into_json()?)
+    Ok(resp.into_body().read_json()?)
 }
 
 // ─── Commands ──────────────────────────────────────────────────────────────
