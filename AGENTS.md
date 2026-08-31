@@ -155,15 +155,15 @@ Query → MCP tool call
 
 ## Graphify
 
-This repository uses Graphify for a local architecture graph. Generated files live in `graphify-out/` and are ignored by Git.
+This repository uses Graphify for a shared machine-readable architecture graph. `graphify-out/graph.json` is committed so AI agents and contributors use the same graph; human-oriented reports and visualizations remain local.
 
-Activate the versioned post-commit hook once per clone:
+Activate the versioned pre-commit hook once per clone:
 
 ```bash
 git config core.hooksPath .githooks
 ```
 
-The hook runs `graphify update .` after each commit, refreshing code relationships incrementally. Run the full `/graphify .` workflow when documentation or images change and the semantic layer needs regeneration.
+The hook runs `graphify update .`, refreshes code relationships incrementally, and stages `graphify-out/graph.json` before each commit. Run the full `/graphify .` workflow when documentation or images change and the semantic layer needs regeneration.
 
 Manual commands:
 
