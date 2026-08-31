@@ -281,10 +281,7 @@ fn test_full_hybrid_pipeline() {
             let id: i64 = row.get(0)?;
             let bytes: Vec<u8> = row.get(1)?;
             let (chunks, _) = bytes.as_chunks::<4>();
-            let emb: Vec<f32> = chunks
-                .iter()
-                .map(|c| f32::from_ne_bytes(*c))
-                .collect();
+            let emb: Vec<f32> = chunks.iter().map(|c| f32::from_ne_bytes(*c)).collect();
             Ok((id, emb))
         })
         .unwrap()

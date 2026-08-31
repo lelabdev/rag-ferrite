@@ -482,10 +482,7 @@ fn search_vector_brute_force(
     let mut scored: Vec<(i64, f64)> = Vec::new();
     for row in rows.collect::<rusqlite::Result<Vec<_>>>()? {
         let (chunks, _) = row.1.as_chunks::<4>();
-        let embedding: Vec<f32> = chunks
-            .iter()
-            .map(|c| f32::from_ne_bytes(*c))
-            .collect();
+        let embedding: Vec<f32> = chunks.iter().map(|c| f32::from_ne_bytes(*c)).collect();
         let sim = cosine_similarity(query_embedding, &embedding);
         scored.push((row.0, sim));
     }
