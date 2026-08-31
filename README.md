@@ -112,6 +112,27 @@ install -Dm755 target/release/ragfer ~/.local/bin/ragfer
 
 ---
 
+## Local code graph with Graphify
+
+The repository can maintain a local architecture graph with [Graphify](https://github.com/safishamsi/graphifyy).
+Generated files stay local in `graphify-out/` and are not committed.
+
+```bash
+# Install Graphify, then activate the repository hook once
+# (hooks are local to each clone)
+git config core.hooksPath .githooks
+
+# Refresh manually at any time
+graphify update .
+
+# Query the graph
+graphify query "How does ingestion connect to retrieval?"
+```
+
+The `post-commit` hook runs `graphify update .` after each commit. This incrementally refreshes the code graph; rerun the full `/graphify .` workflow when documentation or images change and their semantic layer must be regenerated.
+
+---
+
 ## Quick start
 
 This minimal configuration uses Ollama locally for embeddings and disables optional LLM processing.

@@ -276,6 +276,23 @@ mcp_servers:
 | Install | `curl \| bash` | Docker Compose | npm install | npm install |
 | Dependencies | Zero | Docker, Python, ChromaDB | Node.js | Node.js |
 
+## Local Graphify architecture graph
+
+Graphify can build a local, queryable architecture graph for the repository. Generated files are stored in `graphify-out/` and are intentionally not committed.
+
+```bash
+# Activate the versioned post-commit hook once per clone
+git config core.hooksPath .githooks
+
+# Incrementally refresh code relationships
+graphify update .
+
+# Query the graph
+graphify query "How does ingestion connect to retrieval?"
+```
+
+The `.githooks/post-commit` hook runs `graphify update .` after commits. It covers code changes incrementally; documentation or image changes require the full `/graphify .` workflow for semantic re-extraction.
+
 ## Links
 
 - GitHub: https://github.com/lelabdev/rag-ferrite
