@@ -280,9 +280,10 @@ fn test_full_hybrid_pipeline() {
         .query_map([], |row| {
             let id: i64 = row.get(0)?;
             let bytes: Vec<u8> = row.get(1)?;
-            let emb: Vec<f32> = bytes
-                .chunks_exact(4)
-                .map(|c| f32::from_ne_bytes([c[0], c[1], c[2], c[3]]))
+            let (chunks, _) = bytes.as_chunks::<4>();
+            let emb: Vec<f32> = chunks
+                .iter()
+                .map(|c| f32::from_ne_bytes(*c))
                 .collect();
             Ok((id, emb))
         })

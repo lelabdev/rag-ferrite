@@ -481,10 +481,10 @@ fn search_vector_brute_force(
     // Compute cosine similarity for each
     let mut scored: Vec<(i64, f64)> = Vec::new();
     for row in rows.collect::<rusqlite::Result<Vec<_>>>()? {
-        let embedding: Vec<f32> = row
-            .1
-            .chunks_exact(4)
-            .map(|c| f32::from_ne_bytes([c[0], c[1], c[2], c[3]]))
+        let (chunks, _) = row.1.as_chunks::<4>();
+        let embedding: Vec<f32> = chunks
+            .iter()
+            .map(|c| f32::from_ne_bytes(*c))
             .collect();
         let sim = cosine_similarity(query_embedding, &embedding);
         scored.push((row.0, sim));
