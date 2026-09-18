@@ -35,5 +35,5 @@ Decisions are documented as individual ADR files in `docs/adr/`.
 | ADR | Title | Issue |
 |-----|-------|-------|
 | [0009](adr/0009-delete-endpoint-uses-different-response-pattern.md) | DELETE endpoint uses different response pattern | #128 |
-| [0010](adr/0010-chunker-uses-vec<char>-indexing-not-char_indices.md) | Chunker uses Vec<char> indexing | #122 |
+| [0010](adr/0010-chunker-uses-vec-char-indexing-not-char-indices.md) | Chunker uses Vec<char> indexing | #122 |
 | [0011](adr/0011-http-graph-defaults-are-per-request-query-params.md) | HTTP graph defaults are per-request query params | #130 |
