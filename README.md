@@ -9,6 +9,7 @@ Give Claude Code, Hermes, Claude Desktop, and other MCP clients fast access to y
 
 [![Release](https://img.shields.io/github/v/release/lelabdev/rag-ferrite?label=release&color=cyan)](https://github.com/lelabdev/rag-ferrite/releases/latest)
 [![CI](https://github.com/lelabdev/rag-ferrite/actions/workflows/ci.yml/badge.svg)](https://github.com/lelabdev/rag-ferrite/actions/workflows/ci.yml)
+[![crates.io](https://img.shields.io/crates/v/ragfer?label=crates.io&color=orange)](https://crates.io/crates/ragfer)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](https://opensource.org/license/mit)
 
 **Hybrid retrieval · SQLite storage · Native MCP · Single Rust binary**
@@ -89,6 +90,14 @@ sudo pacman -S poppler
 ---
 
 ## Installation
+
+### From crates.io
+
+```bash
+cargo install ragfer
+```
+
+The crate is published on crates.io as [`ragfer`](https://crates.io/crates/ragfer), and it installs the `ragfer` command. The project itself keeps the name **rag-ferrite** — that is the name of the repository, the documentation and the website; `ragfer` is what you install and type.
 
 ### Download the latest release
 
