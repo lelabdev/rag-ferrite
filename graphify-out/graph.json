@@ -1650,7 +1650,7 @@
       "node_kind": "heading",
       "norm_label": "authentication",
       "source_file": "README.md",
-      "source_location": "L274"
+      "source_location": "L283"
     },
     {
       "id": "readme_build_from_source",
@@ -1662,7 +1662,7 @@
       "node_kind": "heading",
       "norm_label": "build from source",
       "source_file": "README.md",
-      "source_location": "L104"
+      "source_location": "L113"
     },
     {
       "id": "readme_cli",
@@ -1674,7 +1674,7 @@
       "node_kind": "heading",
       "norm_label": "cli",
       "source_file": "README.md",
-      "source_location": "L378"
+      "source_location": "L387"
     },
     {
       "id": "readme_configuration",
@@ -1686,7 +1686,7 @@
       "node_kind": "heading",
       "norm_label": "configuration",
       "source_file": "README.md",
-      "source_location": "L193"
+      "source_location": "L202"
     },
     {
       "id": "readme_connect_an_mcp_client",
@@ -1698,7 +1698,7 @@
       "node_kind": "heading",
       "norm_label": "connect an mcp client",
       "source_file": "README.md",
-      "source_location": "L302"
+      "source_location": "L311"
     },
     {
       "id": "readme_development",
@@ -1710,7 +1710,7 @@
       "node_kind": "heading",
       "norm_label": "development",
       "source_file": "README.md",
-      "source_location": "L633"
+      "source_location": "L642"
     },
     {
       "id": "readme_download_the_latest_release",
@@ -1722,7 +1722,7 @@
       "node_kind": "heading",
       "norm_label": "download the latest release",
       "source_file": "README.md",
-      "source_location": "L93"
+      "source_location": "L102"
     },
     {
       "id": "readme_features",
@@ -1734,7 +1734,19 @@
       "node_kind": "heading",
       "norm_label": "features",
       "source_file": "README.md",
-      "source_location": "L50"
+      "source_location": "L51"
+    },
+    {
+      "id": "readme_from_crates_io",
+      "label": "From crates.io",
+      "_origin": "ast",
+      "community": 1,
+      "community_name": "rag-ferrite",
+      "file_type": "document",
+      "node_kind": "heading",
+      "norm_label": "from crates.io",
+      "source_file": "README.md",
+      "source_location": "L94"
     },
     {
       "id": "readme_hosted_provider_example",
@@ -1746,7 +1758,7 @@
       "node_kind": "heading",
       "norm_label": "hosted provider example",
       "source_file": "README.md",
-      "source_location": "L203"
+      "source_location": "L212"
     },
     {
       "id": "readme_important_advanced_settings",
@@ -1758,7 +1770,7 @@
       "node_kind": "heading",
       "norm_label": "important advanced settings",
       "source_file": "README.md",
-      "source_location": "L256"
+      "source_location": "L265"
     },
     {
       "id": "readme_ingestion_and_administration",
@@ -1770,7 +1782,7 @@
       "node_kind": "heading",
       "norm_label": "ingestion and administration",
       "source_file": "README.md",
-      "source_location": "L361"
+      "source_location": "L370"
     },
     {
       "id": "readme_ingestion_model",
@@ -1782,7 +1794,7 @@
       "node_kind": "heading",
       "norm_label": "ingestion model",
       "source_file": "README.md",
-      "source_location": "L530"
+      "source_location": "L539"
     },
     {
       "id": "readme_installation",
@@ -1794,7 +1806,7 @@
       "node_kind": "heading",
       "norm_label": "installation",
       "source_file": "README.md",
-      "source_location": "L91"
+      "source_location": "L92"
     },
     {
       "id": "readme_license",
@@ -1806,7 +1818,7 @@
       "node_kind": "heading",
       "norm_label": "license",
       "source_file": "README.md",
-      "source_location": "L655"
+      "source_location": "L664"
     },
     {
       "id": "readme_local_code_graph_with_graphify",
@@ -1818,7 +1830,7 @@
       "node_kind": "heading",
       "norm_label": "local code graph with graphify",
       "source_file": "README.md",
-      "source_location": "L115"
+      "source_location": "L124"
     },
     {
       "id": "readme_mcp_tools",
@@ -1830,7 +1842,7 @@
       "node_kind": "heading",
       "norm_label": "mcp tools",
       "source_file": "README.md",
-      "source_location": "L346"
+      "source_location": "L355"
     },
     {
       "id": "readme_optional_web_console",
@@ -1842,7 +1854,7 @@
       "node_kind": "heading",
       "norm_label": "optional web console",
       "source_file": "README.md",
-      "source_location": "L456"
+      "source_location": "L465"
     },
     {
       "id": "readme_overview",
@@ -1854,7 +1866,7 @@
       "node_kind": "heading",
       "norm_label": "overview",
       "source_file": "README.md",
-      "source_location": "L20"
+      "source_location": "L21"
     },
     {
       "id": "readme_quick_start",
@@ -1866,7 +1878,7 @@
       "node_kind": "heading",
       "norm_label": "quick start",
       "source_file": "README.md",
-      "source_location": "L135"
+      "source_location": "L144"
     },
     {
       "id": "readme_rag_ferrite",
@@ -1890,7 +1902,7 @@
       "node_kind": "heading",
       "norm_label": "requirements",
       "source_file": "README.md",
-      "source_location": "L69"
+      "source_location": "L70"
     },
     {
       "id": "readme_rest_api",
@@ -1902,7 +1914,7 @@
       "node_kind": "heading",
       "norm_label": "rest api",
       "source_file": "README.md",
-      "source_location": "L477"
+      "source_location": "L486"
     },
     {
       "id": "readme_retrieval_and_inspection",
@@ -1914,7 +1926,7 @@
       "node_kind": "heading",
       "norm_label": "retrieval and inspection",
       "source_file": "README.md",
-      "source_location": "L348"
+      "source_location": "L357"
     },
     {
       "id": "readme_retrieval_benchmarks",
@@ -1926,7 +1938,7 @@
       "node_kind": "heading",
       "norm_label": "retrieval benchmarks",
       "source_file": "README.md",
-      "source_location": "L584"
+      "source_location": "L593"
     },
     {
       "id": "readme_retrieval_model",
@@ -1938,7 +1950,7 @@
       "node_kind": "heading",
       "norm_label": "retrieval model",
       "source_file": "README.md",
-      "source_location": "L557"
+      "source_location": "L566"
     },
     {
       "id": "readme_scope",
@@ -1950,7 +1962,7 @@
       "node_kind": "heading",
       "norm_label": "scope",
       "source_file": "README.md",
-      "source_location": "L647"
+      "source_location": "L656"
     },
     {
       "id": "readme_stdio",
@@ -1962,7 +1974,7 @@
       "node_kind": "heading",
       "norm_label": "stdio",
       "source_file": "README.md",
-      "source_location": "L323"
+      "source_location": "L332"
     },
     {
       "id": "readme_storage_and_architecture",
@@ -1974,7 +1986,7 @@
       "node_kind": "heading",
       "norm_label": "storage and architecture",
       "source_file": "README.md",
-      "source_location": "L611"
+      "source_location": "L620"
     },
     {
       "id": "readme_streamable_http",
@@ -1986,7 +1998,7 @@
       "node_kind": "heading",
       "norm_label": "streamable http",
       "source_file": "README.md",
-      "source_location": "L304"
+      "source_location": "L313"
     },
     {
       "id": "readme_terminal_ui",
@@ -1998,7 +2010,7 @@
       "node_kind": "heading",
       "norm_label": "terminal ui",
       "source_file": "README.md",
-      "source_location": "L433"
+      "source_location": "L442"
     },
     {
       "id": "readme_why_use_it",
@@ -2010,7 +2022,18 @@
       "node_kind": "heading",
       "norm_label": "why use it?",
       "source_file": "README.md",
-      "source_location": "L39"
+      "source_location": "L40"
+    },
+    {
+      "id": "atomicu64",
+      "label": "AtomicU64",
+      "_origin": "ast",
+      "community": 10,
+      "community_name": "pipeline.rs",
+      "file_type": "code",
+      "norm_label": "atomicu64",
+      "source_file": "",
+      "source_location": ""
     },
     {
       "id": "src_pipeline",
@@ -2112,6 +2135,17 @@
       "source_location": "L58"
     },
     {
+      "id": "src_pipeline_cache_version",
+      "label": "CACHE_VERSION",
+      "_origin": "ast",
+      "community": 10,
+      "community_name": "pipeline.rs",
+      "file_type": "code",
+      "norm_label": "cache_version",
+      "source_file": "src/pipeline.rs",
+      "source_location": "L8"
+    },
+    {
       "id": "src_pipeline_canonical_filter_key",
       "label": "canonical_filter_key()",
       "_origin": "ast",
@@ -2167,6 +2201,17 @@
       "source_location": "L404"
     },
     {
+      "id": "src_pipeline_expansion_word_threshold",
+      "label": "EXPANSION_WORD_THRESHOLD",
+      "_origin": "ast",
+      "community": 10,
+      "community_name": "pipeline.rs",
+      "file_type": "code",
+      "norm_label": "expansion_word_threshold",
+      "source_file": "src/pipeline.rs",
+      "source_location": "L133"
+    },
+    {
       "id": "src_pipeline_invalidate_cache",
       "label": "invalidate_cache()",
       "_origin": "ast",
@@ -2198,17 +2243,6 @@
       "norm_label": "queryoutput",
       "source_file": "src/pipeline.rs",
       "source_location": "L193"
-    },
-    {
-      "id": "src_pipeline_querypipeline",
-      "label": "QueryPipeline",
-      "_origin": "ast",
-      "community": 10,
-      "community_name": "pipeline.rs",
-      "file_type": "code",
-      "norm_label": "querypipeline",
-      "source_file": "src/pipeline.rs",
-      "source_location": "L137"
     },
     {
       "id": "src_pipeline_querypipeline_clone",
@@ -2275,28 +2309,6 @@
       "norm_label": ".query_standard()",
       "source_file": "src/pipeline.rs",
       "source_location": "L275"
-    },
-    {
-      "id": "src_pipeline_rs_arc",
-      "label": "Arc",
-      "_origin": "ast",
-      "community": 10,
-      "community_name": "pipeline.rs",
-      "file_type": "code",
-      "norm_label": "arc",
-      "source_file": "",
-      "source_location": ""
-    },
-    {
-      "id": "src_pipeline_rs_clone",
-      "label": "Clone",
-      "_origin": "ast",
-      "community": 10,
-      "community_name": "pipeline.rs",
-      "file_type": "code",
-      "norm_label": "clone",
-      "source_file": "",
-      "source_location": ""
     },
     {
       "id": "src_pipeline_rs_hashmap",
@@ -2506,6 +2518,17 @@
       "norm_label": "test_standard_queries()",
       "source_file": "src/pipeline.rs",
       "source_location": "L417"
+    },
+    {
+      "id": "src_types_searchfilter",
+      "label": "SearchFilter",
+      "_origin": "ast",
+      "community": 10,
+      "community_name": "pipeline.rs",
+      "file_type": "code",
+      "norm_label": "searchfilter",
+      "source_file": "src/types.rs",
+      "source_location": "L83"
     },
     {
       "id": "docs_adr_0007_no_external_vector_databases",
@@ -3186,6 +3209,17 @@
       "source_location": ""
     },
     {
+      "id": "src_tag_rules_rs_oncelock",
+      "label": "OnceLock",
+      "_origin": "ast",
+      "community": 13,
+      "community_name": "tag_rules.rs",
+      "file_type": "code",
+      "norm_label": "oncelock",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
       "id": "src_tag_rules_rs_result",
       "label": "Result",
       "_origin": "ast",
@@ -3272,6 +3306,17 @@
       "norm_label": ".default()",
       "source_file": "src/tag_rules.rs",
       "source_location": "L74"
+    },
+    {
+      "id": "src_tag_rules_tag_rules",
+      "label": "TAG_RULES",
+      "_origin": "ast",
+      "community": 13,
+      "community_name": "tag_rules.rs",
+      "file_type": "code",
+      "norm_label": "tag_rules",
+      "source_file": "src/tag_rules.rs",
+      "source_location": "L96"
     },
     {
       "id": "src_tag_rules_tagrules",
@@ -3578,6 +3623,17 @@
       "source_location": "L276"
     },
     {
+      "id": "src_engine_heat_collection_decay_fallback",
+      "label": "COLLECTION_DECAY_FALLBACK",
+      "_origin": "ast",
+      "community": 15,
+      "community_name": "heat.rs",
+      "file_type": "code",
+      "norm_label": "collection_decay_fallback",
+      "source_file": "src/engine/heat.rs",
+      "source_location": "L26"
+    },
+    {
       "id": "src_engine_heat_collectionheat",
       "label": "CollectionHeat",
       "_origin": "ast",
@@ -3620,6 +3676,17 @@
       "norm_label": "flush_and_decay()",
       "source_file": "src/engine/heat.rs",
       "source_location": "L133"
+    },
+    {
+      "id": "src_engine_heat_flush_interval_secs",
+      "label": "FLUSH_INTERVAL_SECS",
+      "_origin": "ast",
+      "community": 15,
+      "community_name": "heat.rs",
+      "file_type": "code",
+      "norm_label": "flush_interval_secs",
+      "source_file": "src/engine/heat.rs",
+      "source_location": "L21"
     },
     {
       "id": "src_engine_heat_get_all_heat",
@@ -4858,6 +4925,39 @@
       "source_location": ""
     },
     {
+      "id": "src_pipeline_querypipeline",
+      "label": "QueryPipeline",
+      "_origin": "ast",
+      "community": 2,
+      "community_name": "ingestion.rs",
+      "file_type": "code",
+      "norm_label": "querypipeline",
+      "source_file": "src/pipeline.rs",
+      "source_location": "L137"
+    },
+    {
+      "id": "src_pipeline_rs_arc",
+      "label": "Arc",
+      "_origin": "ast",
+      "community": 2,
+      "community_name": "ingestion.rs",
+      "file_type": "code",
+      "norm_label": "arc",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "src_pipeline_rs_clone",
+      "label": "Clone",
+      "_origin": "ast",
+      "community": 2,
+      "community_name": "ingestion.rs",
+      "file_type": "code",
+      "norm_label": "clone",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
       "id": "docs_changelog",
       "label": "CHANGELOG.md",
       "_origin": "ast",
@@ -5224,26 +5324,26 @@
       "source_location": "L240"
     },
     {
-      "id": "src_config_default_model",
-      "label": "default_model()",
+      "id": "src_config_default_boolean_operators",
+      "label": "default_boolean_operators()",
       "_origin": "ast",
       "community": 21,
       "community_name": "String",
       "file_type": "code",
-      "norm_label": "default_model()",
+      "norm_label": "default_boolean_operators()",
       "source_file": "src/config.rs",
-      "source_location": "L283"
+      "source_location": "L154"
     },
     {
-      "id": "src_config_default_provider",
-      "label": "default_provider()",
+      "id": "src_config_default_complex_word_threshold",
+      "label": "default_complex_word_threshold()",
       "_origin": "ast",
       "community": 21,
       "community_name": "String",
       "file_type": "code",
-      "norm_label": "default_provider()",
+      "norm_label": "default_complex_word_threshold()",
       "source_file": "src/config.rs",
-      "source_location": "L279"
+      "source_location": "L217"
     },
     {
       "id": "src_config_default_question_markers",
@@ -5257,6 +5357,17 @@
       "source_location": "L130"
     },
     {
+      "id": "src_config_default_simple_word_threshold",
+      "label": "default_simple_word_threshold()",
+      "_origin": "ast",
+      "community": 21,
+      "community_name": "String",
+      "file_type": "code",
+      "norm_label": "default_simple_word_threshold()",
+      "source_file": "src/config.rs",
+      "source_location": "L220"
+    },
+    {
       "id": "src_config_embeddingconfig",
       "label": "EmbeddingConfig",
       "_origin": "ast",
@@ -5266,17 +5377,6 @@
       "norm_label": "embeddingconfig",
       "source_file": "src/config.rs",
       "source_location": "L253"
-    },
-    {
-      "id": "src_config_embeddingconfig_default",
-      "label": ".default()",
-      "_origin": "ast",
-      "community": 21,
-      "community_name": "String",
-      "file_type": "code",
-      "norm_label": ".default()",
-      "source_file": "src/config.rs",
-      "source_location": "L288"
     },
     {
       "id": "src_config_fallbackllmconfig",
@@ -5332,6 +5432,17 @@
       "norm_label": "queryclassificationconfig",
       "source_file": "src/config.rs",
       "source_location": "L101"
+    },
+    {
+      "id": "src_config_queryclassificationconfig_default",
+      "label": ".default()",
+      "_origin": "ast",
+      "community": 21,
+      "community_name": "String",
+      "file_type": "code",
+      "norm_label": ".default()",
+      "source_file": "src/config.rs",
+      "source_location": "L120"
     },
     {
       "id": "src_config_queryclassificationdictionary",
@@ -5411,17 +5522,6 @@
       "source_location": ""
     },
     {
-      "id": "src_config_chunkingconfig_default",
-      "label": ".default()",
-      "_origin": "ast",
-      "community": 22,
-      "community_name": "Self",
-      "file_type": "code",
-      "norm_label": ".default()",
-      "source_file": "src/config.rs",
-      "source_location": "L578"
-    },
-    {
       "id": "src_config_config_default",
       "label": ".default()",
       "_origin": "ast",
@@ -5444,70 +5544,81 @@
       "source_location": "L821"
     },
     {
-      "id": "src_config_default_auto_threshold",
-      "label": "default_auto_threshold()",
+      "id": "src_config_default_model",
+      "label": "default_model()",
       "_origin": "ast",
       "community": 22,
       "community_name": "Self",
       "file_type": "code",
-      "norm_label": "default_auto_threshold()",
+      "norm_label": "default_model()",
       "source_file": "src/config.rs",
-      "source_location": "L573"
+      "source_location": "L283"
     },
     {
-      "id": "src_config_default_child_max_chars",
-      "label": "default_child_max_chars()",
+      "id": "src_config_default_provider",
+      "label": "default_provider()",
       "_origin": "ast",
       "community": 22,
       "community_name": "Self",
       "file_type": "code",
-      "norm_label": "default_child_max_chars()",
+      "norm_label": "default_provider()",
       "source_file": "src/config.rs",
-      "source_location": "L564"
+      "source_location": "L279"
     },
     {
-      "id": "src_config_default_child_min_chars",
-      "label": "default_child_min_chars()",
+      "id": "src_config_default_rerank_preview_chars",
+      "label": "default_rerank_preview_chars()",
       "_origin": "ast",
       "community": 22,
       "community_name": "Self",
       "file_type": "code",
-      "norm_label": "default_child_min_chars()",
+      "norm_label": "default_rerank_preview_chars()",
       "source_file": "src/config.rs",
-      "source_location": "L570"
+      "source_location": "L514"
     },
     {
-      "id": "src_config_default_child_overlap",
-      "label": "default_child_overlap()",
+      "id": "src_config_default_rerank_top_k",
+      "label": "default_rerank_top_k()",
       "_origin": "ast",
       "community": 22,
       "community_name": "Self",
       "file_type": "code",
-      "norm_label": "default_child_overlap()",
+      "norm_label": "default_rerank_top_k()",
       "source_file": "src/config.rs",
-      "source_location": "L567"
+      "source_location": "L511"
     },
     {
-      "id": "src_config_default_chunking_strategy",
-      "label": "default_chunking_strategy()",
+      "id": "src_config_default_reranker_type",
+      "label": "default_reranker_type()",
       "_origin": "ast",
       "community": 22,
       "community_name": "Self",
       "file_type": "code",
-      "norm_label": "default_chunking_strategy()",
+      "norm_label": "default_reranker_type()",
       "source_file": "src/config.rs",
-      "source_location": "L558"
+      "source_location": "L508"
     },
     {
-      "id": "src_config_default_parent_max_chars",
-      "label": "default_parent_max_chars()",
+      "id": "src_config_embeddingconfig_default",
+      "label": ".default()",
       "_origin": "ast",
       "community": 22,
       "community_name": "Self",
       "file_type": "code",
-      "norm_label": "default_parent_max_chars()",
+      "norm_label": ".default()",
       "source_file": "src/config.rs",
-      "source_location": "L561"
+      "source_location": "L288"
+    },
+    {
+      "id": "src_config_rerankerconfig_default",
+      "label": ".default()",
+      "_origin": "ast",
+      "community": 22,
+      "community_name": "Self",
+      "file_type": "code",
+      "norm_label": ".default()",
+      "source_file": "src/config.rs",
+      "source_location": "L519"
     },
     {
       "id": "src_config_rs_result",
@@ -5563,17 +5674,6 @@
       "norm_label": "test_default_reranker_config()",
       "source_file": "src/config.rs",
       "source_location": "L918"
-    },
-    {
-      "id": "oncelock",
-      "label": "OnceLock",
-      "_origin": "ast",
-      "community": 23,
-      "community_name": "EmbeddingProvider",
-      "file_type": "code",
-      "norm_label": "oncelock",
-      "source_file": "",
-      "source_location": ""
     },
     {
       "id": "src_embedding",
@@ -5818,6 +5918,17 @@
       "source_location": ""
     },
     {
+      "id": "src_embedding_rs_oncelock",
+      "label": "OnceLock",
+      "_origin": "ast",
+      "community": 23,
+      "community_name": "EmbeddingProvider",
+      "file_type": "code",
+      "norm_label": "oncelock",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
       "id": "src_embedding_rs_option",
       "label": "Option",
       "_origin": "ast",
@@ -5882,6 +5993,17 @@
       "norm_label": "activity_log.rs",
       "source_file": "src/engine/activity_log.rs",
       "source_location": "L1"
+    },
+    {
+      "id": "src_engine_activity_log_activity_log",
+      "label": "ACTIVITY_LOG",
+      "_origin": "ast",
+      "community": 24,
+      "community_name": "activity_log.rs",
+      "file_type": "code",
+      "norm_label": "activity_log",
+      "source_file": "src/engine/activity_log.rs",
+      "source_location": "L25"
     },
     {
       "id": "src_engine_activity_log_activityevent",
@@ -5950,6 +6072,17 @@
       "source_location": "L27"
     },
     {
+      "id": "src_engine_activity_log_max_events",
+      "label": "MAX_EVENTS",
+      "_origin": "ast",
+      "community": 24,
+      "community_name": "activity_log.rs",
+      "file_type": "code",
+      "norm_label": "max_events",
+      "source_file": "src/engine/activity_log.rs",
+      "source_location": "L6"
+    },
+    {
       "id": "src_engine_activity_log_push",
       "label": "push()",
       "_origin": "ast",
@@ -5968,6 +6101,17 @@
       "community_name": "activity_log.rs",
       "file_type": "code",
       "norm_label": "mutex",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "src_engine_activity_log_rs_oncelock",
+      "label": "OnceLock",
+      "_origin": "ast",
+      "community": 24,
+      "community_name": "activity_log.rs",
+      "file_type": "code",
+      "norm_label": "oncelock",
       "source_file": "",
       "source_location": ""
     },
@@ -6364,6 +6508,17 @@
       "source_location": "L89"
     },
     {
+      "id": "src_engine_chunk_heat_flush_interval_secs",
+      "label": "FLUSH_INTERVAL_SECS",
+      "_origin": "ast",
+      "community": 27,
+      "community_name": "service.rs",
+      "file_type": "code",
+      "norm_label": "flush_interval_secs",
+      "source_file": "src/engine/chunk_heat.rs",
+      "source_location": "L13"
+    },
+    {
       "id": "src_engine_chunk_heat_rs_default",
       "label": "Default",
       "_origin": "ast",
@@ -6683,40 +6838,7 @@
       "source_location": "L365"
     },
     {
-      "id": "src_config_default_boolean_operators",
-      "label": "default_boolean_operators()",
-      "_origin": "ast",
-      "community": 28,
-      "community_name": ".default",
-      "file_type": "code",
-      "norm_label": "default_boolean_operators()",
-      "source_file": "src/config.rs",
-      "source_location": "L154"
-    },
-    {
-      "id": "src_config_default_complex_word_threshold",
-      "label": "default_complex_word_threshold()",
-      "_origin": "ast",
-      "community": 28,
-      "community_name": ".default",
-      "file_type": "code",
-      "norm_label": "default_complex_word_threshold()",
-      "source_file": "src/config.rs",
-      "source_location": "L217"
-    },
-    {
-      "id": "src_config_default_simple_word_threshold",
-      "label": "default_simple_word_threshold()",
-      "_origin": "ast",
-      "community": 28,
-      "community_name": ".default",
-      "file_type": "code",
-      "norm_label": "default_simple_word_threshold()",
-      "source_file": "src/config.rs",
-      "source_location": "L220"
-    },
-    {
-      "id": "src_config_queryclassificationconfig_default",
+      "id": "src_config_chunkingconfig_default",
       "label": ".default()",
       "_origin": "ast",
       "community": 28,
@@ -6724,7 +6846,73 @@
       "file_type": "code",
       "norm_label": ".default()",
       "source_file": "src/config.rs",
-      "source_location": "L120"
+      "source_location": "L578"
+    },
+    {
+      "id": "src_config_default_auto_threshold",
+      "label": "default_auto_threshold()",
+      "_origin": "ast",
+      "community": 28,
+      "community_name": ".default",
+      "file_type": "code",
+      "norm_label": "default_auto_threshold()",
+      "source_file": "src/config.rs",
+      "source_location": "L573"
+    },
+    {
+      "id": "src_config_default_child_max_chars",
+      "label": "default_child_max_chars()",
+      "_origin": "ast",
+      "community": 28,
+      "community_name": ".default",
+      "file_type": "code",
+      "norm_label": "default_child_max_chars()",
+      "source_file": "src/config.rs",
+      "source_location": "L564"
+    },
+    {
+      "id": "src_config_default_child_min_chars",
+      "label": "default_child_min_chars()",
+      "_origin": "ast",
+      "community": 28,
+      "community_name": ".default",
+      "file_type": "code",
+      "norm_label": "default_child_min_chars()",
+      "source_file": "src/config.rs",
+      "source_location": "L570"
+    },
+    {
+      "id": "src_config_default_child_overlap",
+      "label": "default_child_overlap()",
+      "_origin": "ast",
+      "community": 28,
+      "community_name": ".default",
+      "file_type": "code",
+      "norm_label": "default_child_overlap()",
+      "source_file": "src/config.rs",
+      "source_location": "L567"
+    },
+    {
+      "id": "src_config_default_chunking_strategy",
+      "label": "default_chunking_strategy()",
+      "_origin": "ast",
+      "community": 28,
+      "community_name": ".default",
+      "file_type": "code",
+      "norm_label": "default_chunking_strategy()",
+      "source_file": "src/config.rs",
+      "source_location": "L558"
+    },
+    {
+      "id": "src_config_default_parent_max_chars",
+      "label": "default_parent_max_chars()",
+      "_origin": "ast",
+      "community": 28,
+      "community_name": ".default",
+      "file_type": "code",
+      "norm_label": "default_parent_max_chars()",
+      "source_file": "src/config.rs",
+      "source_location": "L561"
     },
     {
       "id": "src_engine_history",
@@ -6749,6 +6937,17 @@
       "source_location": "L11"
     },
     {
+      "id": "src_engine_history_history",
+      "label": "HISTORY",
+      "_origin": "ast",
+      "community": 29,
+      "community_name": "history.rs",
+      "file_type": "code",
+      "norm_label": "history",
+      "source_file": "src/engine/history.rs",
+      "source_location": "L26"
+    },
+    {
       "id": "src_engine_history_history_instance",
       "label": "history_instance()",
       "_origin": "ast",
@@ -6758,6 +6957,17 @@
       "norm_label": "history_instance()",
       "source_file": "src/engine/history.rs",
       "source_location": "L29"
+    },
+    {
+      "id": "src_engine_history_max_history",
+      "label": "MAX_HISTORY",
+      "_origin": "ast",
+      "community": 29,
+      "community_name": "history.rs",
+      "file_type": "code",
+      "norm_label": "max_history",
+      "source_file": "src/engine/history.rs",
+      "source_location": "L7"
     },
     {
       "id": "src_engine_history_push",
@@ -6778,6 +6988,17 @@
       "community_name": "history.rs",
       "file_type": "code",
       "norm_label": "mutex",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "src_engine_history_rs_oncelock",
+      "label": "OnceLock",
+      "_origin": "ast",
+      "community": 29,
+      "community_name": "history.rs",
+      "file_type": "code",
+      "norm_label": "oncelock",
       "source_file": "",
       "source_location": ""
     },
@@ -6830,7 +7051,7 @@
       "label": "C",
       "_origin": "ast",
       "community": 3,
-      "community_name": "get_conn",
+      "community_name": "sqlite.rs",
       "file_type": "code",
       "norm_label": "c",
       "source_file": "",
@@ -6841,207 +7062,9 @@
       "label": "HashSet",
       "_origin": "ast",
       "community": 3,
-      "community_name": "get_conn",
+      "community_name": "sqlite.rs",
       "file_type": "code",
       "norm_label": "hashset",
-      "source_file": "",
-      "source_location": ""
-    },
-    {
-      "id": "mutexguard",
-      "label": "MutexGuard",
-      "_origin": "ast",
-      "community": 3,
-      "community_name": "get_conn",
-      "file_type": "code",
-      "norm_label": "mutexguard",
-      "source_file": "",
-      "source_location": ""
-    },
-    {
-      "id": "src_engine_mod_get_conn",
-      "label": "get_conn()",
-      "_origin": "ast",
-      "community": 3,
-      "community_name": "get_conn",
-      "file_type": "code",
-      "norm_label": "get_conn()",
-      "source_file": "src/engine/mod.rs",
-      "source_location": "L54"
-    },
-    {
-      "id": "src_engine_query",
-      "label": "query.rs",
-      "_origin": "ast",
-      "community": 3,
-      "community_name": "get_conn",
-      "file_type": "code",
-      "norm_label": "query.rs",
-      "source_file": "src/engine/query.rs",
-      "source_location": "L1"
-    },
-    {
-      "id": "src_engine_query_count_chunks_per_source",
-      "label": "count_chunks_per_source()",
-      "_origin": "ast",
-      "community": 3,
-      "community_name": "get_conn",
-      "file_type": "code",
-      "norm_label": "count_chunks_per_source()",
-      "source_file": "src/engine/query.rs",
-      "source_location": "L152"
-    },
-    {
-      "id": "src_engine_query_delete_source",
-      "label": "delete_source()",
-      "_origin": "ast",
-      "community": 3,
-      "community_name": "get_conn",
-      "file_type": "code",
-      "norm_label": "delete_source()",
-      "source_file": "src/engine/query.rs",
-      "source_location": "L115"
-    },
-    {
-      "id": "src_engine_query_get_neighbors",
-      "label": "get_neighbors()",
-      "_origin": "ast",
-      "community": 3,
-      "community_name": "get_conn",
-      "file_type": "code",
-      "norm_label": "get_neighbors()",
-      "source_file": "src/engine/query.rs",
-      "source_location": "L87"
-    },
-    {
-      "id": "src_engine_query_get_pages_for_chunk_ids",
-      "label": "get_pages_for_chunk_ids()",
-      "_origin": "ast",
-      "community": 3,
-      "community_name": "get_conn",
-      "file_type": "code",
-      "norm_label": "get_pages_for_chunk_ids()",
-      "source_file": "src/engine/query.rs",
-      "source_location": "L44"
-    },
-    {
-      "id": "src_engine_query_get_section_paths_for_chunk_ids",
-      "label": "get_section_paths_for_chunk_ids()",
-      "_origin": "ast",
-      "community": 3,
-      "community_name": "get_conn",
-      "file_type": "code",
-      "norm_label": "get_section_paths_for_chunk_ids()",
-      "source_file": "src/engine/query.rs",
-      "source_location": "L13"
-    },
-    {
-      "id": "src_engine_query_get_source_names",
-      "label": "get_source_names()",
-      "_origin": "ast",
-      "community": 3,
-      "community_name": "get_conn",
-      "file_type": "code",
-      "norm_label": "get_source_names()",
-      "source_file": "src/engine/query.rs",
-      "source_location": "L73"
-    },
-    {
-      "id": "src_engine_query_in_placeholders",
-      "label": "in_placeholders()",
-      "_origin": "ast",
-      "community": 3,
-      "community_name": "get_conn",
-      "file_type": "code",
-      "norm_label": "in_placeholders()",
-      "source_file": "src/engine/query.rs",
-      "source_location": "L8"
-    },
-    {
-      "id": "src_engine_query_list_sources",
-      "label": "list_sources()",
-      "_origin": "ast",
-      "community": 3,
-      "community_name": "get_conn",
-      "file_type": "code",
-      "norm_label": "list_sources()",
-      "source_file": "src/engine/query.rs",
-      "source_location": "L126"
-    },
-    {
-      "id": "src_engine_query_parentinfo",
-      "label": "ParentInfo",
-      "_origin": "ast",
-      "community": 3,
-      "community_name": "get_conn",
-      "file_type": "code",
-      "norm_label": "parentinfo",
-      "source_file": "src/engine/query.rs",
-      "source_location": "L165"
-    },
-    {
-      "id": "src_engine_query_resolve_parents",
-      "label": "resolve_parents()",
-      "_origin": "ast",
-      "community": 3,
-      "community_name": "get_conn",
-      "file_type": "code",
-      "norm_label": "resolve_parents()",
-      "source_file": "src/engine/query.rs",
-      "source_location": "L174"
-    },
-    {
-      "id": "src_engine_query_rs_hashmap",
-      "label": "HashMap",
-      "_origin": "ast",
-      "community": 3,
-      "community_name": "get_conn",
-      "file_type": "code",
-      "norm_label": "hashmap",
-      "source_file": "",
-      "source_location": ""
-    },
-    {
-      "id": "src_engine_query_rs_option",
-      "label": "Option",
-      "_origin": "ast",
-      "community": 3,
-      "community_name": "get_conn",
-      "file_type": "code",
-      "norm_label": "option",
-      "source_file": "",
-      "source_location": ""
-    },
-    {
-      "id": "src_engine_query_rs_result",
-      "label": "Result",
-      "_origin": "ast",
-      "community": 3,
-      "community_name": "get_conn",
-      "file_type": "code",
-      "norm_label": "result",
-      "source_file": "",
-      "source_location": ""
-    },
-    {
-      "id": "src_engine_query_rs_string",
-      "label": "String",
-      "_origin": "ast",
-      "community": 3,
-      "community_name": "get_conn",
-      "file_type": "code",
-      "norm_label": "string",
-      "source_file": "",
-      "source_location": ""
-    },
-    {
-      "id": "src_engine_query_rs_vec",
-      "label": "Vec",
-      "_origin": "ast",
-      "community": 3,
-      "community_name": "get_conn",
-      "file_type": "code",
-      "norm_label": "vec",
       "source_file": "",
       "source_location": ""
     },
@@ -7050,7 +7073,7 @@
       "label": "storage/mod.rs",
       "_origin": "ast",
       "community": 3,
-      "community_name": "get_conn",
+      "community_name": "sqlite.rs",
       "file_type": "code",
       "norm_label": "storage/mod.rs",
       "source_file": "src/storage/mod.rs",
@@ -7061,7 +7084,7 @@
       "label": "sqlite.rs",
       "_origin": "ast",
       "community": 3,
-      "community_name": "get_conn",
+      "community_name": "sqlite.rs",
       "file_type": "code",
       "norm_label": "sqlite.rs",
       "source_file": "src/storage/sqlite.rs",
@@ -7072,7 +7095,7 @@
       "label": "add_chunk_to_indexes()",
       "_origin": "ast",
       "community": 3,
-      "community_name": "get_conn",
+      "community_name": "sqlite.rs",
       "file_type": "code",
       "norm_label": "add_chunk_to_indexes()",
       "source_file": "src/storage/sqlite.rs",
@@ -7083,7 +7106,7 @@
       "label": "add_chunks()",
       "_origin": "ast",
       "community": 3,
-      "community_name": "get_conn",
+      "community_name": "sqlite.rs",
       "file_type": "code",
       "norm_label": "add_chunks()",
       "source_file": "src/storage/sqlite.rs",
@@ -7094,7 +7117,7 @@
       "label": "add_source_in_collection()",
       "_origin": "ast",
       "community": 3,
-      "community_name": "get_conn",
+      "community_name": "sqlite.rs",
       "file_type": "code",
       "norm_label": "add_source_in_collection()",
       "source_file": "src/storage/sqlite.rs",
@@ -7105,7 +7128,7 @@
       "label": "add_to_fts_index()",
       "_origin": "ast",
       "community": 3,
-      "community_name": "get_conn",
+      "community_name": "sqlite.rs",
       "file_type": "code",
       "norm_label": "add_to_fts_index()",
       "source_file": "src/storage/sqlite.rs",
@@ -7116,7 +7139,7 @@
       "label": "AddSourceResult",
       "_origin": "ast",
       "community": 3,
-      "community_name": "get_conn",
+      "community_name": "sqlite.rs",
       "file_type": "code",
       "norm_label": "addsourceresult",
       "source_file": "src/storage/sqlite.rs",
@@ -7127,7 +7150,7 @@
       "label": "build_filter_clause()",
       "_origin": "ast",
       "community": 3,
-      "community_name": "get_conn",
+      "community_name": "sqlite.rs",
       "file_type": "code",
       "norm_label": "build_filter_clause()",
       "source_file": "src/storage/sqlite.rs",
@@ -7138,7 +7161,7 @@
       "label": "content_hash_is_stable_sha256()",
       "_origin": "ast",
       "community": 3,
-      "community_name": "get_conn",
+      "community_name": "sqlite.rs",
       "file_type": "code",
       "norm_label": "content_hash_is_stable_sha256()",
       "source_file": "src/storage/sqlite.rs",
@@ -7149,18 +7172,29 @@
       "label": "cosine_similarity()",
       "_origin": "ast",
       "community": 3,
-      "community_name": "get_conn",
+      "community_name": "sqlite.rs",
       "file_type": "code",
       "norm_label": "cosine_similarity()",
       "source_file": "src/storage/sqlite.rs",
       "source_location": "L697"
     },
     {
+      "id": "src_storage_sqlite_default_collection_id",
+      "label": "DEFAULT_COLLECTION_ID",
+      "_origin": "ast",
+      "community": 3,
+      "community_name": "sqlite.rs",
+      "file_type": "code",
+      "norm_label": "default_collection_id",
+      "source_file": "src/storage/sqlite.rs",
+      "source_location": "L6"
+    },
+    {
       "id": "src_storage_sqlite_delete_source",
       "label": "delete_source()",
       "_origin": "ast",
       "community": 3,
-      "community_name": "get_conn",
+      "community_name": "sqlite.rs",
       "file_type": "code",
       "norm_label": "delete_source()",
       "source_file": "src/storage/sqlite.rs",
@@ -7171,7 +7205,7 @@
       "label": "filtered_candidates_preserve_matches_outside_initial_window()",
       "_origin": "ast",
       "community": 3,
-      "community_name": "get_conn",
+      "community_name": "sqlite.rs",
       "file_type": "code",
       "norm_label": "filtered_candidates_preserve_matches_outside_initial_window()",
       "source_file": "src/storage/sqlite.rs",
@@ -7182,7 +7216,7 @@
       "label": "filtered_ids_for_filter()",
       "_origin": "ast",
       "community": 3,
-      "community_name": "get_conn",
+      "community_name": "sqlite.rs",
       "file_type": "code",
       "norm_label": "filtered_ids_for_filter()",
       "source_file": "src/storage/sqlite.rs",
@@ -7193,7 +7227,7 @@
       "label": "filtered_ids_use_the_existing_connection()",
       "_origin": "ast",
       "community": 3,
-      "community_name": "get_conn",
+      "community_name": "sqlite.rs",
       "file_type": "code",
       "norm_label": "filtered_ids_use_the_existing_connection()",
       "source_file": "src/storage/sqlite.rs",
@@ -7204,7 +7238,7 @@
       "label": "get_adjacent_chunks()",
       "_origin": "ast",
       "community": 3,
-      "community_name": "get_conn",
+      "community_name": "sqlite.rs",
       "file_type": "code",
       "norm_label": "get_adjacent_chunks()",
       "source_file": "src/storage/sqlite.rs",
@@ -7215,7 +7249,7 @@
       "label": "get_filtered_chunk_ids_with_conn()",
       "_origin": "ast",
       "community": 3,
-      "community_name": "get_conn",
+      "community_name": "sqlite.rs",
       "file_type": "code",
       "norm_label": "get_filtered_chunk_ids_with_conn()",
       "source_file": "src/storage/sqlite.rs",
@@ -7226,7 +7260,7 @@
       "label": "hash_content()",
       "_origin": "ast",
       "community": 3,
-      "community_name": "get_conn",
+      "community_name": "sqlite.rs",
       "file_type": "code",
       "norm_label": "hash_content()",
       "source_file": "src/storage/sqlite.rs",
@@ -7237,7 +7271,7 @@
       "label": "init_db()",
       "_origin": "ast",
       "community": 3,
-      "community_name": "get_conn",
+      "community_name": "sqlite.rs",
       "file_type": "code",
       "norm_label": "init_db()",
       "source_file": "src/storage/sqlite.rs",
@@ -7248,7 +7282,7 @@
       "label": "legacy_hash_content()",
       "_origin": "ast",
       "community": 3,
-      "community_name": "get_conn",
+      "community_name": "sqlite.rs",
       "file_type": "code",
       "norm_label": "legacy_hash_content()",
       "source_file": "src/storage/sqlite.rs",
@@ -7259,7 +7293,7 @@
       "label": "list_sources()",
       "_origin": "ast",
       "community": 3,
-      "community_name": "get_conn",
+      "community_name": "sqlite.rs",
       "file_type": "code",
       "norm_label": "list_sources()",
       "source_file": "src/storage/sqlite.rs",
@@ -7270,7 +7304,7 @@
       "label": "no_filter_does_not_materialize_an_allowed_id_set()",
       "_origin": "ast",
       "community": 3,
-      "community_name": "get_conn",
+      "community_name": "sqlite.rs",
       "file_type": "code",
       "norm_label": "no_filter_does_not_materialize_an_allowed_id_set()",
       "source_file": "src/storage/sqlite.rs",
@@ -7281,7 +7315,7 @@
       "label": "rebuild_fts_index()",
       "_origin": "ast",
       "community": 3,
-      "community_name": "get_conn",
+      "community_name": "sqlite.rs",
       "file_type": "code",
       "norm_label": "rebuild_fts_index()",
       "source_file": "src/storage/sqlite.rs",
@@ -7292,7 +7326,7 @@
       "label": "rebuild_fts_index_with_conn()",
       "_origin": "ast",
       "community": 3,
-      "community_name": "get_conn",
+      "community_name": "sqlite.rs",
       "file_type": "code",
       "norm_label": "rebuild_fts_index_with_conn()",
       "source_file": "src/storage/sqlite.rs",
@@ -7303,18 +7337,29 @@
       "label": "remove_source_from_fts()",
       "_origin": "ast",
       "community": 3,
-      "community_name": "get_conn",
+      "community_name": "sqlite.rs",
       "file_type": "code",
       "norm_label": "remove_source_from_fts()",
       "source_file": "src/storage/sqlite.rs",
       "source_location": "L371"
     },
     {
+      "id": "src_storage_sqlite_rrf_k",
+      "label": "RRF_K",
+      "_origin": "ast",
+      "community": 3,
+      "community_name": "sqlite.rs",
+      "file_type": "code",
+      "norm_label": "rrf_k",
+      "source_file": "src/storage/sqlite.rs",
+      "source_location": "L267"
+    },
+    {
       "id": "src_storage_sqlite_rrf_score",
       "label": "rrf_score()",
       "_origin": "ast",
       "community": 3,
-      "community_name": "get_conn",
+      "community_name": "sqlite.rs",
       "file_type": "code",
       "norm_label": "rrf_score()",
       "source_file": "src/storage/sqlite.rs",
@@ -7325,7 +7370,7 @@
       "label": "Connection",
       "_origin": "ast",
       "community": 3,
-      "community_name": "get_conn",
+      "community_name": "sqlite.rs",
       "file_type": "code",
       "norm_label": "connection",
       "source_file": "",
@@ -7336,7 +7381,7 @@
       "label": "Option",
       "_origin": "ast",
       "community": 3,
-      "community_name": "get_conn",
+      "community_name": "sqlite.rs",
       "file_type": "code",
       "norm_label": "option",
       "source_file": "",
@@ -7347,7 +7392,7 @@
       "label": "Result",
       "_origin": "ast",
       "community": 3,
-      "community_name": "get_conn",
+      "community_name": "sqlite.rs",
       "file_type": "code",
       "norm_label": "result",
       "source_file": "",
@@ -7358,7 +7403,7 @@
       "label": "String",
       "_origin": "ast",
       "community": 3,
-      "community_name": "get_conn",
+      "community_name": "sqlite.rs",
       "file_type": "code",
       "norm_label": "string",
       "source_file": "",
@@ -7369,7 +7414,7 @@
       "label": "Value",
       "_origin": "ast",
       "community": 3,
-      "community_name": "get_conn",
+      "community_name": "sqlite.rs",
       "file_type": "code",
       "norm_label": "value",
       "source_file": "",
@@ -7380,7 +7425,7 @@
       "label": "Vec",
       "_origin": "ast",
       "community": 3,
-      "community_name": "get_conn",
+      "community_name": "sqlite.rs",
       "file_type": "code",
       "norm_label": "vec",
       "source_file": "",
@@ -7391,7 +7436,7 @@
       "label": "search_bm25()",
       "_origin": "ast",
       "community": 3,
-      "community_name": "get_conn",
+      "community_name": "sqlite.rs",
       "file_type": "code",
       "norm_label": "search_bm25()",
       "source_file": "src/storage/sqlite.rs",
@@ -7402,7 +7447,7 @@
       "label": "search_bm25_with_allowed_ids()",
       "_origin": "ast",
       "community": 3,
-      "community_name": "get_conn",
+      "community_name": "sqlite.rs",
       "file_type": "code",
       "norm_label": "search_bm25_with_allowed_ids()",
       "source_file": "src/storage/sqlite.rs",
@@ -7413,7 +7458,7 @@
       "label": "search_hybrid()",
       "_origin": "ast",
       "community": 3,
-      "community_name": "get_conn",
+      "community_name": "sqlite.rs",
       "file_type": "code",
       "norm_label": "search_hybrid()",
       "source_file": "src/storage/sqlite.rs",
@@ -7424,7 +7469,7 @@
       "label": "search_vector()",
       "_origin": "ast",
       "community": 3,
-      "community_name": "get_conn",
+      "community_name": "sqlite.rs",
       "file_type": "code",
       "norm_label": "search_vector()",
       "source_file": "src/storage/sqlite.rs",
@@ -7435,7 +7480,7 @@
       "label": "search_vector_brute_force()",
       "_origin": "ast",
       "community": 3,
-      "community_name": "get_conn",
+      "community_name": "sqlite.rs",
       "file_type": "code",
       "norm_label": "search_vector_brute_force()",
       "source_file": "src/storage/sqlite.rs",
@@ -7446,7 +7491,7 @@
       "label": "search_vector_sqlite_vec()",
       "_origin": "ast",
       "community": 3,
-      "community_name": "get_conn",
+      "community_name": "sqlite.rs",
       "file_type": "code",
       "norm_label": "search_vector_sqlite_vec()",
       "source_file": "src/storage/sqlite.rs",
@@ -7457,7 +7502,7 @@
       "label": "search_vector_with_allowed_ids()",
       "_origin": "ast",
       "community": 3,
-      "community_name": "get_conn",
+      "community_name": "sqlite.rs",
       "file_type": "code",
       "norm_label": "search_vector_with_allowed_ids()",
       "source_file": "src/storage/sqlite.rs",
@@ -7468,22 +7513,11 @@
       "label": "update_source_status()",
       "_origin": "ast",
       "community": 3,
-      "community_name": "get_conn",
+      "community_name": "sqlite.rs",
       "file_type": "code",
       "norm_label": "update_source_status()",
       "source_file": "src/storage/sqlite.rs",
       "source_location": "L168"
-    },
-    {
-      "id": "src_types_searchfilter",
-      "label": "SearchFilter",
-      "_origin": "ast",
-      "community": 3,
-      "community_name": "get_conn",
-      "file_type": "code",
-      "norm_label": "searchfilter",
-      "source_file": "src/types.rs",
-      "source_location": "L83"
     },
     {
       "id": "src_config",
@@ -8080,14 +8114,14 @@
     },
     {
       "id": "docs_adr_0010_chunker_uses_vec_char_indexing_not_char_indices",
-      "label": "0010-chunker-uses-vec<char>-indexing-not-char_indices.md",
+      "label": "0010-chunker-uses-vec-char-indexing-not-char-indices.md",
       "_origin": "ast",
       "community": 34,
       "community_name": "ADR-0010: Chunker uses Vec<char> indexing (not char_indices)",
       "file_type": "document",
       "node_kind": "page",
-      "norm_label": "0010-chunker-uses-vec<char>-indexing-not-char_indices.md",
-      "source_file": "docs/adr/0010-chunker-uses-vec<char>-indexing-not-char_indices.md",
+      "norm_label": "0010-chunker-uses-vec-char-indexing-not-char-indices.md",
+      "source_file": "docs/adr/0010-chunker-uses-vec-char-indexing-not-char-indices.md",
       "source_location": "L1"
     },
     {
@@ -8099,7 +8133,7 @@
       "file_type": "document",
       "node_kind": "heading",
       "norm_label": "adr-0010: chunker uses vec<char> indexing (not char_indices)",
-      "source_file": "docs/adr/0010-chunker-uses-vec<char>-indexing-not-char_indices.md",
+      "source_file": "docs/adr/0010-chunker-uses-vec-char-indexing-not-char-indices.md",
       "source_location": "L1"
     },
     {
@@ -8111,7 +8145,7 @@
       "file_type": "document",
       "node_kind": "heading",
       "norm_label": "alternatives considered",
-      "source_file": "docs/adr/0010-chunker-uses-vec<char>-indexing-not-char_indices.md",
+      "source_file": "docs/adr/0010-chunker-uses-vec-char-indexing-not-char-indices.md",
       "source_location": "L12"
     },
     {
@@ -8123,7 +8157,7 @@
       "file_type": "document",
       "node_kind": "heading",
       "norm_label": "consequences",
-      "source_file": "docs/adr/0010-chunker-uses-vec<char>-indexing-not-char_indices.md",
+      "source_file": "docs/adr/0010-chunker-uses-vec-char-indexing-not-char-indices.md",
       "source_location": "L17"
     },
     {
@@ -8135,7 +8169,7 @@
       "file_type": "document",
       "node_kind": "heading",
       "norm_label": "context",
-      "source_file": "docs/adr/0010-chunker-uses-vec<char>-indexing-not-char_indices.md",
+      "source_file": "docs/adr/0010-chunker-uses-vec-char-indexing-not-char-indices.md",
       "source_location": "L6"
     },
     {
@@ -8147,7 +8181,7 @@
       "file_type": "document",
       "node_kind": "heading",
       "norm_label": "decision",
-      "source_file": "docs/adr/0010-chunker-uses-vec<char>-indexing-not-char_indices.md",
+      "source_file": "docs/adr/0010-chunker-uses-vec-char-indexing-not-char-indices.md",
       "source_location": "L9"
     },
     {
@@ -8159,7 +8193,7 @@
       "file_type": "document",
       "node_kind": "heading",
       "norm_label": "status",
-      "source_file": "docs/adr/0010-chunker-uses-vec<char>-indexing-not-char_indices.md",
+      "source_file": "docs/adr/0010-chunker-uses-vec-char-indexing-not-char-indices.md",
       "source_location": "L3"
     },
     {
@@ -8561,6 +8595,17 @@
       "source_location": "L15"
     },
     {
+      "id": "src_config_heat_config",
+      "label": "HEAT_CONFIG",
+      "_origin": "ast",
+      "community": 39,
+      "community_name": "HeatConfig",
+      "file_type": "code",
+      "norm_label": "heat_config",
+      "source_file": "src/config.rs",
+      "source_location": "L7"
+    },
+    {
       "id": "src_config_heatconfig",
       "label": "HeatConfig",
       "_origin": "ast",
@@ -8583,6 +8628,17 @@
       "source_location": "L90"
     },
     {
+      "id": "src_config_rs_oncelock",
+      "label": "OnceLock",
+      "_origin": "ast",
+      "community": 39,
+      "community_name": "HeatConfig",
+      "file_type": "code",
+      "norm_label": "oncelock",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
       "id": "src_config_set_global_heat",
       "label": "set_global_heat()",
       "_origin": "ast",
@@ -8594,11 +8650,33 @@
       "source_location": "L10"
     },
     {
+      "id": "atomicusize",
+      "label": "AtomicUsize",
+      "_origin": "ast",
+      "community": 4,
+      "community_name": "get_conn",
+      "file_type": "code",
+      "norm_label": "atomicusize",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "mutexguard",
+      "label": "MutexGuard",
+      "_origin": "ast",
+      "community": 4,
+      "community_name": "get_conn",
+      "file_type": "code",
+      "norm_label": "mutexguard",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
       "id": "query",
       "label": "Query",
       "_origin": "ast",
       "community": 4,
-      "community_name": "ingest.rs",
+      "community_name": "get_conn",
       "file_type": "code",
       "norm_label": "query",
       "source_file": "",
@@ -8609,7 +8687,7 @@
       "label": "chunk_counter.rs",
       "_origin": "ast",
       "community": 4,
-      "community_name": "ingest.rs",
+      "community_name": "get_conn",
       "file_type": "code",
       "norm_label": "chunk_counter.rs",
       "source_file": "src/engine/chunk_counter.rs",
@@ -8620,18 +8698,29 @@
       "label": "add()",
       "_origin": "ast",
       "community": 4,
-      "community_name": "ingest.rs",
+      "community_name": "get_conn",
       "file_type": "code",
       "norm_label": "add()",
       "source_file": "src/engine/chunk_counter.rs",
       "source_location": "L14"
     },
     {
+      "id": "src_engine_chunk_counter_chunk_counter",
+      "label": "CHUNK_COUNTER",
+      "_origin": "ast",
+      "community": 4,
+      "community_name": "get_conn",
+      "file_type": "code",
+      "norm_label": "chunk_counter",
+      "source_file": "src/engine/chunk_counter.rs",
+      "source_location": "L6"
+    },
+    {
       "id": "src_engine_chunk_counter_get",
       "label": "get()",
       "_origin": "ast",
       "community": 4,
-      "community_name": "ingest.rs",
+      "community_name": "get_conn",
       "file_type": "code",
       "norm_label": "get()",
       "source_file": "src/engine/chunk_counter.rs",
@@ -8642,7 +8731,7 @@
       "label": "reset()",
       "_origin": "ast",
       "community": 4,
-      "community_name": "ingest.rs",
+      "community_name": "get_conn",
       "file_type": "code",
       "norm_label": "reset()",
       "source_file": "src/engine/chunk_counter.rs",
@@ -8653,7 +8742,7 @@
       "label": "indexes.rs",
       "_origin": "ast",
       "community": 4,
-      "community_name": "ingest.rs",
+      "community_name": "get_conn",
       "file_type": "code",
       "norm_label": "indexes.rs",
       "source_file": "src/engine/indexes.rs",
@@ -8664,7 +8753,7 @@
       "label": "add_embeddings_to_buffer()",
       "_origin": "ast",
       "community": 4,
-      "community_name": "ingest.rs",
+      "community_name": "get_conn",
       "file_type": "code",
       "norm_label": "add_embeddings_to_buffer()",
       "source_file": "src/engine/indexes.rs",
@@ -8675,7 +8764,7 @@
       "label": "reassign_source_collection()",
       "_origin": "ast",
       "community": 4,
-      "community_name": "ingest.rs",
+      "community_name": "get_conn",
       "file_type": "code",
       "norm_label": "reassign_source_collection()",
       "source_file": "src/engine/indexes.rs",
@@ -8686,7 +8775,7 @@
       "label": "rebuild_and_save_indexes()",
       "_origin": "ast",
       "community": 4,
-      "community_name": "ingest.rs",
+      "community_name": "get_conn",
       "file_type": "code",
       "norm_label": "rebuild_and_save_indexes()",
       "source_file": "src/engine/indexes.rs",
@@ -8697,7 +8786,7 @@
       "label": "Result",
       "_origin": "ast",
       "community": 4,
-      "community_name": "ingest.rs",
+      "community_name": "get_conn",
       "file_type": "code",
       "norm_label": "result",
       "source_file": "",
@@ -8708,7 +8797,7 @@
       "label": "String",
       "_origin": "ast",
       "community": 4,
-      "community_name": "ingest.rs",
+      "community_name": "get_conn",
       "file_type": "code",
       "norm_label": "string",
       "source_file": "",
@@ -8719,7 +8808,7 @@
       "label": "wal_checkpoint()",
       "_origin": "ast",
       "community": 4,
-      "community_name": "ingest.rs",
+      "community_name": "get_conn",
       "file_type": "code",
       "norm_label": "wal_checkpoint()",
       "source_file": "src/engine/indexes.rs",
@@ -8730,7 +8819,7 @@
       "label": "ingest.rs",
       "_origin": "ast",
       "community": 4,
-      "community_name": "ingest.rs",
+      "community_name": "get_conn",
       "file_type": "code",
       "norm_label": "ingest.rs",
       "source_file": "src/engine/ingest.rs",
@@ -8741,7 +8830,7 @@
       "label": "commit_parent_to_db()",
       "_origin": "ast",
       "community": 4,
-      "community_name": "ingest.rs",
+      "community_name": "get_conn",
       "file_type": "code",
       "norm_label": "commit_parent_to_db()",
       "source_file": "src/engine/ingest.rs",
@@ -8752,7 +8841,7 @@
       "label": "compute_relevance_stats()",
       "_origin": "ast",
       "community": 4,
-      "community_name": "ingest.rs",
+      "community_name": "get_conn",
       "file_type": "code",
       "norm_label": "compute_relevance_stats()",
       "source_file": "src/engine/ingest.rs",
@@ -8763,7 +8852,7 @@
       "label": "generate_contexts()",
       "_origin": "ast",
       "community": 4,
-      "community_name": "ingest.rs",
+      "community_name": "get_conn",
       "file_type": "code",
       "norm_label": "generate_contexts()",
       "source_file": "src/engine/ingest.rs",
@@ -8774,7 +8863,7 @@
       "label": "ingest_file()",
       "_origin": "ast",
       "community": 4,
-      "community_name": "ingest.rs",
+      "community_name": "get_conn",
       "file_type": "code",
       "norm_label": "ingest_file()",
       "source_file": "src/engine/ingest.rs",
@@ -8785,7 +8874,7 @@
       "label": "ingest_text()",
       "_origin": "ast",
       "community": 4,
-      "community_name": "ingest.rs",
+      "community_name": "get_conn",
       "file_type": "code",
       "norm_label": "ingest_text()",
       "source_file": "src/engine/ingest.rs",
@@ -8796,7 +8885,7 @@
       "label": "ingest_text_parent_child()",
       "_origin": "ast",
       "community": 4,
-      "community_name": "ingest.rs",
+      "community_name": "get_conn",
       "file_type": "code",
       "norm_label": "ingest_text_parent_child()",
       "source_file": "src/engine/ingest.rs",
@@ -8807,7 +8896,7 @@
       "label": "KeptChild",
       "_origin": "ast",
       "community": 4,
-      "community_name": "ingest.rs",
+      "community_name": "get_conn",
       "file_type": "code",
       "norm_label": "keptchild",
       "source_file": "src/engine/ingest.rs",
@@ -8818,7 +8907,7 @@
       "label": "ParentProcessResult",
       "_origin": "ast",
       "community": 4,
-      "community_name": "ingest.rs",
+      "community_name": "get_conn",
       "file_type": "code",
       "norm_label": "parentprocessresult",
       "source_file": "src/engine/ingest.rs",
@@ -8829,7 +8918,7 @@
       "label": "process_parent()",
       "_origin": "ast",
       "community": 4,
-      "community_name": "ingest.rs",
+      "community_name": "get_conn",
       "file_type": "code",
       "norm_label": "process_parent()",
       "source_file": "src/engine/ingest.rs",
@@ -8840,7 +8929,7 @@
       "label": "Option",
       "_origin": "ast",
       "community": 4,
-      "community_name": "ingest.rs",
+      "community_name": "get_conn",
       "file_type": "code",
       "norm_label": "option",
       "source_file": "",
@@ -8851,7 +8940,7 @@
       "label": "Result",
       "_origin": "ast",
       "community": 4,
-      "community_name": "ingest.rs",
+      "community_name": "get_conn",
       "file_type": "code",
       "norm_label": "result",
       "source_file": "",
@@ -8862,7 +8951,7 @@
       "label": "String",
       "_origin": "ast",
       "community": 4,
-      "community_name": "ingest.rs",
+      "community_name": "get_conn",
       "file_type": "code",
       "norm_label": "string",
       "source_file": "",
@@ -8873,7 +8962,7 @@
       "label": "Vec",
       "_origin": "ast",
       "community": 4,
-      "community_name": "ingest.rs",
+      "community_name": "get_conn",
       "file_type": "code",
       "norm_label": "vec",
       "source_file": "",
@@ -8884,7 +8973,7 @@
       "label": "update_chunk_pages()",
       "_origin": "ast",
       "community": 4,
-      "community_name": "ingest.rs",
+      "community_name": "get_conn",
       "file_type": "code",
       "norm_label": "update_chunk_pages()",
       "source_file": "src/engine/ingest.rs",
@@ -8895,7 +8984,7 @@
       "label": "update_chunk_section_paths()",
       "_origin": "ast",
       "community": 4,
-      "community_name": "ingest.rs",
+      "community_name": "get_conn",
       "file_type": "code",
       "norm_label": "update_chunk_section_paths()",
       "source_file": "src/engine/ingest.rs",
@@ -8906,7 +8995,7 @@
       "label": "engine/mod.rs",
       "_origin": "ast",
       "community": 4,
-      "community_name": "ingest.rs",
+      "community_name": "get_conn",
       "file_type": "code",
       "norm_label": "engine/mod.rs",
       "source_file": "src/engine/mod.rs",
@@ -8917,18 +9006,51 @@
       "label": "data_dir()",
       "_origin": "ast",
       "community": 4,
-      "community_name": "ingest.rs",
+      "community_name": "get_conn",
       "file_type": "code",
       "norm_label": "data_dir()",
       "source_file": "src/engine/mod.rs",
       "source_location": "L63"
     },
     {
+      "id": "src_engine_mod_db_conn",
+      "label": "DB_CONN",
+      "_origin": "ast",
+      "community": 4,
+      "community_name": "get_conn",
+      "file_type": "code",
+      "norm_label": "db_conn",
+      "source_file": "src/engine/mod.rs",
+      "source_location": "L50"
+    },
+    {
+      "id": "src_engine_mod_db_path",
+      "label": "DB_PATH",
+      "_origin": "ast",
+      "community": 4,
+      "community_name": "get_conn",
+      "file_type": "code",
+      "norm_label": "db_path",
+      "source_file": "src/engine/mod.rs",
+      "source_location": "L47"
+    },
+    {
+      "id": "src_engine_mod_get_conn",
+      "label": "get_conn()",
+      "_origin": "ast",
+      "community": 4,
+      "community_name": "get_conn",
+      "file_type": "code",
+      "norm_label": "get_conn()",
+      "source_file": "src/engine/mod.rs",
+      "source_location": "L54"
+    },
+    {
       "id": "src_engine_mod_init",
       "label": "init()",
       "_origin": "ast",
       "community": 4,
-      "community_name": "ingest.rs",
+      "community_name": "get_conn",
       "file_type": "code",
       "norm_label": "init()",
       "source_file": "src/engine/mod.rs",
@@ -8939,9 +9061,31 @@
       "label": "Connection",
       "_origin": "ast",
       "community": 4,
-      "community_name": "ingest.rs",
+      "community_name": "get_conn",
       "file_type": "code",
       "norm_label": "connection",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "src_engine_mod_rs_mutex",
+      "label": "Mutex",
+      "_origin": "ast",
+      "community": 4,
+      "community_name": "get_conn",
+      "file_type": "code",
+      "norm_label": "mutex",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "src_engine_mod_rs_oncelock",
+      "label": "OnceLock",
+      "_origin": "ast",
+      "community": 4,
+      "community_name": "get_conn",
+      "file_type": "code",
+      "norm_label": "oncelock",
       "source_file": "",
       "source_location": ""
     },
@@ -8950,7 +9094,7 @@
       "label": "Path",
       "_origin": "ast",
       "community": 4,
-      "community_name": "ingest.rs",
+      "community_name": "get_conn",
       "file_type": "code",
       "norm_label": "path",
       "source_file": "",
@@ -8961,7 +9105,7 @@
       "label": "Result",
       "_origin": "ast",
       "community": 4,
-      "community_name": "ingest.rs",
+      "community_name": "get_conn",
       "file_type": "code",
       "norm_label": "result",
       "source_file": "",
@@ -8972,7 +9116,7 @@
       "label": "String",
       "_origin": "ast",
       "community": 4,
-      "community_name": "ingest.rs",
+      "community_name": "get_conn",
       "file_type": "code",
       "norm_label": "string",
       "source_file": "",
@@ -8983,7 +9127,7 @@
       "label": "sanitize_collection()",
       "_origin": "ast",
       "community": 4,
-      "community_name": "ingest.rs",
+      "community_name": "get_conn",
       "file_type": "code",
       "norm_label": "sanitize_collection()",
       "source_file": "src/engine/mod.rs",
@@ -8994,18 +9138,260 @@
       "label": "stats()",
       "_origin": "ast",
       "community": 4,
-      "community_name": "ingest.rs",
+      "community_name": "get_conn",
       "file_type": "code",
       "norm_label": "stats()",
       "source_file": "src/engine/mod.rs",
       "source_location": "L314"
     },
     {
+      "id": "src_engine_precheck",
+      "label": "precheck.rs",
+      "_origin": "ast",
+      "community": 4,
+      "community_name": "get_conn",
+      "file_type": "code",
+      "norm_label": "precheck.rs",
+      "source_file": "src/engine/precheck.rs",
+      "source_location": "L1"
+    },
+    {
+      "id": "src_engine_precheck_check_duplicate_source",
+      "label": "check_duplicate_source()",
+      "_origin": "ast",
+      "community": 4,
+      "community_name": "get_conn",
+      "file_type": "code",
+      "norm_label": "check_duplicate_source()",
+      "source_file": "src/engine/precheck.rs",
+      "source_location": "L116"
+    },
+    {
+      "id": "src_engine_precheck_detect_language",
+      "label": "detect_language()",
+      "_origin": "ast",
+      "community": 4,
+      "community_name": "get_conn",
+      "file_type": "code",
+      "norm_label": "detect_language()",
+      "source_file": "src/engine/precheck.rs",
+      "source_location": "L58"
+    },
+    {
+      "id": "src_engine_precheck_pre_check_document",
+      "label": "pre_check_document()",
+      "_origin": "ast",
+      "community": 4,
+      "community_name": "get_conn",
+      "file_type": "code",
+      "norm_label": "pre_check_document()",
+      "source_file": "src/engine/precheck.rs",
+      "source_location": "L4"
+    },
+    {
+      "id": "src_engine_precheck_rs_string",
+      "label": "String",
+      "_origin": "ast",
+      "community": 4,
+      "community_name": "get_conn",
+      "file_type": "code",
+      "norm_label": "string",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "src_engine_precheck_verify_chunks",
+      "label": "verify_chunks()",
+      "_origin": "ast",
+      "community": 4,
+      "community_name": "get_conn",
+      "file_type": "code",
+      "norm_label": "verify_chunks()",
+      "source_file": "src/engine/precheck.rs",
+      "source_location": "L132"
+    },
+    {
+      "id": "src_engine_query",
+      "label": "query.rs",
+      "_origin": "ast",
+      "community": 4,
+      "community_name": "get_conn",
+      "file_type": "code",
+      "norm_label": "query.rs",
+      "source_file": "src/engine/query.rs",
+      "source_location": "L1"
+    },
+    {
+      "id": "src_engine_query_count_chunks_per_source",
+      "label": "count_chunks_per_source()",
+      "_origin": "ast",
+      "community": 4,
+      "community_name": "get_conn",
+      "file_type": "code",
+      "norm_label": "count_chunks_per_source()",
+      "source_file": "src/engine/query.rs",
+      "source_location": "L152"
+    },
+    {
+      "id": "src_engine_query_delete_source",
+      "label": "delete_source()",
+      "_origin": "ast",
+      "community": 4,
+      "community_name": "get_conn",
+      "file_type": "code",
+      "norm_label": "delete_source()",
+      "source_file": "src/engine/query.rs",
+      "source_location": "L115"
+    },
+    {
+      "id": "src_engine_query_get_neighbors",
+      "label": "get_neighbors()",
+      "_origin": "ast",
+      "community": 4,
+      "community_name": "get_conn",
+      "file_type": "code",
+      "norm_label": "get_neighbors()",
+      "source_file": "src/engine/query.rs",
+      "source_location": "L87"
+    },
+    {
+      "id": "src_engine_query_get_pages_for_chunk_ids",
+      "label": "get_pages_for_chunk_ids()",
+      "_origin": "ast",
+      "community": 4,
+      "community_name": "get_conn",
+      "file_type": "code",
+      "norm_label": "get_pages_for_chunk_ids()",
+      "source_file": "src/engine/query.rs",
+      "source_location": "L44"
+    },
+    {
+      "id": "src_engine_query_get_section_paths_for_chunk_ids",
+      "label": "get_section_paths_for_chunk_ids()",
+      "_origin": "ast",
+      "community": 4,
+      "community_name": "get_conn",
+      "file_type": "code",
+      "norm_label": "get_section_paths_for_chunk_ids()",
+      "source_file": "src/engine/query.rs",
+      "source_location": "L13"
+    },
+    {
+      "id": "src_engine_query_get_source_names",
+      "label": "get_source_names()",
+      "_origin": "ast",
+      "community": 4,
+      "community_name": "get_conn",
+      "file_type": "code",
+      "norm_label": "get_source_names()",
+      "source_file": "src/engine/query.rs",
+      "source_location": "L73"
+    },
+    {
+      "id": "src_engine_query_in_placeholders",
+      "label": "in_placeholders()",
+      "_origin": "ast",
+      "community": 4,
+      "community_name": "get_conn",
+      "file_type": "code",
+      "norm_label": "in_placeholders()",
+      "source_file": "src/engine/query.rs",
+      "source_location": "L8"
+    },
+    {
+      "id": "src_engine_query_list_sources",
+      "label": "list_sources()",
+      "_origin": "ast",
+      "community": 4,
+      "community_name": "get_conn",
+      "file_type": "code",
+      "norm_label": "list_sources()",
+      "source_file": "src/engine/query.rs",
+      "source_location": "L126"
+    },
+    {
+      "id": "src_engine_query_parentinfo",
+      "label": "ParentInfo",
+      "_origin": "ast",
+      "community": 4,
+      "community_name": "get_conn",
+      "file_type": "code",
+      "norm_label": "parentinfo",
+      "source_file": "src/engine/query.rs",
+      "source_location": "L165"
+    },
+    {
+      "id": "src_engine_query_resolve_parents",
+      "label": "resolve_parents()",
+      "_origin": "ast",
+      "community": 4,
+      "community_name": "get_conn",
+      "file_type": "code",
+      "norm_label": "resolve_parents()",
+      "source_file": "src/engine/query.rs",
+      "source_location": "L174"
+    },
+    {
+      "id": "src_engine_query_rs_hashmap",
+      "label": "HashMap",
+      "_origin": "ast",
+      "community": 4,
+      "community_name": "get_conn",
+      "file_type": "code",
+      "norm_label": "hashmap",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "src_engine_query_rs_option",
+      "label": "Option",
+      "_origin": "ast",
+      "community": 4,
+      "community_name": "get_conn",
+      "file_type": "code",
+      "norm_label": "option",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "src_engine_query_rs_result",
+      "label": "Result",
+      "_origin": "ast",
+      "community": 4,
+      "community_name": "get_conn",
+      "file_type": "code",
+      "norm_label": "result",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "src_engine_query_rs_string",
+      "label": "String",
+      "_origin": "ast",
+      "community": 4,
+      "community_name": "get_conn",
+      "file_type": "code",
+      "norm_label": "string",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "src_engine_query_rs_vec",
+      "label": "Vec",
+      "_origin": "ast",
+      "community": 4,
+      "community_name": "get_conn",
+      "file_type": "code",
+      "norm_label": "vec",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
       "id": "src_engine_tags",
       "label": "tags.rs",
       "_origin": "ast",
       "community": 4,
-      "community_name": "ingest.rs",
+      "community_name": "get_conn",
       "file_type": "code",
       "norm_label": "tags.rs",
       "source_file": "src/engine/tags.rs",
@@ -9016,7 +9402,7 @@
       "label": "create_chunk_tags_table()",
       "_origin": "ast",
       "community": 4,
-      "community_name": "ingest.rs",
+      "community_name": "get_conn",
       "file_type": "code",
       "norm_label": "create_chunk_tags_table()",
       "source_file": "src/engine/tags.rs",
@@ -9027,7 +9413,7 @@
       "label": "create_collection_tags_table()",
       "_origin": "ast",
       "community": 4,
-      "community_name": "ingest.rs",
+      "community_name": "get_conn",
       "file_type": "code",
       "norm_label": "create_collection_tags_table()",
       "source_file": "src/engine/tags.rs",
@@ -9038,7 +9424,7 @@
       "label": "get_chunk_ids_for_tags()",
       "_origin": "ast",
       "community": 4,
-      "community_name": "ingest.rs",
+      "community_name": "get_conn",
       "file_type": "code",
       "norm_label": "get_chunk_ids_for_tags()",
       "source_file": "src/engine/tags.rs",
@@ -9049,7 +9435,7 @@
       "label": "get_tags_for_chunk_ids()",
       "_origin": "ast",
       "community": 4,
-      "community_name": "ingest.rs",
+      "community_name": "get_conn",
       "file_type": "code",
       "norm_label": "get_tags_for_chunk_ids()",
       "source_file": "src/engine/tags.rs",
@@ -9060,7 +9446,7 @@
       "label": "insert_chunk_tags()",
       "_origin": "ast",
       "community": 4,
-      "community_name": "ingest.rs",
+      "community_name": "get_conn",
       "file_type": "code",
       "norm_label": "insert_chunk_tags()",
       "source_file": "src/engine/tags.rs",
@@ -9071,7 +9457,7 @@
       "label": "Connection",
       "_origin": "ast",
       "community": 4,
-      "community_name": "ingest.rs",
+      "community_name": "get_conn",
       "file_type": "code",
       "norm_label": "connection",
       "source_file": "",
@@ -9082,7 +9468,7 @@
       "label": "HashMap",
       "_origin": "ast",
       "community": 4,
-      "community_name": "ingest.rs",
+      "community_name": "get_conn",
       "file_type": "code",
       "norm_label": "hashmap",
       "source_file": "",
@@ -9093,7 +9479,7 @@
       "label": "Option",
       "_origin": "ast",
       "community": 4,
-      "community_name": "ingest.rs",
+      "community_name": "get_conn",
       "file_type": "code",
       "norm_label": "option",
       "source_file": "",
@@ -9104,7 +9490,7 @@
       "label": "Result",
       "_origin": "ast",
       "community": 4,
-      "community_name": "ingest.rs",
+      "community_name": "get_conn",
       "file_type": "code",
       "norm_label": "result",
       "source_file": "",
@@ -9115,7 +9501,7 @@
       "label": "String",
       "_origin": "ast",
       "community": 4,
-      "community_name": "ingest.rs",
+      "community_name": "get_conn",
       "file_type": "code",
       "norm_label": "string",
       "source_file": "",
@@ -9126,7 +9512,7 @@
       "label": "Vec",
       "_origin": "ast",
       "community": 4,
-      "community_name": "ingest.rs",
+      "community_name": "get_conn",
       "file_type": "code",
       "norm_label": "vec",
       "source_file": "",
@@ -9137,7 +9523,7 @@
       "label": "update_collection_tags()",
       "_origin": "ast",
       "community": 4,
-      "community_name": "ingest.rs",
+      "community_name": "get_conn",
       "file_type": "code",
       "norm_label": "update_collection_tags()",
       "source_file": "src/engine/tags.rs",
@@ -9148,11 +9534,22 @@
       "label": "IngestionReport",
       "_origin": "ast",
       "community": 4,
-      "community_name": "ingest.rs",
+      "community_name": "get_conn",
       "file_type": "code",
       "norm_label": "ingestionreport",
       "source_file": "src/types.rs",
       "source_location": "L27"
+    },
+    {
+      "id": "atomicbool",
+      "label": "AtomicBool",
+      "_origin": "ast",
+      "community": 40,
+      "community_name": "cancel.rs",
+      "file_type": "code",
+      "norm_label": "atomicbool",
+      "source_file": "",
+      "source_location": ""
     },
     {
       "id": "src_engine_cancel",
@@ -9164,6 +9561,17 @@
       "norm_label": "cancel.rs",
       "source_file": "src/engine/cancel.rs",
       "source_location": "L1"
+    },
+    {
+      "id": "src_engine_cancel_cancelled",
+      "label": "CANCELLED",
+      "_origin": "ast",
+      "community": 40,
+      "community_name": "cancel.rs",
+      "file_type": "code",
+      "norm_label": "cancelled",
+      "source_file": "src/engine/cancel.rs",
+      "source_location": "L5"
     },
     {
       "id": "src_engine_cancel_check_and_reset",
@@ -9248,14 +9656,14 @@
       "source_location": "L1"
     },
     {
-      "id": "pkg_rag_ferrite",
-      "label": "rag-ferrite",
+      "id": "pkg_ragfer",
+      "label": "ragfer",
       "_origin": "ast",
       "community": 44,
-      "community_name": "rag-ferrite",
+      "community_name": "ragfer",
       "ecosystem": "cargo",
       "file_type": "code",
-      "norm_label": "rag-ferrite",
+      "norm_label": "ragfer",
       "source_file": "Cargo.toml",
       "source_location": "L1",
       "type": "package",
@@ -10154,6 +10562,17 @@
       "source_location": "L258"
     },
     {
+      "id": "src_monitor_mod_spinner",
+      "label": "SPINNER",
+      "_origin": "ast",
+      "community": 5,
+      "community_name": "monitor/api.rs",
+      "file_type": "code",
+      "norm_label": "spinner",
+      "source_file": "src/monitor/mod.rs",
+      "source_location": "L33"
+    },
+    {
       "id": "src_monitor_mod_view",
       "label": "View",
       "_origin": "ast",
@@ -10649,50 +11068,6 @@
       "source_location": ""
     },
     {
-      "id": "src_config_default_rerank_preview_chars",
-      "label": "default_rerank_preview_chars()",
-      "_origin": "ast",
-      "community": 57,
-      "community_name": ".default",
-      "file_type": "code",
-      "norm_label": "default_rerank_preview_chars()",
-      "source_file": "src/config.rs",
-      "source_location": "L514"
-    },
-    {
-      "id": "src_config_default_rerank_top_k",
-      "label": "default_rerank_top_k()",
-      "_origin": "ast",
-      "community": 57,
-      "community_name": ".default",
-      "file_type": "code",
-      "norm_label": "default_rerank_top_k()",
-      "source_file": "src/config.rs",
-      "source_location": "L511"
-    },
-    {
-      "id": "src_config_default_reranker_type",
-      "label": "default_reranker_type()",
-      "_origin": "ast",
-      "community": 57,
-      "community_name": ".default",
-      "file_type": "code",
-      "norm_label": "default_reranker_type()",
-      "source_file": "src/config.rs",
-      "source_location": "L508"
-    },
-    {
-      "id": "src_config_rerankerconfig_default",
-      "label": ".default()",
-      "_origin": "ast",
-      "community": 57,
-      "community_name": ".default",
-      "file_type": "code",
-      "norm_label": ".default()",
-      "source_file": "src/config.rs",
-      "source_location": "L519"
-    },
-    {
       "id": "from",
       "label": "From",
       "_origin": "ast",
@@ -10834,72 +11209,6 @@
       "norm_label": "run_benchmark()",
       "source_file": "src/engine/benchmark.rs",
       "source_location": "L66"
-    },
-    {
-      "id": "src_engine_precheck",
-      "label": "precheck.rs",
-      "_origin": "ast",
-      "community": 6,
-      "community_name": "types.rs",
-      "file_type": "code",
-      "norm_label": "precheck.rs",
-      "source_file": "src/engine/precheck.rs",
-      "source_location": "L1"
-    },
-    {
-      "id": "src_engine_precheck_check_duplicate_source",
-      "label": "check_duplicate_source()",
-      "_origin": "ast",
-      "community": 6,
-      "community_name": "types.rs",
-      "file_type": "code",
-      "norm_label": "check_duplicate_source()",
-      "source_file": "src/engine/precheck.rs",
-      "source_location": "L116"
-    },
-    {
-      "id": "src_engine_precheck_detect_language",
-      "label": "detect_language()",
-      "_origin": "ast",
-      "community": 6,
-      "community_name": "types.rs",
-      "file_type": "code",
-      "norm_label": "detect_language()",
-      "source_file": "src/engine/precheck.rs",
-      "source_location": "L58"
-    },
-    {
-      "id": "src_engine_precheck_pre_check_document",
-      "label": "pre_check_document()",
-      "_origin": "ast",
-      "community": 6,
-      "community_name": "types.rs",
-      "file_type": "code",
-      "norm_label": "pre_check_document()",
-      "source_file": "src/engine/precheck.rs",
-      "source_location": "L4"
-    },
-    {
-      "id": "src_engine_precheck_rs_string",
-      "label": "String",
-      "_origin": "ast",
-      "community": 6,
-      "community_name": "types.rs",
-      "file_type": "code",
-      "norm_label": "string",
-      "source_file": "",
-      "source_location": ""
-    },
-    {
-      "id": "src_engine_precheck_verify_chunks",
-      "label": "verify_chunks()",
-      "_origin": "ast",
-      "community": 6,
-      "community_name": "types.rs",
-      "file_type": "code",
-      "norm_label": "verify_chunks()",
-      "source_file": "src/engine/precheck.rs",
-      "source_location": "L132"
     },
     {
       "id": "src_engine_search",
@@ -17766,6 +18075,18 @@
       "weight": 1.0
     },
     {
+      "source": "src_config_heat_config",
+      "target": "src_config_rs_oncelock",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "field",
+      "source_file": "src/config.rs",
+      "source_location": "L7",
+      "weight": 1.0
+    },
+    {
       "source": "src_config_llmconfig",
       "target": "src_config_rs_option",
       "relation": "references",
@@ -17910,6 +18231,18 @@
       "weight": 1.0
     },
     {
+      "source": "src_engine_activity_log_activity_log",
+      "target": "src_engine_activity_log_rs_oncelock",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "field",
+      "source_file": "src/engine/activity_log.rs",
+      "source_location": "L25",
+      "weight": 1.0
+    },
+    {
       "source": "src_engine_activity_log_activityevent",
       "target": "src_engine_activity_log_rs_string",
       "relation": "references",
@@ -17931,6 +18264,30 @@
       "context": "field",
       "source_file": "src/engine/activity_log.rs",
       "source_location": "L22",
+      "weight": 1.0
+    },
+    {
+      "source": "src_engine_cancel_cancelled",
+      "target": "atomicbool",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "field",
+      "source_file": "src/engine/cancel.rs",
+      "source_location": "L5",
+      "weight": 1.0
+    },
+    {
+      "source": "src_engine_chunk_counter_chunk_counter",
+      "target": "atomicusize",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "field",
+      "source_file": "src/engine/chunk_counter.rs",
+      "source_location": "L6",
       "weight": 1.0
     },
     {
@@ -18018,6 +18375,18 @@
       "weight": 1.0
     },
     {
+      "source": "src_engine_history_history",
+      "target": "src_engine_history_rs_oncelock",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "field",
+      "source_file": "src/engine/history.rs",
+      "source_location": "L26",
+      "weight": 1.0
+    },
+    {
       "source": "src_engine_ingest_keptchild",
       "target": "src_engine_ingest_rs_vec",
       "relation": "references",
@@ -18051,6 +18420,30 @@
       "context": "field",
       "source_file": "src/engine/ingest.rs",
       "source_location": "L507",
+      "weight": 1.0
+    },
+    {
+      "source": "src_engine_mod_db_conn",
+      "target": "src_engine_mod_rs_oncelock",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "field",
+      "source_file": "src/engine/mod.rs",
+      "source_location": "L50",
+      "weight": 1.0
+    },
+    {
+      "source": "src_engine_mod_db_path",
+      "target": "src_engine_mod_rs_oncelock",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "field",
+      "source_file": "src/engine/mod.rs",
+      "source_location": "L47",
       "weight": 1.0
     },
     {
@@ -18726,6 +19119,18 @@
       "weight": 1.0
     },
     {
+      "source": "src_pipeline_cache_version",
+      "target": "atomicu64",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "field",
+      "source_file": "src/pipeline.rs",
+      "source_location": "L8",
+      "weight": 1.0
+    },
+    {
       "source": "src_pipeline_queryoutput",
       "target": "src_pipeline_rs_vec",
       "relation": "references",
@@ -18987,6 +19392,18 @@
       "context": "field",
       "source_file": "src/tag_rules.rs",
       "source_location": "L27",
+      "weight": 1.0
+    },
+    {
+      "source": "src_tag_rules_tag_rules",
+      "target": "src_tag_rules_rs_oncelock",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "field",
+      "source_file": "src/tag_rules.rs",
+      "source_location": "L96",
       "weight": 1.0
     },
     {
@@ -20142,6 +20559,18 @@
       "weight": 1.0
     },
     {
+      "source": "src_config_heat_config",
+      "target": "src_config_heatconfig",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "generic_arg",
+      "source_file": "src/config.rs",
+      "source_location": "L7",
+      "weight": 1.0
+    },
+    {
       "source": "src_config_llmconfig",
       "target": "src_config_fallbackllmconfig",
       "relation": "references",
@@ -20227,7 +20656,7 @@
     },
     {
       "source": "src_embedding_embeddingprovider",
-      "target": "oncelock",
+      "target": "src_embedding_rs_oncelock",
       "relation": "references",
       "_origin": "ast",
       "confidence": "EXTRACTED",
@@ -20343,6 +20772,30 @@
       "context": "generic_arg",
       "source_file": "src/embedding.rs",
       "source_location": "L26",
+      "weight": 1.0
+    },
+    {
+      "source": "src_engine_activity_log_activity_log",
+      "target": "src_engine_activity_log_activitylog",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "generic_arg",
+      "source_file": "src/engine/activity_log.rs",
+      "source_location": "L25",
+      "weight": 1.0
+    },
+    {
+      "source": "src_engine_activity_log_activity_log",
+      "target": "src_engine_activity_log_rs_mutex",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "generic_arg",
+      "source_file": "src/engine/activity_log.rs",
+      "source_location": "L25",
       "weight": 1.0
     },
     {
@@ -20550,6 +21003,42 @@
       "weight": 1.0
     },
     {
+      "source": "src_engine_history_history",
+      "target": "src_engine_history_batchhistoryentry",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "generic_arg",
+      "source_file": "src/engine/history.rs",
+      "source_location": "L26",
+      "weight": 1.0
+    },
+    {
+      "source": "src_engine_history_history",
+      "target": "src_engine_history_rs_mutex",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "generic_arg",
+      "source_file": "src/engine/history.rs",
+      "source_location": "L26",
+      "weight": 1.0
+    },
+    {
+      "source": "src_engine_history_history",
+      "target": "vecdeque",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "generic_arg",
+      "source_file": "src/engine/history.rs",
+      "source_location": "L26",
+      "weight": 1.0
+    },
+    {
       "source": "src_engine_history_history_instance",
       "target": "src_engine_history_batchhistoryentry",
       "relation": "references",
@@ -20739,6 +21228,42 @@
       "context": "generic_arg",
       "source_file": "src/engine/ingest.rs",
       "source_location": "L1094",
+      "weight": 1.0
+    },
+    {
+      "source": "src_engine_mod_db_conn",
+      "target": "src_engine_mod_rs_connection",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "generic_arg",
+      "source_file": "src/engine/mod.rs",
+      "source_location": "L50",
+      "weight": 1.0
+    },
+    {
+      "source": "src_engine_mod_db_conn",
+      "target": "src_engine_mod_rs_mutex",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "generic_arg",
+      "source_file": "src/engine/mod.rs",
+      "source_location": "L50",
+      "weight": 1.0
+    },
+    {
+      "source": "src_engine_mod_db_path",
+      "target": "src_engine_mod_rs_string",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "generic_arg",
+      "source_file": "src/engine/mod.rs",
+      "source_location": "L47",
       "weight": 1.0
     },
     {
@@ -23502,6 +24027,18 @@
       "weight": 1.0
     },
     {
+      "source": "src_tag_rules_tag_rules",
+      "target": "src_tag_rules_tagrules",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "generic_arg",
+      "source_file": "src/tag_rules.rs",
+      "source_location": "L96",
+      "weight": 1.0
+    },
+    {
       "source": "src_tag_rules_tagrules",
       "target": "src_tag_rules_rs_string",
       "relation": "references",
@@ -23863,7 +24400,7 @@
     },
     {
       "source": "src_config",
-      "target": "oncelock",
+      "target": "src_config_rs_oncelock",
       "relation": "imports_from",
       "_origin": "ast",
       "confidence": "EXTRACTED",
@@ -32101,7 +32638,7 @@
       "_origin": "ast",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
-      "source_file": "docs/adr/0010-chunker-uses-vec<char>-indexing-not-char_indices.md",
+      "source_file": "docs/adr/0010-chunker-uses-vec-char-indexing-not-char-indices.md",
       "source_location": "L1",
       "weight": 1.0
     },
@@ -32112,7 +32649,7 @@
       "_origin": "ast",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
-      "source_file": "docs/adr/0010-chunker-uses-vec<char>-indexing-not-char_indices.md",
+      "source_file": "docs/adr/0010-chunker-uses-vec-char-indexing-not-char-indices.md",
       "source_location": "L12",
       "weight": 1.0
     },
@@ -32123,7 +32660,7 @@
       "_origin": "ast",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
-      "source_file": "docs/adr/0010-chunker-uses-vec<char>-indexing-not-char_indices.md",
+      "source_file": "docs/adr/0010-chunker-uses-vec-char-indexing-not-char-indices.md",
       "source_location": "L17",
       "weight": 1.0
     },
@@ -32134,7 +32671,7 @@
       "_origin": "ast",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
-      "source_file": "docs/adr/0010-chunker-uses-vec<char>-indexing-not-char_indices.md",
+      "source_file": "docs/adr/0010-chunker-uses-vec-char-indexing-not-char-indices.md",
       "source_location": "L3",
       "weight": 1.0
     },
@@ -32145,7 +32682,7 @@
       "_origin": "ast",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
-      "source_file": "docs/adr/0010-chunker-uses-vec<char>-indexing-not-char_indices.md",
+      "source_file": "docs/adr/0010-chunker-uses-vec-char-indexing-not-char-indices.md",
       "source_location": "L6",
       "weight": 1.0
     },
@@ -32156,7 +32693,7 @@
       "_origin": "ast",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
-      "source_file": "docs/adr/0010-chunker-uses-vec<char>-indexing-not-char_indices.md",
+      "source_file": "docs/adr/0010-chunker-uses-vec-char-indexing-not-char-indices.md",
       "source_location": "L9",
       "weight": 1.0
     },
@@ -33048,7 +33585,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "README.md",
-      "source_location": "L203",
+      "source_location": "L212",
       "weight": 1.0
     },
     {
@@ -33059,7 +33596,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "README.md",
-      "source_location": "L256",
+      "source_location": "L265",
       "weight": 1.0
     },
     {
@@ -33070,7 +33607,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "README.md",
-      "source_location": "L304",
+      "source_location": "L313",
       "weight": 1.0
     },
     {
@@ -33081,18 +33618,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "README.md",
-      "source_location": "L323",
-      "weight": 1.0
-    },
-    {
-      "source": "readme_installation",
-      "target": "readme_build_from_source",
-      "relation": "contains",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "README.md",
-      "source_location": "L104",
+      "source_location": "L332",
       "weight": 1.0
     },
     {
@@ -33103,7 +33629,29 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "README.md",
-      "source_location": "L93",
+      "source_location": "L102",
+      "weight": 1.0
+    },
+    {
+      "source": "readme_installation",
+      "target": "readme_build_from_source",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": "L113",
+      "weight": 1.0
+    },
+    {
+      "source": "readme_installation",
+      "target": "readme_from_crates_io",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": "L94",
       "weight": 1.0
     },
     {
@@ -33114,7 +33662,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "README.md",
-      "source_location": "L348",
+      "source_location": "L357",
       "weight": 1.0
     },
     {
@@ -33125,7 +33673,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "README.md",
-      "source_location": "L361",
+      "source_location": "L370",
       "weight": 1.0
     },
     {
@@ -33136,7 +33684,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "README.md",
-      "source_location": "L39",
+      "source_location": "L40",
       "weight": 1.0
     },
     {
@@ -33147,7 +33695,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "README.md",
-      "source_location": "L115",
+      "source_location": "L124",
       "weight": 1.0
     },
     {
@@ -33158,7 +33706,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "README.md",
-      "source_location": "L135",
+      "source_location": "L144",
       "weight": 1.0
     },
     {
@@ -33169,7 +33717,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "README.md",
-      "source_location": "L193",
+      "source_location": "L202",
       "weight": 1.0
     },
     {
@@ -33180,7 +33728,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "README.md",
-      "source_location": "L20",
+      "source_location": "L21",
       "weight": 1.0
     },
     {
@@ -33191,7 +33739,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "README.md",
-      "source_location": "L274",
+      "source_location": "L283",
       "weight": 1.0
     },
     {
@@ -33202,7 +33750,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "README.md",
-      "source_location": "L302",
+      "source_location": "L311",
       "weight": 1.0
     },
     {
@@ -33213,7 +33761,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "README.md",
-      "source_location": "L346",
+      "source_location": "L355",
       "weight": 1.0
     },
     {
@@ -33224,7 +33772,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "README.md",
-      "source_location": "L378",
+      "source_location": "L387",
       "weight": 1.0
     },
     {
@@ -33235,7 +33783,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "README.md",
-      "source_location": "L433",
+      "source_location": "L442",
       "weight": 1.0
     },
     {
@@ -33246,7 +33794,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "README.md",
-      "source_location": "L456",
+      "source_location": "L465",
       "weight": 1.0
     },
     {
@@ -33257,7 +33805,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "README.md",
-      "source_location": "L477",
+      "source_location": "L486",
       "weight": 1.0
     },
     {
@@ -33268,7 +33816,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "README.md",
-      "source_location": "L50",
+      "source_location": "L51",
       "weight": 1.0
     },
     {
@@ -33279,7 +33827,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "README.md",
-      "source_location": "L530",
+      "source_location": "L539",
       "weight": 1.0
     },
     {
@@ -33290,7 +33838,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "README.md",
-      "source_location": "L557",
+      "source_location": "L566",
       "weight": 1.0
     },
     {
@@ -33301,7 +33849,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "README.md",
-      "source_location": "L584",
+      "source_location": "L593",
       "weight": 1.0
     },
     {
@@ -33312,7 +33860,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "README.md",
-      "source_location": "L611",
+      "source_location": "L620",
       "weight": 1.0
     },
     {
@@ -33323,7 +33871,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "README.md",
-      "source_location": "L633",
+      "source_location": "L642",
       "weight": 1.0
     },
     {
@@ -33334,7 +33882,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "README.md",
-      "source_location": "L647",
+      "source_location": "L656",
       "weight": 1.0
     },
     {
@@ -33345,7 +33893,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "README.md",
-      "source_location": "L655",
+      "source_location": "L664",
       "weight": 1.0
     },
     {
@@ -33356,7 +33904,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "README.md",
-      "source_location": "L69",
+      "source_location": "L70",
       "weight": 1.0
     },
     {
@@ -33367,7 +33915,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "README.md",
-      "source_location": "L91",
+      "source_location": "L92",
       "weight": 1.0
     },
     {
@@ -35077,6 +35625,17 @@
     },
     {
       "source": "src_config",
+      "target": "src_config_heat_config",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/config.rs",
+      "source_location": "L7",
+      "weight": 1.0
+    },
+    {
+      "source": "src_config",
       "target": "src_config_heatconfig",
       "relation": "contains",
       "_origin": "ast",
@@ -35605,6 +36164,17 @@
     },
     {
       "source": "src_engine_activity_log",
+      "target": "src_engine_activity_log_activity_log",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/engine/activity_log.rs",
+      "source_location": "L25",
+      "weight": 1.0
+    },
+    {
+      "source": "src_engine_activity_log",
       "target": "src_engine_activity_log_log_instance",
       "relation": "contains",
       "_origin": "ast",
@@ -35623,6 +36193,17 @@
       "confidence_score": 1.0,
       "source_file": "src/engine/activity_log.rs",
       "source_location": "L48",
+      "weight": 1.0
+    },
+    {
+      "source": "src_engine_activity_log",
+      "target": "src_engine_activity_log_max_events",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/engine/activity_log.rs",
+      "source_location": "L6",
       "weight": 1.0
     },
     {
@@ -35737,6 +36318,17 @@
     },
     {
       "source": "src_engine_cancel",
+      "target": "src_engine_cancel_cancelled",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/engine/cancel.rs",
+      "source_location": "L5",
+      "weight": 1.0
+    },
+    {
+      "source": "src_engine_cancel",
       "target": "src_engine_cancel_request",
       "relation": "contains",
       "_origin": "ast",
@@ -35770,6 +36362,17 @@
     },
     {
       "source": "src_engine_chunk_counter",
+      "target": "src_engine_chunk_counter_chunk_counter",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/engine/chunk_counter.rs",
+      "source_location": "L6",
+      "weight": 1.0
+    },
+    {
+      "source": "src_engine_chunk_counter",
       "target": "src_engine_chunk_counter_reset",
       "relation": "contains",
       "_origin": "ast",
@@ -35777,6 +36380,17 @@
       "confidence_score": 1.0,
       "source_file": "src/engine/chunk_counter.rs",
       "source_location": "L9",
+      "weight": 1.0
+    },
+    {
+      "source": "src_engine_chunk_heat",
+      "target": "src_engine_chunk_heat_flush_interval_secs",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/engine/chunk_heat.rs",
+      "source_location": "L13",
       "weight": 1.0
     },
     {
@@ -35858,6 +36472,17 @@
     },
     {
       "source": "src_engine_heat",
+      "target": "src_engine_heat_flush_interval_secs",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/engine/heat.rs",
+      "source_location": "L21",
+      "weight": 1.0
+    },
+    {
+      "source": "src_engine_heat",
       "target": "src_engine_heat_collections_for_sources",
       "relation": "contains",
       "_origin": "ast",
@@ -35887,6 +36512,17 @@
       "confidence_score": 1.0,
       "source_file": "src/engine/heat.rs",
       "source_location": "L259",
+      "weight": 1.0
+    },
+    {
+      "source": "src_engine_heat",
+      "target": "src_engine_heat_collection_decay_fallback",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/engine/heat.rs",
+      "source_location": "L26",
       "weight": 1.0
     },
     {
@@ -35979,6 +36615,17 @@
     },
     {
       "source": "src_engine_history",
+      "target": "src_engine_history_history",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/engine/history.rs",
+      "source_location": "L26",
+      "weight": 1.0
+    },
+    {
+      "source": "src_engine_history",
       "target": "src_engine_history_history_instance",
       "relation": "contains",
       "_origin": "ast",
@@ -36008,6 +36655,17 @@
       "confidence_score": 1.0,
       "source_file": "src/engine/history.rs",
       "source_location": "L43",
+      "weight": 1.0
+    },
+    {
+      "source": "src_engine_history",
+      "target": "src_engine_history_max_history",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/engine/history.rs",
+      "source_location": "L7",
       "weight": 1.0
     },
     {
@@ -36195,6 +36853,28 @@
       "confidence_score": 1.0,
       "source_file": "src/engine/mod.rs",
       "source_location": "L326",
+      "weight": 1.0
+    },
+    {
+      "source": "src_engine_mod",
+      "target": "src_engine_mod_db_path",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/engine/mod.rs",
+      "source_location": "L47",
+      "weight": 1.0
+    },
+    {
+      "source": "src_engine_mod",
+      "target": "src_engine_mod_db_conn",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/engine/mod.rs",
+      "source_location": "L50",
       "weight": 1.0
     },
     {
@@ -37376,6 +38056,17 @@
     },
     {
       "source": "src_monitor_mod",
+      "target": "src_monitor_mod_spinner",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/monitor/mod.rs",
+      "source_location": "L33",
+      "weight": 1.0
+    },
+    {
+      "source": "src_monitor_mod",
       "target": "src_monitor_mod_view",
       "relation": "contains",
       "_origin": "ast",
@@ -37706,6 +38397,17 @@
     },
     {
       "source": "src_pipeline",
+      "target": "src_pipeline_expansion_word_threshold",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/pipeline.rs",
+      "source_location": "L133",
+      "weight": 1.0
+    },
+    {
+      "source": "src_pipeline",
       "target": "src_pipeline_querypipeline",
       "relation": "contains",
       "_origin": "ast",
@@ -37933,6 +38635,17 @@
       "confidence_score": 1.0,
       "source_file": "src/pipeline.rs",
       "source_location": "L68",
+      "weight": 1.0
+    },
+    {
+      "source": "src_pipeline",
+      "target": "src_pipeline_cache_version",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/pipeline.rs",
+      "source_location": "L8",
       "weight": 1.0
     },
     {
@@ -38278,6 +38991,17 @@
     },
     {
       "source": "src_storage_sqlite",
+      "target": "src_storage_sqlite_rrf_k",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/storage/sqlite.rs",
+      "source_location": "L267",
+      "weight": 1.0
+    },
+    {
+      "source": "src_storage_sqlite",
       "target": "src_storage_sqlite_init_db",
       "relation": "contains",
       "_origin": "ast",
@@ -38417,6 +39141,17 @@
       "confidence_score": 1.0,
       "source_file": "src/storage/sqlite.rs",
       "source_location": "L552",
+      "weight": 1.0
+    },
+    {
+      "source": "src_storage_sqlite",
+      "target": "src_storage_sqlite_default_collection_id",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/storage/sqlite.rs",
+      "source_location": "L6",
       "weight": 1.0
     },
     {
@@ -38615,6 +39350,17 @@
       "confidence_score": 1.0,
       "source_file": "src/tag_rules.rs",
       "source_location": "L7",
+      "weight": 1.0
+    },
+    {
+      "source": "src_tag_rules",
+      "target": "src_tag_rules_tag_rules",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/tag_rules.rs",
+      "source_location": "L96",
       "weight": 1.0
     },
     {
@@ -40522,6 +41268,17 @@
     },
     {
       "source": "docs_decisions",
+      "target": "docs_adr_0010_chunker_uses_vec_char_indexing_not_char_indices",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/DECISIONS.md",
+      "source_location": "L38",
+      "weight": 1.0
+    },
+    {
+      "source": "docs_decisions",
       "target": "docs_adr_0011_http_graph_defaults_are_per_request_query_params",
       "relation": "references",
       "_origin": "ast",
@@ -40539,7 +41296,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "README.md",
-      "source_location": "L473",
+      "source_location": "L482",
       "weight": 1.0
     },
     {
@@ -40550,7 +41307,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "README.md",
-      "source_location": "L606",
+      "source_location": "L615",
       "weight": 1.0
     },
     {
@@ -40561,7 +41318,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "README.md",
-      "source_location": "L607",
+      "source_location": "L616",
       "weight": 1.0
     },
     {
@@ -40572,7 +41329,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "README.md",
-      "source_location": "L629",
+      "source_location": "L638",
       "weight": 1.0
     },
     {
@@ -41285,5 +42042,5 @@
     }
   ],
   "hyperedges": [],
-  "built_at_commit": "307b45683b1bc7639bc47b059940ee9e150c9507"
+  "built_at_commit": "1ff9ce0229ee8011d7d2ad4eb80e8ec3a23baff0"
 }
