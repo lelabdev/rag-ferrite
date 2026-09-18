@@ -97,7 +97,7 @@ sudo pacman -S poppler
 cargo install ragfer
 ```
 
-The crate is published on crates.io as [`ragfer`](https://crates.io/crates/ragfer), and it installs the `ragfer` command. The project itself keeps the name **rag-ferrite** — that is the name of the repository, the documentation and the website; `ragfer` is what you install and type.
+The crate is published on crates.io as [`ragfer`](https://crates.io/crates/ragfer), and it installs the `ragfer` command. The project itself is **ragFerrite**: the brand is what the website, the logo and the documentation carry, while `ragfer` is what you install and type.
 
 ### Download the latest release
 
