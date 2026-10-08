@@ -61,7 +61,7 @@ ureq = { version = "3", features = ["json"] }
 rand = "0.9"
 shellexpand = "3"
 sha2 = "0.10"
-ratatui = "0.29"
+ratatui = "0.30"
 crossterm = "0.29"
 
 # Use our fork with mmap support for vector data
